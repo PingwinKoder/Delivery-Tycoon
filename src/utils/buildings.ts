@@ -30,8 +30,34 @@ import {
   streetCoversValue,
 } from './cityMap';
 import { type HouseYardFence, generateHouseQuarter } from './houseQuarters';
+import {
+  type ParkingEdgeSide,
+  type ParkingLot,
+  type PendingParkingCandidate,
+  computeStreetJunctionClearance,
+  tryPushParking,
+} from './parkingLayout';
 
 export type { HouseYardFence } from './houseQuarters';
+export type {
+  ParkingCenterIslandLayout,
+  ParkingDriveway,
+  ParkingEdgeSide,
+  ParkingLayout,
+  ParkingLot,
+  ParkingRowLayout,
+  ParkingStallRect,
+  ParkingStallSpan,
+} from './parkingLayout';
+export {
+  PARKING_CENTER_ISLAND_END_AISLE,
+  PARKING_CENTER_ISLAND_ROW_DEPTH,
+  PARKING_OUTER_PAD_ALONG,
+  PARKING_OUTER_PAD_DEPTH,
+  PARKING_STALL_PITCH,
+  computeParkingLayout,
+  computeStreetJunctionClearance,
+} from './parkingLayout';
 
 export interface BuildingPrismPoints {
   bBack: Point;
@@ -42,42 +68,6 @@ export interface BuildingPrismPoints {
   tLeft: Point;
   tRight: Point;
   tFront: Point;
-}
-
-export type ParkingEdgeSide = 'uMin' | 'uMax' | 'vMin' | 'vMax';
-
-export interface ParkingDriveway {
-  uMin: number;
-  uMax: number;
-  vMin: number;
-  vMax: number;
-  /** Axis along which the driveway extends from the parking lot to the street */
-  axis: StreetAxis;
-  /** Edge of the parking lot that the driveway enters */
-  entrySide: ParkingEdgeSide;
-  streetId: string;
-  /** True when the driveway enters directly into an open driving aisle (no outer stall row on entrySide) */
-  entersAisleDirectly: boolean;
-  /** Minimum clearance (iso units) from nearest roundabout approach zebra or intersection crosswalk */
-  junctionClearance: number;
-}
-
-export interface ParkingLot {
-  id: string;
-  quarterId: string;
-  uMin: number;
-  uMax: number;
-  vMin: number;
-  vMax: number;
-  /** Axis along which parking stalls are arrayed side-by-side */
-  stallAxis: 'u' | 'v';
-  /** True for double-sided outer parking rows */
-  doubleRow: boolean;
-  /** True for larger lots with a central back-to-back double-row stall island surrounded by driving aisles */
-  hasCenterIsland: boolean;
-  kind: 'market' | 'courtyard';
-  /** Short straight asphalt driveway connecting the parking lot directly across the sidewalk to the adjacent street */
-  accessDriveway: ParkingDriveway;
 }
 
 export interface DeliveryZoneDriveway {
@@ -108,221 +98,6 @@ export interface DeliveryZone {
   entryDir: { u: number; v: number };
 }
 
-export interface ParkingStallSpan {
-  start: number;
-  end: number;
-}
-
-export interface ParkingRowLayout {
-  side: ParkingEdgeSide | 'islandA' | 'islandB';
-  /** Fixed coordinate along the depth axis where the back curb/line of the stall sits */
-  backCoord: number;
-  /** Fixed coordinate along the depth axis where the open driving-aisle edge of the stall sits */
-  openCoord: number;
-  stalls: ParkingStallSpan[];
-}
-
-export interface ParkingStallRect {
-  uMin: number;
-  uMax: number;
-  vMin: number;
-  vMax: number;
-  row: ParkingRowLayout['side'];
-}
-
-export interface ParkingCenterIslandLayout {
-  /** Coordinate along the depth axis of the central spine separating the two back-to-back rows */
-  spineCoord: number;
-  /** Outer coordinate of island row A (toward lot min) */
-  rowAMin: number;
-  /** Outer coordinate of island row B (toward lot max) */
-  rowBMax: number;
-  /** Span along stallAxis */
-  alongMin: number;
-  alongMax: number;
-  /** Width of each parallel driving aisle between outer rows and the center island */
-  sideAisleWidth: number;
-  /** Width of each turning end-aisle between the center island ends and the lot borders */
-  endAisleWidth: number;
-  stalls: ParkingStallSpan[];
-}
-
-export interface ParkingLayout {
-  stallAxis: 'u' | 'v';
-  outerRowDepth: number;
-  outerRows: ParkingRowLayout[];
-  centerIsland: ParkingCenterIslandLayout | null;
-  allStalls: ParkingStallRect[];
-}
-
-export const PARKING_OUTER_PAD_DEPTH = 4;
-export const PARKING_OUTER_PAD_ALONG = 5;
-export const PARKING_STALL_PITCH = 15;
-export const PARKING_CENTER_ISLAND_ROW_DEPTH = 18;
-export const PARKING_CENTER_ISLAND_END_AISLE = 26;
-
-/**
- * Computes exact isometric stall rows, center back-to-back island, and driveway entrance cutouts
- * for a ParkingLot so renderer and unit tests share a single source of truth.
- */
-export function computeParkingLayout(lot: ParkingLot): ParkingLayout {
-  const uW = lot.uMax - lot.uMin;
-  const vW = lot.vMax - lot.vMin;
-  const alongMin = lot.stallAxis === 'u' ? lot.uMin : lot.vMin;
-  const alongMax = lot.stallAxis === 'u' ? lot.uMax : lot.vMax;
-  const depthMin = lot.stallAxis === 'u' ? lot.vMin : lot.uMin;
-  const depthMax = lot.stallAxis === 'u' ? lot.vMax : lot.uMax;
-  const depthSpan = depthMax - depthMin;
-
-  const startAlong = alongMin + PARKING_OUTER_PAD_ALONG;
-  const endAlong = alongMax - PARKING_OUTER_PAD_ALONG;
-  const count = Math.max(2, Math.floor((endAlong - startAlong) / PARKING_STALL_PITCH));
-  const step = (endAlong - startAlong) / count;
-
-  const outerRowDepth = lot.hasCenterIsland
-    ? 19
-    : lot.doubleRow
-      ? Math.min(23, (depthSpan - PARKING_OUTER_PAD_DEPTH * 2) * 0.32)
-      : Math.min(24, (depthSpan - PARKING_OUTER_PAD_DEPTH * 2) * 0.52);
-
-  // Driveway mouth cutout interval along stallAxis (only applies to the side the driveway actually enters)
-  const dw = lot.accessDriveway;
-  const dwAlongMin = (lot.stallAxis === 'u' ? dw.uMin : dw.vMin) - 5;
-  const dwAlongMax = (lot.stallAxis === 'u' ? dw.uMax : dw.vMax) + 5;
-
-  const buildStalls = (
-    s0: number,
-    s1: number,
-    n: number,
-    cutoutMin?: number,
-    cutoutMax?: number
-  ): ParkingStallSpan[] => {
-    const st = (s1 - s0) / n;
-    const out: ParkingStallSpan[] = [];
-    for (let i = 0; i < n; i++) {
-      const a = s0 + i * st;
-      const b = s0 + (i + 1) * st;
-      if (cutoutMin !== undefined && cutoutMax !== undefined) {
-        if (b > cutoutMin && a < cutoutMax) {
-          continue; // Omit stalls directly across the driveway entrance mouth (2–3 stalls cleared)
-        }
-      }
-      out.push({ start: a, end: b });
-    }
-    return out;
-  };
-
-  const minSide: ParkingEdgeSide = lot.stallAxis === 'u' ? 'vMin' : 'uMin';
-  const maxSide: ParkingEdgeSide = lot.stallAxis === 'u' ? 'vMax' : 'uMax';
-
-  const outerRows: ParkingRowLayout[] = [];
-
-  // Row 1 along depthMin
-  const r1Back = depthMin + PARKING_OUTER_PAD_DEPTH;
-  const r1Open = r1Back + outerRowDepth;
-  const cutR1 = dw.entrySide === minSide && !dw.entersAisleDirectly;
-  outerRows.push({
-    side: minSide,
-    backCoord: r1Back,
-    openCoord: r1Open,
-    stalls: buildStalls(
-      startAlong,
-      endAlong,
-      count,
-      cutR1 ? dwAlongMin : undefined,
-      cutR1 ? dwAlongMax : undefined
-    ),
-  });
-
-  // Row 2 along depthMax
-  let r2Open = depthMax - PARKING_OUTER_PAD_DEPTH;
-  if (lot.doubleRow) {
-    const r2Back = depthMax - PARKING_OUTER_PAD_DEPTH;
-    r2Open = r2Back - outerRowDepth;
-    const cutR2 = dw.entrySide === maxSide && !dw.entersAisleDirectly;
-    outerRows.push({
-      side: maxSide,
-      backCoord: r2Back,
-      openCoord: r2Open,
-      stalls: buildStalls(
-        startAlong,
-        endAlong,
-        count,
-        cutR2 ? dwAlongMin : undefined,
-        cutR2 ? dwAlongMax : undefined
-      ),
-    });
-  }
-
-  // Optional Center Island (two back-to-back rows surrounded on all 4 sides by driving aisles)
-  let centerIsland: ParkingCenterIslandLayout | null = null;
-  if (lot.hasCenterIsland && lot.doubleRow) {
-    const innerSpan = r2Open - r1Open;
-    const islandDepth = PARKING_CENTER_ISLAND_ROW_DEPTH * 2;
-    const sideAisleWidth = (innerSpan - islandDepth) / 2;
-    const iAlongMin = alongMin + PARKING_CENTER_ISLAND_END_AISLE;
-    const iAlongMax = alongMax - PARKING_CENTER_ISLAND_END_AISLE;
-    const iAlongLen = iAlongMax - iAlongMin;
-
-    if (sideAisleWidth >= 22 && iAlongLen >= 42) {
-      const spineCoord = (r1Open + r2Open) / 2;
-      const iCount = Math.max(3, Math.floor(iAlongLen / PARKING_STALL_PITCH));
-      const iStalls = buildStalls(iAlongMin, iAlongMax, iCount);
-      centerIsland = {
-        spineCoord,
-        rowAMin: spineCoord - PARKING_CENTER_ISLAND_ROW_DEPTH,
-        rowBMax: spineCoord + PARKING_CENTER_ISLAND_ROW_DEPTH,
-        alongMin: iAlongMin,
-        alongMax: iAlongMax,
-        sideAisleWidth,
-        endAisleWidth: PARKING_CENTER_ISLAND_END_AISLE,
-        stalls: iStalls,
-      };
-    }
-  }
-
-  // Flatten all stall rectangles in (u, v) space
-  const allStalls: ParkingStallRect[] = [];
-  const pushRowRects = (
-    rowSide: ParkingRowLayout['side'],
-    d0: number,
-    d1: number,
-    stalls: ParkingStallSpan[]
-  ) => {
-    const dMin = Math.min(d0, d1);
-    const dMax = Math.max(d0, d1);
-    for (const s of stalls) {
-      if (lot.stallAxis === 'u') {
-        allStalls.push({ uMin: s.start, uMax: s.end, vMin: dMin, vMax: dMax, row: rowSide });
-      } else {
-        allStalls.push({ uMin: dMin, uMax: dMax, vMin: s.start, vMax: s.end, row: rowSide });
-      }
-    }
-  };
-
-  for (const row of outerRows) {
-    pushRowRects(row.side, row.backCoord, row.openCoord, row.stalls);
-  }
-  if (centerIsland) {
-    pushRowRects('islandA', centerIsland.rowAMin, centerIsland.spineCoord, centerIsland.stalls);
-    pushRowRects('islandB', centerIsland.spineCoord, centerIsland.rowBMax, centerIsland.stalls);
-  }
-
-  // Keep uW/vW referenced cleanly for TS strictness
-  void uW;
-  void vW;
-  void step;
-
-  return {
-    stallAxis: lot.stallAxis,
-    outerRowDepth,
-    outerRows,
-    centerIsland,
-    allStalls,
-  };
-}
-
-
 export interface ParcelLockerSlot {
   id: string;
   quarterId: string;
@@ -342,54 +117,78 @@ export interface ParcelLockerSlot {
   occupied: boolean;
 }
 
+type PaletteFootprintBase = Pick<BuildingPalette, 'footprintFill' | 'footprintStroke' | 'accent'>;
+type PaletteVariantSpec = Pick<BuildingPalette, 'roof' | 'leftWall' | 'rightWall'> &
+  Partial<PaletteFootprintBase>;
+
+const BUILDING_FOOTPRINT_STYLES: Record<BuildingType, PaletteFootprintBase> = {
+  baza: {
+    footprintFill: 'rgba(249, 115, 22, 0.42)',
+    footprintStroke: '#ea580c',
+    accent: '#fb923c',
+  },
+  dworzec: {
+    footprintFill: 'rgba(15, 118, 110, 0.46)',
+    footprintStroke: '#0d9488',
+    accent: '#2dd4bf',
+  },
+  sklep: {
+    footprintFill: 'rgba(37, 99, 235, 0.34)',
+    footprintStroke: '#1d4ed8',
+    accent: '#93c5fd',
+  },
+  kiosk: {
+    footprintFill: 'rgba(20, 184, 166, 0.40)',
+    footprintStroke: '#0d9488',
+    accent: '#5eead4',
+  },
+  blok_wysoki: {
+    footprintFill: 'rgba(79, 70, 229, 0.30)',
+    footprintStroke: '#4338ca',
+    accent: '#818cf8',
+  },
+  blok_sredni: {
+    footprintFill: 'rgba(13, 148, 136, 0.32)',
+    footprintStroke: '#0f766e',
+    accent: '#2dd4bf',
+  },
+  blok_maly: {
+    footprintFill: 'rgba(217, 119, 6, 0.32)',
+    footprintStroke: '#b45309',
+    accent: '#f59e0b',
+  },
+  dom: {
+    footprintFill: 'rgba(220, 38, 38, 0.28)',
+    footprintStroke: '#b91c1c',
+    accent: '#f87171',
+  },
+};
+
+function buildPalettes(typ: BuildingType, variants: PaletteVariantSpec[]): BuildingPalette[] {
+  const base = BUILDING_FOOTPRINT_STYLES[typ];
+  return variants.map((v) => ({
+    roof: v.roof,
+    leftWall: v.leftWall,
+    rightWall: v.rightWall,
+    footprintFill: v.footprintFill ?? base.footprintFill,
+    footprintStroke: v.footprintStroke ?? base.footprintStroke,
+    accent: v.accent ?? base.accent,
+  }));
+}
+
 const PALETTES: Record<BuildingType, BuildingPalette[]> = {
-  baza: [
-    {
-      roof: '#ea580c',
-      leftWall: '#788496',
-      rightWall: '#525d6d',
-      footprintFill: 'rgba(249, 115, 22, 0.42)',
-      footprintStroke: '#ea580c',
-      accent: '#fb923c',
-    },
-  ],
-  dworzec: [
-    {
-      roof: '#0f766e',
-      leftWall: '#115e59',
-      rightWall: '#134e4a',
-      footprintFill: 'rgba(15, 118, 110, 0.46)',
-      footprintStroke: '#0d9488',
-      accent: '#2dd4bf',
-    },
-  ],
-  sklep: [
-    {
-      roof: '#6b8cae',
-      leftWall: '#52708f',
-      rightWall: '#3b536c',
-      footprintFill: 'rgba(37, 99, 235, 0.34)',
-      footprintStroke: '#1d4ed8',
-      accent: '#93c5fd',
-    },
-    {
-      roof: '#5f84a6',
-      leftWall: '#476887',
-      rightWall: '#334d66',
-      footprintFill: 'rgba(37, 99, 235, 0.34)',
-      footprintStroke: '#1d4ed8',
-      accent: '#93c5fd',
-    },
-  ],
-  kiosk: [
-    {
-      roof: '#6cd9c6',
-      leftWall: '#4bbca8',
-      rightWall: '#338f80',
-      footprintFill: 'rgba(20, 184, 166, 0.40)',
-      footprintStroke: '#0d9488',
-      accent: '#5eead4',
-    },
+  baza: buildPalettes('baza', [
+    { roof: '#ea580c', leftWall: '#788496', rightWall: '#525d6d' },
+  ]),
+  dworzec: buildPalettes('dworzec', [
+    { roof: '#0f766e', leftWall: '#115e59', rightWall: '#134e4a' },
+  ]),
+  sklep: buildPalettes('sklep', [
+    { roof: '#6b8cae', leftWall: '#52708f', rightWall: '#3b536c' },
+    { roof: '#5f84a6', leftWall: '#476887', rightWall: '#334d66' },
+  ]),
+  kiosk: buildPalettes('kiosk', [
+    { roof: '#6cd9c6', leftWall: '#4bbca8', rightWall: '#338f80' },
     {
       roof: '#7fd0f2',
       leftWall: '#58aed4',
@@ -398,23 +197,15 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
       footprintStroke: '#0284c7',
       accent: '#7dd3fc',
     },
-  ],
-  blok_wysoki: [
-    {
-      roof: '#cfd6dd',
-      leftWall: '#a6b1bc',
-      rightWall: '#788694',
-      footprintFill: 'rgba(79, 70, 229, 0.30)',
-      footprintStroke: '#4338ca',
-      accent: '#818cf8',
-    },
+  ]),
+  blok_wysoki: buildPalettes('blok_wysoki', [
+    { roof: '#cfd6dd', leftWall: '#a6b1bc', rightWall: '#788694' },
     {
       roof: '#c1cbd4',
       leftWall: '#94a2b0',
       rightWall: '#687786',
       footprintFill: 'rgba(99, 102, 241, 0.30)',
       footprintStroke: '#3730a3',
-      accent: '#818cf8',
     },
     {
       roof: '#d7d5cf',
@@ -422,15 +213,12 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
       rightWall: '#85827b',
       footprintFill: 'rgba(79, 70, 229, 0.26)',
       footprintStroke: '#4f46e5',
-      accent: '#818cf8',
     },
     {
       roof: '#c8d1cc',
       leftWall: '#9da9a3',
       rightWall: '#727f78',
       footprintFill: 'rgba(67, 56, 202, 0.30)',
-      footprintStroke: '#4338ca',
-      accent: '#818cf8',
     },
     {
       roof: '#d6cdd0',
@@ -438,25 +226,16 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
       rightWall: '#82757a',
       footprintFill: 'rgba(79, 70, 229, 0.32)',
       footprintStroke: '#312e81',
-      accent: '#818cf8',
     },
-  ],
-  blok_sredni: [
-    {
-      roof: '#dbd2c3',
-      leftWall: '#bbb09e',
-      rightWall: '#8f8473',
-      footprintFill: 'rgba(13, 148, 136, 0.32)',
-      footprintStroke: '#0f766e',
-      accent: '#2dd4bf',
-    },
+  ]),
+  blok_sredni: buildPalettes('blok_sredni', [
+    { roof: '#dbd2c3', leftWall: '#bbb09e', rightWall: '#8f8473' },
     {
       roof: '#c8d1c8',
       leftWall: '#a0aca1',
       rightWall: '#768278',
       footprintFill: 'rgba(20, 184, 166, 0.30)',
       footprintStroke: '#115e59',
-      accent: '#2dd4bf',
     },
     {
       roof: '#d8c8ba',
@@ -464,7 +243,6 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
       rightWall: '#8a7868',
       footprintFill: 'rgba(13, 148, 136, 0.28)',
       footprintStroke: '#0d9488',
-      accent: '#2dd4bf',
     },
     {
       roof: '#ced4d8',
@@ -472,41 +250,28 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
       rightWall: '#7b858c',
       footprintFill: 'rgba(15, 118, 110, 0.32)',
       footprintStroke: '#134e4a',
-      accent: '#2dd4bf',
     },
     {
       roof: '#e0d6be',
       leftWall: '#c2b598',
       rightWall: '#96896e',
       footprintFill: 'rgba(13, 148, 136, 0.34)',
-      footprintStroke: '#0f766e',
-      accent: '#2dd4bf',
     },
-  ],
-  blok_maly: [
-    {
-      roof: '#e4d5bc',
-      leftWall: '#c8b698',
-      rightWall: '#9d8c70',
-      footprintFill: 'rgba(217, 119, 6, 0.32)',
-      footprintStroke: '#b45309',
-      accent: '#f59e0b',
-    },
+  ]),
+  blok_maly: buildPalettes('blok_maly', [
+    { roof: '#e4d5bc', leftWall: '#c8b698', rightWall: '#9d8c70' },
     {
       roof: '#dfcab7',
       leftWall: '#bfa58f',
       rightWall: '#947c67',
       footprintFill: 'rgba(245, 158, 11, 0.30)',
       footprintStroke: '#92400e',
-      accent: '#f59e0b',
     },
     {
       roof: '#d7d6c5',
       leftWall: '#b5b49f',
       rightWall: '#8a8976',
       footprintFill: 'rgba(217, 119, 6, 0.28)',
-      footprintStroke: '#b45309',
-      accent: '#f59e0b',
     },
     {
       roof: '#e2cfca',
@@ -514,52 +279,38 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
       rightWall: '#978079',
       footprintFill: 'rgba(180, 83, 9, 0.30)',
       footprintStroke: '#78350f',
-      accent: '#f59e0b',
     },
     {
       roof: '#d2d7d2',
       leftWall: '#aeb6ae',
       rightWall: '#838b83',
       footprintFill: 'rgba(217, 119, 6, 0.34)',
-      footprintStroke: '#b45309',
-      accent: '#f59e0b',
     },
-  ],
-  dom: [
-    {
-      roof: '#c97b5d',
-      leftWall: '#e5d5c1',
-      rightWall: '#bfa991',
-      footprintFill: 'rgba(220, 38, 38, 0.28)',
-      footprintStroke: '#b91c1c',
-      accent: '#f87171',
-    },
-    {
-      roof: '#b5674e',
-      leftWall: '#e0d3c5',
-      rightWall: '#b6a595',
-      footprintFill: 'rgba(220, 38, 38, 0.28)',
-      footprintStroke: '#b91c1c',
-      accent: '#f87171',
-    },
-    {
-      roof: '#cf9e6e',
-      leftWall: '#e8dcc9',
-      rightWall: '#c2b29b',
-      footprintFill: 'rgba(220, 38, 38, 0.28)',
-      footprintStroke: '#b91c1c',
-      accent: '#f87171',
-    },
-    {
-      roof: '#8f695a',
-      leftWall: '#e4ded5',
-      rightWall: '#bdb6ac',
-      footprintFill: 'rgba(220, 38, 38, 0.28)',
-      footprintStroke: '#b91c1c',
-      accent: '#f87171',
-    },
-  ],
+  ]),
+  dom: buildPalettes('dom', [
+    { roof: '#c97b5d', leftWall: '#e5d5c1', rightWall: '#bfa991' },
+    { roof: '#b5674e', leftWall: '#e0d3c5', rightWall: '#b6a595' },
+    { roof: '#cf9e6e', leftWall: '#e8dcc9', rightWall: '#c2b29b' },
+    { roof: '#8f695a', leftWall: '#e4ded5', rightWall: '#bdb6ac' },
+  ]),
 };
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function makeIsoCanvasPoint(
+  u: number,
+  v: number
+): { u: number; v: number; x: number; y: number } {
+  const pt = isoToCanvas(u, v);
+  return {
+    u: round1(u),
+    v: round1(v),
+    x: round1(pt.x),
+    y: round1(pt.y),
+  };
+}
 
 export function getBuildingPalette(typ: BuildingType, variant = 0): BuildingPalette {
   const list = PALETTES[typ];
@@ -631,22 +382,6 @@ function isBuildingVisibleInMap(
   return checkPoints.every((pt) => isPointInsideMap(pt, margin));
 }
 
-function isRectVisibleInMap(
-  uMin: number,
-  uMax: number,
-  vMin: number,
-  vMax: number,
-  margin = 12
-): boolean {
-  const corners = [
-    isoToCanvas(uMin, vMin),
-    isoToCanvas(uMax, vMin),
-    isoToCanvas(uMax, vMax),
-    isoToCanvas(uMin, vMax),
-  ];
-  return corners.every((pt) => isPointInsideMap(pt, margin));
-}
-
 function distToNearestRoundabout(u: number, v: number): number {
   let best = Infinity;
   for (const rb of ROUNDABOUTS) {
@@ -673,7 +408,10 @@ interface AddressableRoad {
   name: string;
   axis: StreetAxis;
   coord: number;
+  asphaltWidth: number;
+  sidewalkWidth: number;
   isAvenue: boolean;
+  isAccessRoad: boolean;
   covers: (ortho: number, pad: number) => boolean;
 }
 
@@ -683,18 +421,27 @@ const ALL_ADDRESSABLE_ROADS: AddressableRoad[] = [
     name: s.name,
     axis: s.axis,
     coord: s.coord,
+    asphaltWidth: s.asphaltWidth,
+    sidewalkWidth: s.sidewalkWidth,
     isAvenue: s.kind === 'avenue',
+    isAccessRoad: false,
     covers: (ortho: number, pad: number) => streetCoversValue(s, ortho, pad),
   })),
-  ...RESIDENTIAL_ACCESS_ROADS.map((ar) => ({
-    id: ar.id,
-    name: ar.name,
-    axis: ar.axis,
-    coord: ar.coord,
-    isAvenue: false,
-    covers: (ortho: number, pad: number) =>
-      ortho >= ar.startCoord - pad && ortho <= ar.endCoord + pad,
-  })),
+  ...RESIDENTIAL_ACCESS_ROADS.map((ar) => {
+    const minCoord = Math.min(ar.startCoord, ar.endCoord);
+    const maxCoord = Math.max(ar.startCoord, ar.endCoord);
+    return {
+      id: ar.id,
+      name: ar.name,
+      axis: ar.axis,
+      coord: ar.coord,
+      asphaltWidth: ar.asphaltWidth,
+      sidewalkWidth: ar.sidewalkWidth,
+      isAvenue: false,
+      isAccessRoad: true,
+      covers: (ortho: number, pad: number) => ortho >= minCoord - pad && ortho <= maxCoord + pad,
+    };
+  }),
 ];
 
 /**
@@ -801,25 +548,12 @@ export function sortBuildingsBackToFront(buildings: Building[]): Building[] {
 
   for (let i = 0; i < n; i++) {
     const a = buildings[i];
-    const aXMin = a.uMin + a.vMin;
-    const aXMax = a.uMax + a.vMax;
-
     for (let j = i + 1; j < n; j++) {
       const b = buildings[j];
-      const bXMin = b.uMin + b.vMin;
-      const bXMax = b.uMax + b.vMax;
-
-      if (aXMax <= bXMin + eps || bXMax <= aXMin + eps) {
-        continue;
-      }
-
-      const aBehindB = a.uMax <= b.uMin + eps || a.vMin >= b.vMax - eps;
-      const bBehindA = b.uMax <= a.uMin + eps || b.vMin >= a.vMax - eps;
-
-      if (aBehindB && !bBehindA) {
+      if (isBoxBehind(a, b, eps)) {
         adj[i].push(j);
         inDegree[j]++;
-      } else if (bBehindA && !aBehindB) {
+      } else if (isBoxBehind(b, a, eps)) {
         adj[j].push(i);
         inDegree[i]++;
       }
@@ -1082,15 +816,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
   const raw: RawBuildingCandidate[] = [];
   const parkingLots: ParkingLot[] = [];
   const houseYards: HouseYardFence[] = [];
-  const pendingParking: Array<{
-    quarter: CityQuarter;
-    uMin: number;
-    uMax: number;
-    vMin: number;
-    vMax: number;
-    kind: ParkingLot['kind'];
-    preferredAxis?: 'u' | 'v';
-  }> = [];
+  const pendingParking: PendingParkingCandidate[] = [];
   let bSeq = 0;
   let pSeq = 0;
 
@@ -1169,346 +895,6 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
       if (placed) return placed;
     }
     return null;
-  };
-
-  /**
-   * Computes minimum clearance (iso units) between a driveway's street-edge band [orthoMin, orthoMax]
-   * and the outer edge of every roundabout approach zebra or regular intersection zebra along `street`.
-   * Negative values mean the driveway intrudes into a crosswalk or roundabout approach zone.
-   */
-  const computeStreetJunctionClearance = (
-    street: StreetSpec,
-    orthoMin: number,
-    orthoMax: number
-  ): number => {
-    let minClearance = Infinity;
-    const crossStreets = street.axis === 'u' ? V_STREETS : U_STREETS;
-
-    for (const cross of crossStreets) {
-      if (!streetCoversValue(cross, street.coord)) continue;
-      const u = street.axis === 'u' ? street.coord : cross.coord;
-      const v = street.axis === 'u' ? cross.coord : street.coord;
-
-      const rb = ROUNDABOUTS.find((r) => Math.abs(r.u - u) < 2 && Math.abs(r.v - v) < 2);
-      // Match cityRenderer.ts crosswalk boundaries exactly:
-      //  - roundabout approach zebra ends at rb.outerSidewalkRadius + 30
-      //  - regular intersection zebra ends at cross.asphaltWidth / 2 + cross.sidewalkWidth + 24
-      const blockedHalf = rb
-        ? rb.outerSidewalkRadius + 30
-        : cross.asphaltWidth / 2 + cross.sidewalkWidth + 24;
-
-      const bMin = cross.coord - blockedHalf;
-      const bMax = cross.coord + blockedHalf;
-
-      let dist: number;
-      if (orthoMax <= bMin) {
-        dist = bMin - orthoMax;
-      } else if (orthoMin >= bMax) {
-        dist = orthoMin - bMax;
-      } else {
-        // Overlap with crosswalk / roundabout approach zone -> negative clearance
-        dist = -Math.min(orthoMax - bMin, bMax - orthoMin);
-      }
-
-      if (dist < minClearance) {
-        minClearance = dist;
-      }
-    }
-
-    // Also keep clear of residential access road T-junctions on the same street
-    for (const ar of RESIDENTIAL_ACCESS_ROADS) {
-      if (ar.startStreetId !== street.id && ar.endStreetId !== street.id) continue;
-      const arHalf = ar.asphaltWidth / 2 + ar.sidewalkWidth + 10;
-      const bMin = ar.coord - arHalf;
-      const bMax = ar.coord + arHalf;
-      const dist =
-        orthoMax <= bMin
-          ? bMin - orthoMax
-          : orthoMin >= bMax
-            ? orthoMin - bMax
-            : -Math.min(orthoMax - bMin, bMax - orthoMin);
-      if (dist < minClearance) {
-        minClearance = dist;
-      }
-    }
-
-    return minClearance;
-  };
-
-  /**
-   * Computes a realistic, unobstructed straight asphalt driveway connecting a parking lot
-   * directly across the sidewalk into an adjacent bordering street:
-   *  - Keeps clear realistic distance from roundabouts and zebra crosswalks
-   *  - When entering through an open aisle side (axis === stallAxis), aligns strictly with the
-   *    driving aisle(s) so cars never cross painted stalls
-   *  - When entering through a stall-lined side, places the entrance away from corners & junctions
-   *    so 2–3 stalls are cleanly omitted at the entrance mouth (no driving over painted stalls)
-   */
-  const findParkingAccessDriveway = (
-    q: CityQuarter,
-    lotBox: { uMin: number; uMax: number; vMin: number; vMax: number },
-    stallAxis: 'u' | 'v',
-    doubleRow: boolean,
-    hasCenterIsland: boolean
-  ): ParkingDriveway | null => {
-    if (q.ui < 0 || q.ui >= uSorted.length - 1 || q.vi < 0 || q.vi >= vSorted.length - 1) {
-      return null;
-    }
-
-    const uA = uSorted[q.ui];
-    const uB = uSorted[q.ui + 1];
-    const vA = vSorted[q.vi];
-    const vB = vSorted[q.vi + 1];
-    const dwHalf = 9; // 18 iso units wide crisp 2-way parking driveway
-
-    type CandidateDriveway = ParkingDriveway & { length: number; score: number };
-    const candidates: CandidateDriveway[] = [];
-
-    const uW = lotBox.uMax - lotBox.uMin;
-    const vW = lotBox.vMax - lotBox.vMin;
-    const depthSpan = stallAxis === 'u' ? vW : uW;
-    const outerDepth = hasCenterIsland
-      ? 19
-      : doubleRow
-        ? Math.min(23, (depthSpan - PARKING_OUTER_PAD_DEPTH * 2) * 0.32)
-        : Math.min(24, (depthSpan - PARKING_OUTER_PAD_DEPTH * 2) * 0.52);
-
-    // Safe orthogonal coordinate intervals for aisle-side entries (never clipping outer stall rows)
-    const buildSideOffsets = (
-      sideMin: number,
-      sideMax: number,
-      isAisleSide: boolean
-    ): number[] => {
-      let lo: number;
-      let hi: number;
-      if (isAisleSide) {
-        const minClear = PARKING_OUTER_PAD_DEPTH + outerDepth + dwHalf + 2;
-        const maxClear = doubleRow ? PARKING_OUTER_PAD_DEPTH + outerDepth + dwHalf + 2 : dwHalf + 4;
-        lo = sideMin + minClear;
-        hi = sideMax - maxClear;
-      } else {
-        // Stall-lined side: keep slightly inset from outer corner stalls so the cutout throat looks crisp
-        lo = sideMin + 16 + dwHalf;
-        hi = sideMax - 16 - dwHalf;
-        if (lo > hi) {
-          lo = sideMin + dwHalf + 4;
-          hi = sideMax - dwHalf - 4;
-        }
-      }
-
-      if (lo > hi) return [];
-
-      const pts: number[] = [];
-      // If entering an aisle side of a center-island lot, include exact centerlines of the two parallel aisles
-      if (isAisleSide && hasCenterIsland) {
-        const r1Open = sideMin + PARKING_OUTER_PAD_DEPTH + outerDepth;
-        const r2Open = sideMax - PARKING_OUTER_PAD_DEPTH - outerDepth;
-        const spine = (r1Open + r2Open) / 2;
-        const aisle1 = (r1Open + (spine - PARKING_CENTER_ISLAND_ROW_DEPTH)) / 2;
-        const aisle2 = (spine + PARKING_CENTER_ISLAND_ROW_DEPTH + r2Open) / 2;
-        if (aisle1 >= lo && aisle1 <= hi) pts.push(aisle1);
-        if (aisle2 >= lo && aisle2 <= hi) pts.push(aisle2);
-      }
-
-      const mid = (lo + hi) / 2;
-      pts.push(mid);
-      const step = 10;
-      for (let c = lo; c <= hi; c += step) {
-        pts.push(c);
-      }
-      pts.push(hi);
-      return pts;
-    };
-
-    const testCandidate = (
-      axis: StreetAxis,
-      entrySide: ParkingEdgeSide,
-      street: StreetSpec,
-      u0: number,
-      u1: number,
-      v0: number,
-      v1: number
-    ) => {
-      const len = axis === 'u' ? u1 - u0 : v1 - v0;
-      if (len < 6 || len > 120) return;
-
-      const orthoMin = axis === 'u' ? v0 : u0;
-      const orthoMax = axis === 'u' ? v1 : u1;
-      const orthoCenter = (orthoMin + orthoMax) / 2;
-      if (!streetCoversValue(street, orthoCenter, -6)) return;
-      if (rectOverlapsRoundabout(u0, u1, v0, v1, 8)) return;
-
-      const junctionClearance = computeStreetJunctionClearance(street, orthoMin, orthoMax);
-      // Hard rule: never place a driveway inside a crosswalk or roundabout approach zebra
-      if (junctionClearance < 4) return;
-
-      const dBox = { uMin: u0, uMax: u1, vMin: v0, vMax: v1 };
-      if (raw.some((b) => rectsOverlap(b, dBox, 3))) return;
-      if (parkingLots.some((p) => rectsOverlap(p, dBox, 2))) return;
-
-      const entersAisleDirectly = axis === stallAxis;
-
-      // Score: lower is better.
-      // Strongly prefer realistic clearance past zebras/roundabouts (>= 18 iso units),
-      // prefer direct aisle entry (zero stall cutouts needed), and prefer compact driveway length.
-      let score = len;
-      if (!entersAisleDirectly) score += 16;
-      if (junctionClearance < 16) {
-        score += (16 - junctionClearance) * 14;
-      } else {
-        // Reward extra breathing room away from roundabouts and crosswalks (capped so driveway stays tidy)
-        score -= Math.min(40, (junctionClearance - 16) * 0.45);
-      }
-
-      // Bonus for aligning straight down one of the two parallel aisles on center-island lots
-      if (entersAisleDirectly && hasCenterIsland) {
-        const dMin = axis === 'u' ? lotBox.vMin : lotBox.uMin;
-        const dMax = axis === 'u' ? lotBox.vMax : lotBox.uMax;
-        const r1Open = dMin + PARKING_OUTER_PAD_DEPTH + outerDepth;
-        const r2Open = dMax - PARKING_OUTER_PAD_DEPTH - outerDepth;
-        const spine = (r1Open + r2Open) / 2;
-        const aisle1 = (r1Open + (spine - PARKING_CENTER_ISLAND_ROW_DEPTH)) / 2;
-        const aisle2 = (spine + PARKING_CENTER_ISLAND_ROW_DEPTH + r2Open) / 2;
-        const aisleDist = Math.min(Math.abs(orthoCenter - aisle1), Math.abs(orthoCenter - aisle2));
-        score += aisleDist * 0.4;
-      }
-
-      candidates.push({
-        uMin: u0,
-        uMax: u1,
-        vMin: v0,
-        vMax: v1,
-        axis,
-        entrySide,
-        streetId: street.id,
-        entersAisleDirectly,
-        junctionClearance: Math.round(junctionClearance * 10) / 10,
-        length: len,
-        score,
-      });
-    };
-
-    const uSideIsAisle = stallAxis === 'u';
-    const vSideIsAisle = stallAxis === 'v';
-    const vOffsets = buildSideOffsets(lotBox.vMin, lotBox.vMax, uSideIsAisle);
-    const uOffsets = buildSideOffsets(lotBox.uMin, lotBox.uMax, vSideIsAisle);
-
-    // Side 1: -u toward uA
-    for (const v of vOffsets) {
-      const targetU = uA.coord + uA.asphaltWidth / 2 - 2;
-      if (lotBox.uMin > targetU) {
-        testCandidate('u', 'uMin', uA, targetU, lotBox.uMin + 2, v - dwHalf, v + dwHalf);
-      }
-    }
-    // Side 2: +u toward uB
-    for (const v of vOffsets) {
-      const targetU = uB.coord - uB.asphaltWidth / 2 + 2;
-      if (targetU > lotBox.uMax) {
-        testCandidate('u', 'uMax', uB, lotBox.uMax - 2, targetU, v - dwHalf, v + dwHalf);
-      }
-    }
-    // Side 3: -v toward vA
-    for (const u of uOffsets) {
-      const targetV = vA.coord + vA.asphaltWidth / 2 - 2;
-      if (lotBox.vMin > targetV) {
-        testCandidate('v', 'vMin', vA, u - dwHalf, u + dwHalf, targetV, lotBox.vMin + 2);
-      }
-    }
-    // Side 4: +v toward vB
-    for (const u of uOffsets) {
-      const targetV = vB.coord - vB.asphaltWidth / 2 + 2;
-      if (targetV > lotBox.vMax) {
-        testCandidate('v', 'vMax', vB, u - dwHalf, u + dwHalf, lotBox.vMax - 2, targetV);
-      }
-    }
-
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => a.score - b.score);
-    const best = candidates[0];
-    return {
-      uMin: best.uMin,
-      uMax: best.uMax,
-      vMin: best.vMin,
-      vMax: best.vMax,
-      axis: best.axis,
-      entrySide: best.entrySide,
-      streetId: best.streetId,
-      entersAisleDirectly: best.entersAisleDirectly,
-      junctionClearance: best.junctionClearance,
-    };
-  };
-
-  const tryPushParking = (
-    quarter: CityQuarter,
-    uMin: number,
-    uMax: number,
-    vMin: number,
-    vMax: number,
-    kind: ParkingLot['kind'],
-    preferredAxis?: 'u' | 'v'
-  ): boolean => {
-    const validate = (ru0: number, ru1: number, rv0: number, rv1: number): boolean => {
-      const uW = ru1 - ru0;
-      const vW = rv1 - rv0;
-      if (Math.min(uW, vW) < 42 || Math.max(uW, vW) < 60) return false;
-      if (!isRectVisibleInMap(ru0, ru1, rv0, rv1, 14)) return false;
-      if (rectOverlapsActiveStreet(ru0, ru1, rv0, rv1)) return false;
-      if (rectOverlapsRoundabout(ru0, ru1, rv0, rv1, 8)) return false;
-      const box = { uMin: ru0, uMax: ru1, vMin: rv0, vMax: rv1 };
-      if (raw.some((b) => rectsOverlap(b, box, 5))) return false;
-      if (parkingLots.some((p) => rectsOverlap(p, box, 4))) return false;
-
-      const stallAxis: 'u' | 'v' = preferredAxis ?? (uW >= vW ? 'u' : 'v');
-      const depthSpan = stallAxis === 'u' ? vW : uW;
-      const alongSpan = stallAxis === 'u' ? uW : vW;
-      const doubleRow = depthSpan >= 86;
-      const hasCenterIsland = doubleRow && depthSpan >= 126 && alongSpan >= 112;
-
-      const accessDriveway = findParkingAccessDriveway(
-        quarter,
-        box,
-        stallAxis,
-        doubleRow,
-        hasCenterIsland
-      );
-      if (!accessDriveway) return false;
-
-      parkingLots.push({
-        id: `park_${++pSeq}`,
-        quarterId: quarter.id,
-        uMin: ru0,
-        uMax: ru1,
-        vMin: rv0,
-        vMax: rv1,
-        stallAxis,
-        doubleRow,
-        hasCenterIsland,
-        kind,
-        accessDriveway,
-      });
-      return true;
-    };
-
-    if (validate(uMin, uMax, vMin, vMax)) return true;
-
-    const uMid = (uMin + uMax) / 2;
-    const vMid = (vMin + vMax) / 2;
-    const fallbacks: Array<[number, number, number, number]> = [
-      [uMin + 24, uMax, vMin, vMax],
-      [uMin, uMax - 24, vMin, vMax],
-      [uMin, uMax, vMin + 24, vMax],
-      [uMin, uMax, vMin, vMax - 24],
-      [uMin + 42, uMax, vMin + 22, vMax - 22],
-      [uMin, uMax - 42, vMin + 22, vMax - 22],
-      [uMin, uMid + 14, vMin, vMax],
-      [uMid - 14, uMax, vMin, vMax],
-      [uMin, uMax, vMin, vMid + 14],
-      [uMin, uMax, vMid - 14, vMax],
-    ];
-    for (const [ru0, ru1, rv0, rv1] of fallbacks) {
-      if (validate(ru0, ru1, rv0, rv1)) return true;
-    }
-    return false;
   };
 
   const pickFrontageBlockType = (
@@ -1922,16 +1308,16 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
   });
 
   // 2D. Finalize all parking lots & compute their unobstructed straight street driveways
+  const nextParkingId = () => `park_${++pSeq}`;
   for (const cand of pendingParking) {
-    tryPushParking(
-      cand.quarter,
-      cand.uMin,
-      cand.uMax,
-      cand.vMin,
-      cand.vMax,
-      cand.kind,
-      cand.preferredAxis
-    );
+    tryPushParking({
+      ...cand,
+      buildings: raw,
+      parkingLots,
+      nextParkingId,
+      uSorted,
+      vSorted,
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1966,10 +1352,8 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
       };
       const mouthU = alGlowna.coord - alGlowna.asphaltWidth / 2 - alGlowna.sidewalkWidth * 0.5;
       const mouthV = (dwVMin + dwVMax) * 0.5;
-      const mouthPt = isoToCanvas(mouthU, mouthV);
       const stopU = (bay.uMin + bay.uMax) * 0.5;
       const stopV = (bay.vMin + bay.vMax) * 0.5;
-      const stopPt = isoToCanvas(stopU, stopV);
 
       deliveryZones.push({
         id: 'dz_bus_station',
@@ -1977,18 +1361,8 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         buildingType: 'dworzec',
         bay,
         driveway,
-        mouth: {
-          u: Math.round(mouthU * 10) / 10,
-          v: Math.round(mouthV * 10) / 10,
-          x: Math.round(mouthPt.x * 10) / 10,
-          y: Math.round(mouthPt.y * 10) / 10,
-        },
-        stop: {
-          u: Math.round(stopU * 10) / 10,
-          v: Math.round(stopV * 10) / 10,
-          x: Math.round(stopPt.x * 10) / 10,
-          y: Math.round(stopPt.y * 10) / 10,
-        },
+        mouth: makeIsoCanvasPoint(mouthU, mouthV),
+        stop: makeIsoCanvasPoint(stopU, stopV),
         entryDir: { u: -1, v: 0 },
       });
     }
@@ -2084,8 +1458,6 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
 
         const stopU = (bay.uMin + bay.uMax) * 0.5;
         const stopV = (bay.vMin + bay.vMax) * 0.5;
-        const stopPt = isoToCanvas(stopU, stopV);
-        const mouthPt = isoToCanvas(mouthIso.u, mouthIso.v);
 
         candidates.push({
           score,
@@ -2094,32 +1466,22 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
             buildingId: m.id,
             buildingType: 'sklep',
             bay: {
-              uMin: Math.round(bay.uMin * 10) / 10,
-              uMax: Math.round(bay.uMax * 10) / 10,
-              vMin: Math.round(bay.vMin * 10) / 10,
-              vMax: Math.round(bay.vMax * 10) / 10,
+              uMin: round1(bay.uMin),
+              uMax: round1(bay.uMax),
+              vMin: round1(bay.vMin),
+              vMax: round1(bay.vMax),
             },
             driveway: {
-              uMin: Math.round(drivewayBox.uMin * 10) / 10,
-              uMax: Math.round(drivewayBox.uMax * 10) / 10,
-              vMin: Math.round(drivewayBox.vMin * 10) / 10,
-              vMax: Math.round(drivewayBox.vMax * 10) / 10,
+              uMin: round1(drivewayBox.uMin),
+              uMax: round1(drivewayBox.uMax),
+              vMin: round1(drivewayBox.vMin),
+              vMax: round1(drivewayBox.vMax),
               axis,
               streetId: street.id,
-              junctionClearance: Math.round(clearance * 10) / 10,
+              junctionClearance: round1(clearance),
             },
-            mouth: {
-              u: Math.round(mouthIso.u * 10) / 10,
-              v: Math.round(mouthIso.v * 10) / 10,
-              x: Math.round(mouthPt.x * 10) / 10,
-              y: Math.round(mouthPt.y * 10) / 10,
-            },
-            stop: {
-              u: Math.round(stopU * 10) / 10,
-              v: Math.round(stopV * 10) / 10,
-              x: Math.round(stopPt.x * 10) / 10,
-              y: Math.round(stopPt.y * 10) / 10,
-            },
+            mouth: makeIsoCanvasPoint(mouthIso.u, mouthIso.v),
+            stop: makeIsoCanvasPoint(stopU, stopV),
             entryDir,
           },
         });
@@ -2349,19 +1711,15 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
   const chosenLockerSpots = selectSpatiallySpread(lockerCandidates, 8, 1);
 
   const parcelLockerSlots: ParcelLockerSlot[] = chosenLockerSpots.map((spot, idx) => {
-    const pt = isoToCanvas(spot.u, spot.v);
     const nearest = findNearestStreetForBuilding(spot.uMin, spot.uMax, spot.vMin, spot.vMax);
     return {
       id: `locker_slot_${idx + 1}`,
       quarterId: spot.quarterId,
-      uMin: Math.round(spot.uMin * 10) / 10,
-      uMax: Math.round(spot.uMax * 10) / 10,
-      vMin: Math.round(spot.vMin * 10) / 10,
-      vMax: Math.round(spot.vMax * 10) / 10,
-      u: Math.round(spot.u * 10) / 10,
-      v: Math.round(spot.v * 10) / 10,
-      x: Math.round(pt.x * 10) / 10,
-      y: Math.round(pt.y * 10) / 10,
+      uMin: round1(spot.uMin),
+      uMax: round1(spot.uMax),
+      vMin: round1(spot.vMin),
+      vMax: round1(spot.vMax),
+      ...makeIsoCanvasPoint(spot.u, spot.v),
       axis: spot.axis,
       nearestStreetName: nearest.name,
       occupied: false,
@@ -2419,47 +1777,27 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     negSide.sort(compareAlong);
     posSide.sort(compareAlong);
 
-    negSide.forEach((b, i) => {
-      addressed.push({
-        id: b.id,
-        typ: b.typ,
-        nazwaUlicy: road.name,
-        numerBudynku: i * 2 + 1,
-        pietra: b.pietra,
-        mieszkania: b.mieszkania,
-        uMin: b.uMin,
-        uMax: b.uMax,
-        vMin: b.vMin,
-        vMax: b.vMax,
-        height: b.height,
-        colorVariant: b.colorVariant,
-        dostepnyDlaDostaw: b.dostepnyDlaDostaw ?? b.typ !== 'baza',
-        ...(b.stanowiskaAutobusowe !== undefined
-          ? { stanowiskaAutobusowe: b.stanowiskaAutobusowe }
-          : {}),
-      });
+    const buildAddressedBuilding = (b: RawBuildingCandidate, numerBudynku: number): Building => ({
+      id: b.id,
+      typ: b.typ,
+      nazwaUlicy: road.name,
+      numerBudynku,
+      pietra: b.pietra,
+      mieszkania: b.mieszkania,
+      uMin: b.uMin,
+      uMax: b.uMax,
+      vMin: b.vMin,
+      vMax: b.vMax,
+      height: b.height,
+      colorVariant: b.colorVariant,
+      dostepnyDlaDostaw: b.dostepnyDlaDostaw ?? b.typ !== 'baza',
+      ...(b.stanowiskaAutobusowe !== undefined
+        ? { stanowiskaAutobusowe: b.stanowiskaAutobusowe }
+        : {}),
     });
 
-    posSide.forEach((b, i) => {
-      addressed.push({
-        id: b.id,
-        typ: b.typ,
-        nazwaUlicy: road.name,
-        numerBudynku: (i + 1) * 2,
-        pietra: b.pietra,
-        mieszkania: b.mieszkania,
-        uMin: b.uMin,
-        uMax: b.uMax,
-        vMin: b.vMin,
-        vMax: b.vMax,
-        height: b.height,
-        colorVariant: b.colorVariant,
-        dostepnyDlaDostaw: b.dostepnyDlaDostaw ?? b.typ !== 'baza',
-        ...(b.stanowiskaAutobusowe !== undefined
-          ? { stanowiskaAutobusowe: b.stanowiskaAutobusowe }
-          : {}),
-      });
-    });
+    negSide.forEach((b, i) => addressed.push(buildAddressedBuilding(b, i * 2 + 1)));
+    posSide.forEach((b, i) => addressed.push(buildAddressedBuilding(b, (i + 1) * 2)));
   }
 
   // 4. Compute exact roadApproachPoint (on roadGraph edge, zero extra nodes) and off-road
@@ -2490,35 +1828,31 @@ interface PrecomputedRoadEdge {
   bv: number;
 }
 
+function isIsoPointWithinRoadCorridor(
+  u: number,
+  v: number,
+  getHalfWidth: (road: AddressableRoad) => number,
+  streetAlongPad: number,
+  accessAlongPad: number,
+  inclusive: boolean
+): boolean {
+  for (const road of ALL_ADDRESSABLE_ROADS) {
+    const perp = road.axis === 'u' ? u : v;
+    const ortho = road.axis === 'u' ? v : u;
+    const dist = Math.abs(perp - road.coord);
+    const limit = getHalfWidth(road);
+    if (!(inclusive ? dist <= limit : dist < limit)) continue;
+    const alongPad = road.isAccessRoad ? accessAlongPad : streetAlongPad;
+    if (road.covers(ortho, alongPad)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isIsoPointOnRoadAsphalt(u: number, v: number, margin = 2.0): boolean {
-  for (const s of U_STREETS) {
-    if (Math.abs(u - s.coord) < s.asphaltWidth / 2 + margin && streetCoversValue(s, v, 4)) {
-      return true;
-    }
-  }
-  for (const s of V_STREETS) {
-    if (Math.abs(v - s.coord) < s.asphaltWidth / 2 + margin && streetCoversValue(s, u, 4)) {
-      return true;
-    }
-  }
-  for (const ar of RESIDENTIAL_ACCESS_ROADS) {
-    if (ar.axis === 'u') {
-      if (
-        Math.abs(u - ar.coord) < ar.asphaltWidth / 2 + margin &&
-        v >= Math.min(ar.startCoord, ar.endCoord) - 4 &&
-        v <= Math.max(ar.startCoord, ar.endCoord) + 4
-      ) {
-        return true;
-      }
-    } else {
-      if (
-        Math.abs(v - ar.coord) < ar.asphaltWidth / 2 + margin &&
-        u >= Math.min(ar.startCoord, ar.endCoord) - 4 &&
-        u <= Math.max(ar.startCoord, ar.endCoord) + 4
-      ) {
-        return true;
-      }
-    }
+  if (isIsoPointWithinRoadCorridor(u, v, (r) => r.asphaltWidth / 2 + margin, 4, 4, false)) {
+    return true;
   }
   for (const rb of ROUNDABOUTS) {
     if (Math.hypot(u - rb.u, v - rb.v) < rb.outerAsphaltRadius + margin) {
@@ -2537,39 +1871,14 @@ export function isIsoPointOnRoadAsphalt(u: number, v: number, margin = 2.0): boo
 }
 
 function isIsoPointNearStreetSidewalk(u: number, v: number): boolean {
-  for (const s of U_STREETS) {
-    const outer = s.asphaltWidth / 2 + s.sidewalkWidth + 14;
-    if (Math.abs(u - s.coord) <= outer && streetCoversValue(s, v, 6)) {
-      return true;
-    }
-  }
-  for (const s of V_STREETS) {
-    const outer = s.asphaltWidth / 2 + s.sidewalkWidth + 14;
-    if (Math.abs(v - s.coord) <= outer && streetCoversValue(s, u, 6)) {
-      return true;
-    }
-  }
-  for (const ar of RESIDENTIAL_ACCESS_ROADS) {
-    const outer = ar.asphaltWidth / 2 + ar.sidewalkWidth + 14;
-    if (ar.axis === 'u') {
-      if (
-        Math.abs(u - ar.coord) <= outer &&
-        v >= Math.min(ar.startCoord, ar.endCoord) - 4 &&
-        v <= Math.max(ar.startCoord, ar.endCoord) + 4
-      ) {
-        return true;
-      }
-    } else {
-      if (
-        Math.abs(v - ar.coord) <= outer &&
-        u >= Math.min(ar.startCoord, ar.endCoord) - 4 &&
-        u <= Math.max(ar.startCoord, ar.endCoord) + 4
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return isIsoPointWithinRoadCorridor(
+    u,
+    v,
+    (r) => r.asphaltWidth / 2 + r.sidewalkWidth + 14,
+    6,
+    4,
+    true
+  );
 }
 
 function isIsoPointInBuilding(
@@ -2826,14 +2135,15 @@ function attachDeliveryPointsToBuildings(
       }
 
       if (!bestCandidate || score < bestCandidate.score) {
+        const stopPt = makeIsoCanvasPoint(su, sv);
         bestCandidate = {
           score,
           approach: finalApproach,
           stop: {
-            x: Math.round(stopCanvas.x * 10) / 10,
-            y: Math.round(stopCanvas.y * 10) / 10,
-            u: Math.round(su * 10) / 10,
-            v: Math.round(sv * 10) / 10,
+            x: stopPt.x,
+            y: stopPt.y,
+            u: stopPt.u,
+            v: stopPt.v,
             surface,
             ...(approachWaypoints ? { approachWaypoints } : {}),
           },
@@ -2865,13 +2175,13 @@ function attachDeliveryPointsToBuildings(
       // Fallback guaranteed point if building is unusually tight
       const proj = projectIsoPointOntoEdges(midU, midV, allPublicEdges);
       if (proj) {
-        const fallbackCanvas = isoToCanvas(midU, midV);
+        const fallbackPt = makeIsoCanvasPoint(midU, midV);
         b.roadApproachPoint = proj.approach;
         b.deliveryStopPoint = {
-          x: Math.round(fallbackCanvas.x * 10) / 10,
-          y: Math.round(fallbackCanvas.y * 10) / 10,
-          u: Math.round(midU * 10) / 10,
-          v: Math.round(midV * 10) / 10,
+          x: fallbackPt.x,
+          y: fallbackPt.y,
+          u: fallbackPt.u,
+          v: fallbackPt.v,
           surface: 'plaza',
         };
       }
@@ -2889,7 +2199,7 @@ export const parcelLockerSlots: ParcelLockerSlot[] = PARCEL_LOCKER_SLOTS;
 export const PROCEDURAL_HOUSE_YARDS: HouseYardFence[] = CITY_STRUCTURES.houseYards;
 
 export function buildProceduralBuildings(): Building[] {
-  return buildProceduralCityStructures().buildings;
+  return PROCEDURAL_BUILDINGS;
 }
 
 function pointInConvexPolygon(pt: Point, poly: Point[]): boolean {
