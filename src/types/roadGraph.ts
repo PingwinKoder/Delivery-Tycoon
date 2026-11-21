@@ -24,5 +24,3 @@ export interface RoadGraph {
   nodes: RoadNode[];
   edges: RoadEdge[];
 }
-
-export type EditorTool = 'move' | 'add' | 'connect' | 'delete';

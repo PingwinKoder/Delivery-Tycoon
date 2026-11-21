@@ -159,6 +159,16 @@ export function panCameraByScreenDelta(
   );
 }
 
+export const WHEEL_ZOOM_DEADZONE = 2.5;
+export const WHEEL_ZOOM_SENSITIVITY = 0.0031;
+export const MAX_WHEEL_ZOOM_LOG_STEP = 0.13;
+
+export function normalizeWheelDeltaY(deltaY: number, deltaMode: number): number {
+  if (deltaMode === 1) return deltaY * 16; // DOM_DELTA_LINE
+  if (deltaMode === 2) return deltaY * 100; // DOM_DELTA_PAGE
+  return deltaY;
+}
+
 export function zoomCameraAtScreenPoint(
   camera: CameraState,
   targetZoom: number,
@@ -182,6 +192,44 @@ export function zoomCameraAtScreenPoint(
       y: nextY,
       zoom: nextZoom,
     },
+    viewport,
+    mapSize
+  );
+}
+
+/**
+ * Applies smooth, deltaY-proportional zoom around a screen point for both laptop
+ * touchpad pinch/scroll gestures and physical mouse wheels:
+ * - Ignores tiny jitter impulses below WHEEL_ZOOM_DEADZONE (prevents bounce-back on finger lift)
+ * - Caps the maximum log-scale step per event to avoid sudden zoom jumps
+ */
+export function zoomCameraByWheel(
+  camera: CameraState,
+  deltaY: number,
+  deltaMode: number,
+  screenX: number,
+  screenY: number,
+  viewport: Size,
+  mapSize: Size
+): CameraState {
+  if (!Number.isFinite(deltaY)) return camera;
+  const normalizedDeltaY = normalizeWheelDeltaY(deltaY, deltaMode);
+  if (Math.abs(normalizedDeltaY) < WHEEL_ZOOM_DEADZONE) {
+    return camera;
+  }
+
+  const rawLogStep = -normalizedDeltaY * WHEEL_ZOOM_SENSITIVITY;
+  const clampedLogStep = Math.max(
+    -MAX_WHEEL_ZOOM_LOG_STEP,
+    Math.min(MAX_WHEEL_ZOOM_LOG_STEP, rawLogStep)
+  );
+  const targetZoom = camera.zoom * Math.exp(clampedLogStep);
+
+  return zoomCameraAtScreenPoint(
+    camera,
+    targetZoom,
+    screenX,
+    screenY,
     viewport,
     mapSize
   );

@@ -533,27 +533,41 @@ function rectOverlapsBaseYard(
 }
 
 /**
- * Exact topological Painter's Algorithm sort for non-overlapping (including wall-to-wall
- * touching) axis-aligned boxes in 2:1 isometric projection (camera views from +u, -v toward -u, +v).
+ * Exact sweep-line topological Painter's Algorithm sort for non-overlapping (including
+ * wall-to-wall touching) axis-aligned boxes in 2:1 isometric projection
+ * (camera views from +u, -v toward -u, +v).
  */
-export function sortBuildingsBackToFront(buildings: Building[]): Building[] {
-  const n = buildings.length;
-  if (n <= 1) return [...buildings];
+export function sortIsoBoxesBackToFront<
+  T extends { id: string; uMin: number; uMax: number; vMin: number; vMax: number },
+>(items: T[]): T[] {
+  const n = items.length;
+  if (n <= 1) return [...items];
 
   const eps = 1e-3;
-  const depthKey = (b: Building) => (b.uMin + b.uMax) - (b.vMin + b.vMax);
+  const depthKey = (b: T) => b.uMin + b.uMax - (b.vMin + b.vMax);
+
+  // Sweep-line pre-sort by screen-X start (uMin + vMin) so only X-overlapping pairs are checked
+  const xSorted = items
+    .map((item) => ({
+      item,
+      xMin: item.uMin + item.vMin,
+      xMax: item.uMax + item.vMax,
+      depth: depthKey(item),
+    }))
+    .sort((a, b) => a.xMin - b.xMin);
 
   const adj: number[][] = Array.from({ length: n }, () => []);
   const inDegree = new Int32Array(n);
 
   for (let i = 0; i < n; i++) {
-    const a = buildings[i];
+    const a = xSorted[i];
     for (let j = i + 1; j < n; j++) {
-      const b = buildings[j];
-      if (isBoxBehind(a, b, eps)) {
+      const b = xSorted[j];
+      if (b.xMin >= a.xMax - eps) break;
+      if (isBoxBehind(a.item, b.item, eps)) {
         adj[i].push(j);
         inDegree[j]++;
-      } else if (isBoxBehind(b, a, eps)) {
+      } else if (isBoxBehind(b.item, a.item, eps)) {
         adj[j].push(i);
         inDegree[i]++;
       }
@@ -564,35 +578,465 @@ export function sortBuildingsBackToFront(buildings: Building[]): Building[] {
   for (let i = 0; i < n; i++) {
     if (inDegree[i] === 0) ready.push(i);
   }
-  const sortReady = () => {
-    ready.sort((ia, ib) => depthKey(buildings[ia]) - depthKey(buildings[ib]));
-  };
-  sortReady();
+  ready.sort((ia, ib) => xSorted[ia].depth - xSorted[ib].depth);
 
-  const ordered: Building[] = [];
+  const insertReady = (idx: number) => {
+    const d = xSorted[idx].depth;
+    let lo = 0;
+    let hi = ready.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (xSorted[ready[mid]].depth <= d) lo = mid + 1;
+      else hi = mid;
+    }
+    ready.splice(lo, 0, idx);
+  };
+
+  const ordered: T[] = [];
   while (ready.length > 0) {
     const cur = ready.shift()!;
-    ordered.push(buildings[cur]);
-    let added = false;
+    ordered.push(xSorted[cur].item);
     for (const nxt of adj[cur]) {
       inDegree[nxt]--;
       if (inDegree[nxt] === 0) {
-        ready.push(nxt);
-        added = true;
+        insertReady(nxt);
       }
     }
-    if (added) sortReady();
   }
 
   if (ordered.length < n) {
     const included = new Set(ordered.map((b) => b.id));
-    const remaining = buildings
+    const remaining = items
       .filter((b) => !included.has(b.id))
       .sort((a, b) => depthKey(a) - depthKey(b));
     ordered.push(...remaining);
   }
 
   return ordered;
+}
+
+/**
+ * Exact topological Painter's Algorithm sort for non-overlapping (including wall-to-wall
+ * touching) axis-aligned boxes in 2:1 isometric projection (camera views from +u, -v toward -u, +v).
+ */
+export function sortBuildingsBackToFront(buildings: Building[]): Building[] {
+  return sortIsoBoxesBackToFront(buildings);
+}
+
+export interface FenceSegment3D {
+  id: string;
+  axis: 'u' | 'v';
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  height: number;
+  prism: BuildingPrismPoints;
+  sx: number;
+  sy: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  /** Precomputed vertical picket/board division lines on the front-facing long wall */
+  pickets: Array<{ x: number; yBottom: number; yTop: number }>;
+}
+
+export interface FencePost3D {
+  id: string;
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  height: number;
+  isGatePost: boolean;
+  prism: BuildingPrismPoints;
+  sx: number;
+  sy: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export interface PrecomputedBuilding3D {
+  building: Building;
+  prism: BuildingPrismPoints;
+  sx: number;
+  sy: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export type StaticScene3DItem =
+  | {
+      kind: 'building';
+      id: string;
+      item: PrecomputedBuilding3D;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      kind: 'fenceSegment';
+      id: string;
+      segment: FenceSegment3D;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      kind: 'fencePost';
+      id: string;
+      post: FencePost3D;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    };
+
+const FENCE_PANEL_HEIGHT = 7.5;
+const FENCE_PANEL_HALF_THICK = 0.7;
+const CORNER_POST_HEIGHT = 9.0;
+const CORNER_POST_HALF = 1.1;
+const GATE_POST_HEIGHT = 9.5;
+const GATE_POST_HALF = 1.2;
+const FENCE_PICKET_PITCH = 4.5;
+
+/**
+ * Converts all single-family house yard perimeters into deduplicated, non-overlapping 3D
+ * wooden picket fence panel segments and thicker/taller corner & gate posts, keeping every
+ * street-facing gate interval [gateMin, gateMax] completely open.
+ */
+export function buildHouseFence3DGeometry(houseYards: HouseYardFence[]): {
+  segments: FenceSegment3D[];
+  posts: FencePost3D[];
+} {
+  type RawPost = {
+    u: number;
+    v: number;
+    isGatePost: boolean;
+    half: number;
+    height: number;
+  };
+  type LineGroup = {
+    axis: 'u' | 'v';
+    fixedCoord: number;
+    intervals: Array<{ start: number; end: number }>;
+  };
+
+  const uniquePosts: RawPost[] = [];
+  const registerPost = (u: number, v: number, isGatePost: boolean) => {
+    const half = isGatePost ? GATE_POST_HALF : CORNER_POST_HALF;
+    const height = isGatePost ? GATE_POST_HEIGHT : CORNER_POST_HEIGHT;
+    for (const p of uniquePosts) {
+      if (
+        Math.abs(p.u - u) < p.half + half + 0.05 &&
+        Math.abs(p.v - v) < p.half + half + 0.05
+      ) {
+        if (isGatePost && !p.isGatePost) {
+          p.isGatePost = true;
+          p.half = GATE_POST_HALF;
+          p.height = GATE_POST_HEIGHT;
+        }
+        return;
+      }
+    }
+    uniquePosts.push({ u, v, isGatePost, half, height });
+  };
+
+  const lineGroups = new Map<string, LineGroup>();
+  const addLineInterval = (
+    axis: 'u' | 'v',
+    fixedCoord: number,
+    start: number,
+    end: number
+  ) => {
+    if (end - start < 0.5) return;
+    const key = `${axis}:${Math.round(fixedCoord * 10)}`;
+    let group = lineGroups.get(key);
+    if (!group) {
+      group = { axis, fixedCoord, intervals: [] };
+      lineGroups.set(key, group);
+    }
+    group.intervals.push({ start, end });
+  };
+
+  for (const yard of houseYards) {
+    const { uMin, uMax, vMin, vMax, streetSide, gateMin, gateMax } = yard;
+
+    // 4 yard corner posts
+    registerPost(uMin, vMin, false);
+    registerPost(uMax, vMin, false);
+    registerPost(uMax, vMax, false);
+    registerPost(uMin, vMax, false);
+
+    // 2 sturdier gate posts framing the open entrance [gateMin, gateMax] on streetSide
+    if (streetSide === 'uMin' || streetSide === 'uMax') {
+      const u = streetSide === 'uMin' ? uMin : uMax;
+      registerPost(u, gateMin, true);
+      registerPost(u, gateMax, true);
+    } else {
+      const v = streetSide === 'vMin' ? vMin : vMax;
+      registerPost(gateMin, v, true);
+      registerPost(gateMax, v, true);
+    }
+
+    // uMin & uMax edges (running along v)
+    if (streetSide === 'uMin') {
+      addLineInterval('v', uMin, vMin, gateMin);
+      addLineInterval('v', uMin, gateMax, vMax);
+    } else {
+      addLineInterval('v', uMin, vMin, vMax);
+    }
+
+    if (streetSide === 'uMax') {
+      addLineInterval('v', uMax, vMin, gateMin);
+      addLineInterval('v', uMax, gateMax, vMax);
+    } else {
+      addLineInterval('v', uMax, vMin, vMax);
+    }
+
+    // vMin & vMax edges (running along u)
+    if (streetSide === 'vMin') {
+      addLineInterval('u', vMin, uMin, gateMin);
+      addLineInterval('u', vMin, gateMax, uMax);
+    } else {
+      addLineInterval('u', vMin, uMin, uMax);
+    }
+
+    if (streetSide === 'vMax') {
+      addLineInterval('u', vMax, uMin, gateMin);
+      addLineInterval('u', vMax, gateMax, uMax);
+    } else {
+      addLineInterval('u', vMax, uMin, uMax);
+    }
+  }
+
+  const segments: FenceSegment3D[] = [];
+  let segSeq = 0;
+
+  for (const group of lineGroups.values()) {
+    const { axis, fixedCoord, intervals } = group;
+    const rawSplits: number[] = [];
+    for (const iv of intervals) {
+      rawSplits.push(iv.start, iv.end);
+    }
+
+    // Also split at any corner/T-junction/gate post intersecting this line so panels never overlap posts
+    const touchingPosts: Array<{ along: number; half: number }> = [];
+    for (const p of uniquePosts) {
+      const perpDist = Math.abs((axis === 'u' ? p.v : p.u) - fixedCoord);
+      if (perpDist <= p.half + FENCE_PANEL_HALF_THICK + 0.05) {
+        const along = axis === 'u' ? p.u : p.v;
+        touchingPosts.push({ along, half: p.half });
+        rawSplits.push(along);
+      }
+    }
+
+    rawSplits.sort((a, b) => a - b);
+    const splits: number[] = [];
+    for (const val of rawSplits) {
+      if (splits.length === 0 || val - splits[splits.length - 1] > 0.05) {
+        splits.push(val);
+      }
+    }
+
+    const findPostTrim = (alongCoord: number): number => {
+      let trim = 0;
+      for (const tp of touchingPosts) {
+        if (Math.abs(tp.along - alongCoord) <= tp.half + 0.15) {
+          trim = Math.max(trim, tp.half);
+        }
+      }
+      return trim;
+    };
+
+    for (let i = 0; i < splits.length - 1; i++) {
+      const a = splits[i];
+      const b = splits[i + 1];
+      const mid = (a + b) * 0.5;
+      const covered = intervals.some((iv) => mid >= iv.start + 0.02 && mid <= iv.end - 0.02);
+      if (!covered) continue;
+
+      const startTrim = findPostTrim(a);
+      const endTrim = findPostTrim(b);
+      const trimmedStart = a + startTrim;
+      const trimmedEnd = b - endTrim;
+      const segLen = trimmedEnd - trimmedStart;
+      if (segLen < 0.4) continue;
+
+      const uMin = axis === 'u' ? trimmedStart : fixedCoord - FENCE_PANEL_HALF_THICK;
+      const uMax = axis === 'u' ? trimmedEnd : fixedCoord + FENCE_PANEL_HALF_THICK;
+      const vMin = axis === 'u' ? fixedCoord - FENCE_PANEL_HALF_THICK : trimmedStart;
+      const vMax = axis === 'u' ? fixedCoord + FENCE_PANEL_HALF_THICK : trimmedEnd;
+
+      const prism = getBuildingPrismPoints({
+        uMin,
+        uMax,
+        vMin,
+        vMax,
+        height: FENCE_PANEL_HEIGHT,
+      });
+
+      const sx = FENCE_PANEL_HEIGHT * 0.24;
+      const sy = FENCE_PANEL_HEIGHT * 0.04;
+
+      const pickets: Array<{ x: number; yBottom: number; yTop: number }> = [];
+      const picketCount = Math.max(1, Math.round(segLen / FENCE_PICKET_PITCH));
+      if (picketCount >= 2) {
+        const step = segLen / picketCount;
+        for (let k = 1; k < picketCount; k++) {
+          const alongPos = trimmedStart + k * step;
+          const pt =
+            axis === 'u' ? isoToCanvas(alongPos, vMin) : isoToCanvas(uMax, alongPos);
+          pickets.push({
+            x: pt.x,
+            yBottom: pt.y,
+            yTop: pt.y - FENCE_PANEL_HEIGHT,
+          });
+        }
+      }
+
+      segments.push({
+        id: `fence_seg_${segSeq++}`,
+        axis,
+        uMin,
+        uMax,
+        vMin,
+        vMax,
+        height: FENCE_PANEL_HEIGHT,
+        prism,
+        sx,
+        sy,
+        minX: prism.bLeft.x - 2,
+        maxX: prism.bRight.x + sx + 2,
+        minY: prism.tBack.y - 2,
+        maxY: prism.bFront.y + 2,
+        pickets,
+      });
+    }
+  }
+
+  const posts: FencePost3D[] = uniquePosts.map((p, idx) => {
+    const uMin = p.u - p.half;
+    const uMax = p.u + p.half;
+    const vMin = p.v - p.half;
+    const vMax = p.v + p.half;
+    const prism = getBuildingPrismPoints({
+      uMin,
+      uMax,
+      vMin,
+      vMax,
+      height: p.height,
+    });
+    const sx = p.height * 0.24;
+    const sy = p.height * 0.04;
+    return {
+      id: `fence_post_${idx}`,
+      uMin,
+      uMax,
+      vMin,
+      vMax,
+      height: p.height,
+      isGatePost: p.isGatePost,
+      prism,
+      sx,
+      sy,
+      minX: prism.bLeft.x - 2,
+      maxX: prism.bRight.x + sx + 2,
+      minY: prism.tBack.y - 2,
+      maxY: prism.bFront.y + 2,
+    };
+  });
+
+  return { segments, posts };
+}
+
+/**
+ * Builds and topologically sorts the complete static 3D scene (buildings + 3D wooden yard
+ * fence segments + corner/gate posts) once so per-frame rendering only sorts dynamic entities.
+ */
+export function buildStaticScene3DOrder(
+  buildings: Building[],
+  houseYards: HouseYardFence[]
+): StaticScene3DItem[] {
+  const items: StaticScene3DItem[] = [];
+
+  for (const b of buildings) {
+    const prism = getBuildingPrismPoints(b);
+    const sx = Math.min(36, b.height * 0.23);
+    const sy = Math.min(6, b.height * 0.035);
+    const minX = prism.bLeft.x;
+    const maxX = prism.bRight.x + sx;
+    const minY = prism.tBack.y;
+    const maxY = prism.bFront.y;
+    items.push({
+      kind: 'building',
+      id: b.id,
+      item: { building: b, prism, sx, sy, minX, maxX, minY, maxY },
+      uMin: b.uMin,
+      uMax: b.uMax,
+      vMin: b.vMin,
+      vMax: b.vMax,
+      minX,
+      maxX,
+      minY,
+      maxY,
+    });
+  }
+
+  const { segments, posts } = buildHouseFence3DGeometry(houseYards);
+
+  for (const segment of segments) {
+    items.push({
+      kind: 'fenceSegment',
+      id: segment.id,
+      segment,
+      uMin: segment.uMin,
+      uMax: segment.uMax,
+      vMin: segment.vMin,
+      vMax: segment.vMax,
+      minX: segment.minX,
+      maxX: segment.maxX,
+      minY: segment.minY,
+      maxY: segment.maxY,
+    });
+  }
+
+  for (const post of posts) {
+    items.push({
+      kind: 'fencePost',
+      id: post.id,
+      post,
+      uMin: post.uMin,
+      uMax: post.uMax,
+      vMin: post.vMin,
+      vMax: post.vMax,
+      minX: post.minX,
+      maxX: post.maxX,
+      minY: post.minY,
+      maxY: post.maxY,
+    });
+  }
+
+  return sortIsoBoxesBackToFront(items);
 }
 
 export interface DepthSortedEntity {
@@ -2197,6 +2641,30 @@ export const PROCEDURAL_DELIVERY_ZONES: DeliveryZone[] = CITY_STRUCTURES.deliver
 export const PARCEL_LOCKER_SLOTS: ParcelLockerSlot[] = CITY_STRUCTURES.parcelLockerSlots;
 export const parcelLockerSlots: ParcelLockerSlot[] = PARCEL_LOCKER_SLOTS;
 export const PROCEDURAL_HOUSE_YARDS: HouseYardFence[] = CITY_STRUCTURES.houseYards;
+
+/**
+ * Precomputed, topologically sorted back-to-front static 3D scene order (all buildings +
+ * 3D wooden yard fence segments & corner/gate posts). Cached once at startup so per-frame
+ * rendering only interleaves dynamic entities (e.g. moving courier) for smooth mobile FPS.
+ */
+export const STATIC_SCENE_3D_ORDER: StaticScene3DItem[] = buildStaticScene3DOrder(
+  PROCEDURAL_BUILDINGS,
+  PROCEDURAL_HOUSE_YARDS
+);
+
+const customSceneOrderCache = new WeakMap<Building[], StaticScene3DItem[]>();
+
+export function getStaticScene3DOrder(buildings: Building[]): StaticScene3DItem[] {
+  if (buildings === PROCEDURAL_BUILDINGS) {
+    return STATIC_SCENE_3D_ORDER;
+  }
+  let cached = customSceneOrderCache.get(buildings);
+  if (!cached) {
+    cached = buildStaticScene3DOrder(buildings, PROCEDURAL_HOUSE_YARDS);
+    customSceneOrderCache.set(buildings, cached);
+  }
+  return cached;
+}
 
 export function buildProceduralBuildings(): Building[] {
   return PROCEDURAL_BUILDINGS;

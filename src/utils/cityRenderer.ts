@@ -6,12 +6,16 @@ import {
   PROCEDURAL_PARKING_LOTS,
   type DeliveryZone,
   type DepthSortedEntity,
+  type FencePost3D,
+  type FenceSegment3D,
   type HouseYardFence,
   type ParcelLockerSlot,
   type ParkingLot,
+  type StaticScene3DItem,
   computeParkingLayout,
   getBuildingPalette,
   getBuildingPrismPoints,
+  getStaticScene3DOrder,
   mergeEntitiesIntoBackToFrontOrder,
 } from './buildings';
 import {
@@ -1030,14 +1034,13 @@ function drawRoundaboutDetails(
 }
 
 /**
- * Draws a lightweight, cohesive isometric yard fence around a single-family house plot
- * in (u, v) world space, leaving a clear entrance gate opening (furtka) with a subtle
- * garden stone threshold on the street-facing side.
+ * Draws the subtle paving-stone garden walkway threshold across the open 12u gate gap
+ * connecting the street sidewalk into each single-family house yard.
+ * The 3D wooden picket fences and posts themselves are Z-sorted and extruded in renderBuildings3D.
  */
-function drawHouseYardFence(ctx: CanvasRenderingContext2D, yard: HouseYardFence) {
+function drawHouseYardWalkway(ctx: CanvasRenderingContext2D, yard: HouseYardFence) {
   const { uMin, uMax, vMin, vMax, streetSide, gateMin, gateMax } = yard;
 
-  // 1. Subtle paving-stone walkway threshold across the 12u gate gap connecting sidewalk into yard
   const pathPad = 1.6;
   const g0 = gateMin + pathPad;
   const g1 = gateMax - pathPad;
@@ -1061,73 +1064,6 @@ function drawHouseYardFence(ctx: CanvasRenderingContext2D, yard: HouseYardFence)
     ctx.fillRect(g0, vMax - pathReachIn, g1 - g0, pathReachIn + pathReachOut);
     ctx.strokeRect(g0, vMax - pathReachIn, g1 - g0, pathReachIn + pathReachOut);
   }
-
-  // 2. Collect all fence rail segments (omitting the open gate interval on streetSide)
-  const segments: Array<[number, number, number, number]> = [];
-
-  const addSide = (
-    side: HouseYardFence['streetSide'],
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number
-  ) => {
-    if (side !== streetSide) {
-      segments.push([x1, y1, x2, y2]);
-      return;
-    }
-    if (side === 'uMin' || side === 'uMax') {
-      if (gateMin > vMin + 0.5) segments.push([x1, vMin, x1, gateMin]);
-      if (gateMax < vMax - 0.5) segments.push([x1, gateMax, x1, vMax]);
-    } else {
-      if (gateMin > uMin + 0.5) segments.push([uMin, y1, gateMin, y1]);
-      if (gateMax < uMax - 0.5) segments.push([gateMax, y1, uMax, y1]);
-    }
-  };
-
-  addSide('uMin', uMin, vMin, uMin, vMax);
-  addSide('uMax', uMax, vMin, uMax, vMax);
-  addSide('vMin', uMin, vMin, uMax, vMin);
-  addSide('vMax', uMin, vMax, uMax, vMax);
-
-  const strokeSegments = (color: string, width: number) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    for (const [ax, ay, bx, by] of segments) {
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-    }
-    ctx.stroke();
-  };
-
-  // Thin crisp dark wood outline + warm muted timber fence core (uniform opaque so shared lines fuse cleanly)
-  ctx.lineCap = 'square';
-  ctx.lineJoin = 'miter';
-  strokeSegments('#4b3a2c', 2.4);
-  strokeSegments('#8c6d52', 1.25);
-
-  // 3. Subtle corner posts & slightly stronger gateposts framing the entrance opening
-  const drawPost = (u: number, v: number, radius: number, fill: string) => {
-    ctx.fillStyle = fill;
-    ctx.fillRect(u - radius, v - radius, radius * 2, radius * 2);
-  };
-
-  drawPost(uMin, vMin, 1.35, '#4b3a2c');
-  drawPost(uMax, vMin, 1.35, '#4b3a2c');
-  drawPost(uMax, vMax, 1.35, '#4b3a2c');
-  drawPost(uMin, vMax, 1.35, '#4b3a2c');
-
-  if (streetSide === 'uMin' || streetSide === 'uMax') {
-    const u = streetSide === 'uMin' ? uMin : uMax;
-    drawPost(u, gateMin, 1.8, '#3b2c20');
-    drawPost(u, gateMax, 1.8, '#3b2c20');
-  } else {
-    const v = streetSide === 'vMin' ? vMin : vMax;
-    drawPost(gateMin, v, 1.8, '#3b2c20');
-    drawPost(gateMax, v, 1.8, '#3b2c20');
-  }
-
   ctx.restore();
 }
 
@@ -1234,9 +1170,9 @@ export function renderProceduralCity(
     );
   }
 
-  // 4b. Lightweight cohesive isometric yard fences with entrance gates around every single-family house
+  // 4b. Subtle stone gate walkways at every single-family house yard entrance
   for (const yard of PROCEDURAL_HOUSE_YARDS) {
-    drawHouseYardFence(ctx, yard);
+    drawHouseYardWalkway(ctx, yard);
   }
 
   // 5. Crisp curb inner highlight rim right next to asphalt
@@ -1551,11 +1487,152 @@ export function renderBuildingFootprints(
   ctx.restore();
 }
 
+const FENCE_COLOR_U = '#b88958';
+const FENCE_COLOR_V = '#9e7143';
+const FENCE_COLOR_TOP = '#cfa372';
+const FENCE_OUTLINE = '#3d2817';
+const FENCE_PICKET_SEAM = 'rgba(61, 40, 23, 0.56)';
+const FENCE_RIDGE_SEAM = 'rgba(61, 40, 23, 0.48)';
+
+function drawFenceSegment3D(
+  ctx: CanvasRenderingContext2D,
+  seg: FenceSegment3D,
+  invScale: number
+) {
+  const { prism: p, pickets } = seg;
+
+  // 1. Wall along u axis (SW-facing, warm light brown wood)
+  ctx.fillStyle = FENCE_COLOR_U;
+  ctx.beginPath();
+  ctx.moveTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 2. Wall along v axis (SE-facing, slightly darker shaded wood)
+  ctx.fillStyle = FENCE_COLOR_V;
+  ctx.beginPath();
+  ctx.moveTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 3. Lighter top edge rail
+  ctx.fillStyle = FENCE_COLOR_TOP;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 4. Delicate vertical picket/board divisions along the fence length
+  if (pickets.length > 0) {
+    ctx.strokeStyle = FENCE_PICKET_SEAM;
+    ctx.lineWidth = 0.8 * invScale;
+    ctx.beginPath();
+    for (let i = 0; i < pickets.length; i++) {
+      const pk = pickets[i];
+      ctx.moveTo(pk.x, pk.yBottom);
+      ctx.lineTo(pk.x, pk.yTop);
+    }
+    ctx.stroke();
+  }
+
+  // 5. Crisp inner ridge separating top rail from vertical plank wall
+  ctx.strokeStyle = FENCE_RIDGE_SEAM;
+  ctx.lineWidth = 0.7 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tLeft.x, p.tLeft.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.stroke();
+
+  // 6. Stylized dark wood outer contour (~1.1px)
+  ctx.strokeStyle = FENCE_OUTLINE;
+  ctx.lineWidth = 1.1 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+function drawFencePost3D(
+  ctx: CanvasRenderingContext2D,
+  post: FencePost3D,
+  invScale: number
+) {
+  const { prism: p } = post;
+
+  // 1. Left face (along u)
+  ctx.fillStyle = FENCE_COLOR_U;
+  ctx.beginPath();
+  ctx.moveTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 2. Right face (along v)
+  ctx.fillStyle = FENCE_COLOR_V;
+  ctx.beginPath();
+  ctx.moveTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 3. Brighter wooden cap
+  ctx.fillStyle = FENCE_COLOR_TOP;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 4. Subtle front top ridge & vertical corner crease
+  ctx.strokeStyle = FENCE_RIDGE_SEAM;
+  ctx.lineWidth = 0.75 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tLeft.x, p.tLeft.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.moveTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.stroke();
+
+  // 5. Crisp dark wood outer contour
+  ctx.strokeStyle = FENCE_OUTLINE;
+  ctx.lineWidth = 1.15 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.stroke();
+}
+
 /**
- * Draws all buildings as clean 3D orthographic isometric prisms (3 shaded faces: roof,
- * left wall, right wall) in exact Painter's Algorithm back-to-front order.
- * Ground shadows are drawn in a dedicated first pass so shadows never bleed across
- * wall-to-wall touching neighbor facades.
+ * Draws all buildings and 3D wooden yard fences as clean 3D orthographic isometric prisms
+ * in exact Painter's Algorithm back-to-front order using the pre-sorted static scene cache,
+ * dynamically interleaving only moving/interactive entities (bike rack, courier) per frame.
  */
 export function renderBuildings3D(
   ctx: CanvasRenderingContext2D,
@@ -1567,41 +1644,50 @@ export function renderBuildings3D(
   entities: DepthSortedEntity[] = []
 ) {
   const invScale = 1 / Math.sqrt(zoom);
+  const staticScene = getStaticScene3DOrder(buildings);
 
-  type VisibleBuilding = {
-    b: Building;
-    p: ReturnType<typeof getBuildingPrismPoints>;
-    sx: number;
-    uMin: number;
-    uMax: number;
-    vMin: number;
-    vMax: number;
-  };
-
-  const visible: VisibleBuilding[] = [];
-  for (const b of buildings) {
-    const p = getBuildingPrismPoints(b);
-    const sx = Math.min(36, b.height * 0.23);
+  const visible: StaticScene3DItem[] = [];
+  for (let i = 0; i < staticScene.length; i++) {
+    const entry = staticScene[i];
     if (
       viewBounds &&
-      (p.bRight.x + sx < viewBounds.minX ||
-        p.bLeft.x > viewBounds.maxX ||
-        p.bFront.y < viewBounds.minY ||
-        p.tBack.y > viewBounds.maxY)
+      (entry.maxX < viewBounds.minX ||
+        entry.minX > viewBounds.maxX ||
+        entry.maxY < viewBounds.minY ||
+        entry.minY > viewBounds.maxY)
     ) {
       continue;
     }
-    visible.push({ b, p, sx, uMin: b.uMin, uMax: b.uMax, vMin: b.vMin, vMax: b.vMax });
+    visible.push(entry);
   }
 
   ctx.save();
   ctx.lineJoin = 'round';
 
-  // Pass 1: Soft grounded cast shadows (strictly below all building & vehicle geometry)
+  // Pass 1: Soft grounded cast shadows (strictly below all buildings, fences & vehicles)
   ctx.fillStyle = 'rgba(15, 23, 42, 0.19)';
   ctx.beginPath();
-  for (const { b, p, sx } of visible) {
-    const sy = Math.min(6, b.height * 0.035);
+  for (let i = 0; i < visible.length; i++) {
+    const entry = visible[i];
+    const p =
+      entry.kind === 'building'
+        ? entry.item.prism
+        : entry.kind === 'fenceSegment'
+          ? entry.segment.prism
+          : entry.post.prism;
+    const sx =
+      entry.kind === 'building'
+        ? entry.item.sx
+        : entry.kind === 'fenceSegment'
+          ? entry.segment.sx
+          : entry.post.sx;
+    const sy =
+      entry.kind === 'building'
+        ? entry.item.sy
+        : entry.kind === 'fenceSegment'
+          ? entry.segment.sy
+          : entry.post.sy;
+
     ctx.moveTo(p.bBack.x, p.bBack.y);
     ctx.lineTo(p.bBack.x + sx, p.bBack.y - sy);
     ctx.lineTo(p.bRight.x + sx, p.bRight.y - sy);
@@ -1611,16 +1697,27 @@ export function renderBuildings3D(
   }
   ctx.fill();
 
-  // Pass 2: 3D isometric building prisms interleaved with dynamic entities (bike rack, courier on bicycle)
-  // in exact back-to-front Painter's Algorithm order
+  // Pass 2: Interleave ONLY dynamic entities (bike rack, courier) into the already-sorted
+  // visible static list (buildings + 3D wooden yard fence panels & posts)
   const orderedScene = mergeEntitiesIntoBackToFrontOrder(visible, entities);
-  for (const entry of orderedScene) {
-    if (entry.kind === 'entity') {
-      entry.entity.draw(ctx);
+  for (let i = 0; i < orderedScene.length; i++) {
+    const sceneEntry = orderedScene[i];
+    if (sceneEntry.kind === 'entity') {
+      sceneEntry.entity.draw(ctx);
       continue;
     }
 
-    const { b, p } = entry.item;
+    const staticEntry = sceneEntry.item;
+    if (staticEntry.kind === 'fenceSegment') {
+      drawFenceSegment3D(ctx, staticEntry.segment, invScale);
+      continue;
+    }
+    if (staticEntry.kind === 'fencePost') {
+      drawFencePost3D(ctx, staticEntry.post, invScale);
+      continue;
+    }
+
+    const { building: b, prism: p } = staticEntry.item;
     const palette = getBuildingPalette(b.typ, b.colorVariant);
     const isSelected = b.id === selectedId;
     const isHovered = b.id === hoveredId;

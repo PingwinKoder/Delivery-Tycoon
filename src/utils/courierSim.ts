@@ -171,12 +171,25 @@ function beginReturnLeg(state: CourierState, wheelPhase: number): CourierState {
   };
 }
 
-export function stepCourier(state: CourierState, rawDt: number): CourierState {
-  if (!state.active || state.phase === 'idle') {
+export const MAX_REAL_FRAME_DT = 0.05;
+
+/**
+ * Computes scaled simulation delta time (seconds) from real frame delta and game speed
+ * multiplier (0 = paused, 1 = 1x, 2 = 2x, 4 = 4x). Clamps raw real delta first so faster
+ * speeds (2x/4x) scale proportionally without being capped. Shared by couriers and future vehicles.
+ */
+export function computeScaledSimDt(rawRealDt: number, speedMultiplier = 1): number {
+  if (!Number.isFinite(rawRealDt) || !Number.isFinite(speedMultiplier) || speedMultiplier <= 0) {
+    return 0;
+  }
+  const clampedRealDt = Math.min(Math.max(0, rawRealDt), MAX_REAL_FRAME_DT);
+  return clampedRealDt * speedMultiplier;
+}
+
+function stepCourierBySimDt(state: CourierState, dt: number): CourierState {
+  if (!state.active || state.phase === 'idle' || dt <= 0) {
     return state;
   }
-
-  const dt = Math.min(Math.max(0, rawDt), 0.05);
 
   // Stop at destination: rider has dismounted (empty bike parked on sidewalk/parking for 1.8s)
   if (state.phase === 'delivering') {
@@ -191,7 +204,7 @@ export function stepCourier(state: CourierState, rawDt: number): CourierState {
 
     const returnState = beginReturnLeg(state, state.wheelPhase);
     const leftoverDt = -remaining;
-    return leftoverDt > 1e-6 ? stepCourier(returnState, leftoverDt) : returnState;
+    return leftoverDt > 1e-6 ? stepCourierBySimDt(returnState, leftoverDt) : returnState;
   }
 
   if (state.path.length < 2) {
@@ -280,4 +293,27 @@ export function stepCourier(state: CourierState, rawDt: number): CourierState {
     traveledDistance: Math.min(state.totalDistance, traveled),
     wheelPhase: nextWheelPhase,
   };
+}
+
+/**
+ * Advances a courier using an already-scaled simulation delta time (seconds).
+ * Designed so couriers and future fleet vehicles share the exact same scaled simDt per frame.
+ */
+export function stepCourierWithSimDt(state: CourierState, simDt: number): CourierState {
+  if (!Number.isFinite(simDt) || simDt <= 0) {
+    return state;
+  }
+  return stepCourierBySimDt(state, simDt);
+}
+
+/**
+ * Advances a courier from real frame delta time and game speed multiplier (0, 1, 2, 4).
+ */
+export function stepCourier(
+  state: CourierState,
+  rawDt: number,
+  speedMultiplier = 1
+): CourierState {
+  const simDt = computeScaledSimDt(rawDt, speedMultiplier);
+  return stepCourierWithSimDt(state, simDt);
 }
