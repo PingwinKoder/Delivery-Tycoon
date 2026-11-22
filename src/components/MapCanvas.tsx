@@ -8,11 +8,14 @@ import {
   type BuildingSpriteCache,
   type FenceSpriteCache,
   type ProceduralTextures,
+  STATIC_GROUND_BUFFER_SCALE,
+  STATIC_GROUND_TILE_PIXEL_SIZE,
   type StaticGroundBuffer,
   buildBuildingSpriteCache,
   buildFenceSpriteCache,
   buildStaticGroundBuffer,
   createProceduralTextures,
+  disposeStaticGroundBuffer,
   drawStaticGroundBuffer,
   renderBuildings3D,
   renderStreetNames,
@@ -380,7 +383,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
     };
 
-    // Pre-build static ground buffer & individual 3D building sprites once on mount
+    // Pre-build 2x tiled static ground buffer & individual 3D building sprites once on mount
+    // (rebuilt strictly when road grid, footprint mode, warehouse tier, or parking spots change)
     const ensureStaticCaches = () => {
       const {
         graph: curGraph,
@@ -402,6 +406,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             parkingNavNetworks: curParkingNavNetworks,
             showGrid: gridVisible,
             footprintOnly: isFootprintOnly,
+            scale: STATIC_GROUND_BUFFER_SCALE,
+            tilePixelSize: STATIC_GROUND_TILE_PIXEL_SIZE,
           },
           groundKey,
           groundBufferRef.current
@@ -926,11 +932,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       ctx.save();
       ctx.setTransform(dprX, 0, 0, dprY, 0, 0);
       ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       ctx.fillStyle = '#161b22';
       ctx.fillRect(0, 0, vw, vh);
 
-      // Apply camera transform once for ground blit & dynamic overlays
+      // Apply camera transform once for tiled ground blit & dynamic overlays
       ctx.translate(vw / 2, vh / 2);
       ctx.scale(effectiveZoom, effectiveZoom);
       ctx.translate(-cam.x, -cam.y);
@@ -944,7 +951,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         maxY: cam.y + halfGroundH,
       };
 
-      // 1. Single cropped drawImage of pre-rendered static ground (terrain, roads, markings, parking, optional 2D footprints & road grid)
+      // 1. Blit only camera-visible 2x static ground tiles (terrain, roads, markings, parking, optional 2D footprints & road grid)
       if (groundBufferRef.current) {
         drawStaticGroundBuffer(ctx, groundBufferRef.current, groundViewBounds);
       }
@@ -1106,6 +1113,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onWindowBlur);
       pressedArrowKeysRef.current.clear();
+      disposeStaticGroundBuffer(groundBufferRef.current);
+      groundBufferRef.current = null;
     };
   }, []);
 

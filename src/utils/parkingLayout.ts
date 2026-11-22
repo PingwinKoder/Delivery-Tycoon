@@ -750,3 +750,161 @@ export function computeBaseParkingLayout(parking: BaseParkingSpec): BaseParkingL
     rows,
   };
 }
+
+export interface ParkingContourSegment {
+  u1: number;
+  v1: number;
+  u2: number;
+  v2: number;
+}
+
+export interface ParkingStallRun {
+  startIndex: number;
+  endIndex: number;
+  start: number;
+  end: number;
+}
+
+export const PARKING_GROUND_STYLE = {
+  inkOutline: '#1e293b',
+  inkDark: '#262b33',
+  curbFill: '#dfd9ce',
+  curbHighlight: '#eee9df',
+  asphaltFill: '#424852',
+  asphaltInnerShade: '#363c46',
+  islandFill: '#333942',
+  stallLine: '#f8fafc',
+  hazardYellow: '#facc15',
+  hazardAmber: '#f59e0b',
+  hazardGraphite: '#262b33',
+} as const;
+
+/**
+ * Groups contiguous stall spans into runs separated by driveway entrance cutouts
+ * so back curb lines break cleanly across open entrance mouths.
+ */
+export function groupContiguousStallRuns(
+  stalls: readonly ParkingStallSpan[]
+): ParkingStallRun[] {
+  const runs: ParkingStallRun[] = [];
+  let runStart = 0;
+  while (runStart < stalls.length) {
+    let runEnd = runStart;
+    while (
+      runEnd + 1 < stalls.length &&
+      Math.abs(stalls[runEnd + 1].start - stalls[runEnd].end) < 0.5
+    ) {
+      runEnd++;
+    }
+    runs.push({
+      startIndex: runStart,
+      endIndex: runEnd,
+      start: stalls[runStart].start,
+      end: stalls[runEnd].end,
+    });
+    runStart = runEnd + 1;
+  }
+  return runs;
+}
+
+/**
+ * Builds outer perimeter line segments for an isometric rectangle `[uMin..uMax] x [vMin..vMax]`
+ * while leaving clean open mouths on any specified entrance gaps.
+ */
+export function computeRectPerimeterWithGaps(
+  uMin: number,
+  uMax: number,
+  vMin: number,
+  vMax: number,
+  gaps: ReadonlyArray<{ side: ParkingEdgeSide; min: number; max: number }> = []
+): ParkingContourSegment[] {
+  const segments: ParkingContourSegment[] = [];
+
+  const emitSide = (
+    side: ParkingEdgeSide,
+    fixedCoord: number,
+    spanMin: number,
+    spanMax: number,
+    alongU: boolean
+  ) => {
+    const sideGaps = gaps
+      .filter((g) => g.side === side)
+      .map((g) => ({
+        min: Math.max(spanMin, g.min),
+        max: Math.min(spanMax, g.max),
+      }))
+      .filter((g) => g.max > g.min + 0.1)
+      .sort((a, b) => a.min - b.min);
+
+    let cursor = spanMin;
+    for (const gap of sideGaps) {
+      if (gap.min > cursor + 0.1) {
+        if (alongU) {
+          segments.push({ u1: cursor, v1: fixedCoord, u2: gap.min, v2: fixedCoord });
+        } else {
+          segments.push({ u1: fixedCoord, v1: cursor, u2: fixedCoord, v2: gap.min });
+        }
+      }
+      cursor = Math.max(cursor, gap.max);
+    }
+    if (spanMax > cursor + 0.1) {
+      if (alongU) {
+        segments.push({ u1: cursor, v1: fixedCoord, u2: spanMax, v2: fixedCoord });
+      } else {
+        segments.push({ u1: fixedCoord, v1: cursor, u2: fixedCoord, v2: spanMax });
+      }
+    }
+  };
+
+  emitSide('vMin', vMin, uMin, uMax, true);
+  emitSide('vMax', vMax, uMin, uMax, true);
+  emitSide('uMin', uMin, vMin, vMax, false);
+  emitSide('uMax', uMax, vMin, vMax, false);
+
+  return segments;
+}
+
+/**
+ * Returns the exact outer curb ink contour segments for a procedural parking lot,
+ * leaving its street access driveway mouth cleanly open.
+ */
+export function computeParkingLotPerimeterSegments(
+  lot: ParkingLot,
+  outset = 0
+): ParkingContourSegment[] {
+  const dw = lot.accessDriveway;
+  const gap =
+    dw.entrySide === 'uMin' || dw.entrySide === 'uMax'
+      ? { side: dw.entrySide, min: dw.vMin, max: dw.vMax }
+      : { side: dw.entrySide, min: dw.uMin, max: dw.uMax };
+
+  return computeRectPerimeterWithGaps(
+    lot.uMin - outset,
+    lot.uMax + outset,
+    lot.vMin - outset,
+    lot.vMax + outset,
+    [gap]
+  );
+}
+
+/**
+ * Returns the exact outer curb ink contour segments for the Base fleet parking lot,
+ * leaving its internal asphalt connector entrance mouth on `uMin` cleanly open.
+ */
+export function computeBaseParkingPerimeterSegments(
+  parking: BaseParkingSpec,
+  outset = 0
+): ParkingContourSegment[] {
+  const entranceSeg = parking.connectorSegments.find((seg) => seg.uMax >= parking.uMin - 1);
+  const gapMin = entranceSeg ? entranceSeg.vMin : parking.aisleV - 11;
+  const gapMax = entranceSeg ? entranceSeg.vMax : parking.aisleV + 11;
+
+  return computeRectPerimeterWithGaps(
+    parking.uMin - outset,
+    parking.uMax + outset,
+    parking.vMin - outset,
+    parking.vMax + outset,
+    [{ side: 'uMin', min: gapMin, max: gapMax }]
+  );
+}
+
