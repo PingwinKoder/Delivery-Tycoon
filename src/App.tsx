@@ -8,6 +8,7 @@ import {
   type GameSpeed,
   INITIAL_BALANCE,
   INITIAL_GAME_MINUTES,
+  getGameMinutesPerRealSecond,
 } from './utils/gameClock';
 
 const MAX_CLOCK_REAL_DT = 0.1;
@@ -24,10 +25,11 @@ export function App() {
   const canvasControllerRef = useRef<MapCanvasController | null>(null);
   const exactGameMinutesRef = useRef<number>(INITIAL_GAME_MINUTES);
 
-  // Advance world clock smoothly: at 1x, 1 real second = 1 in-game minute (2x = 2/s, 4x = 4/s, 0 = paused)
+  // Advance world clock smoothly: at 1x, 1 real second = 2 in-game minutes (2x = 4/s, 4x = 8/s, 0 = paused)
   useEffect(() => {
     if (gameSpeed === 0) return;
 
+    const minutesPerRealSecond = getGameMinutesPerRealSecond(gameSpeed);
     let rafId: number | null = null;
     let lastTime = performance.now();
 
@@ -36,7 +38,7 @@ export function App() {
       lastTime = now;
 
       const prevWhole = Math.floor(exactGameMinutesRef.current);
-      exactGameMinutesRef.current += realDt * gameSpeed;
+      exactGameMinutesRef.current += realDt * minutesPerRealSecond;
       const nextWhole = Math.floor(exactGameMinutesRef.current);
 
       if (nextWhole !== prevWhole) {

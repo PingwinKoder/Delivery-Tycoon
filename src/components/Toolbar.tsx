@@ -48,96 +48,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const formattedBalance = formatBalanceUsd(balance);
 
   return (
-    <header className="pointer-events-none fixed top-0 left-0 right-0 z-20 p-2 sm:p-3 flex flex-wrap items-start justify-between gap-2">
-      {/* Left panel: Brand & Map View Toggles */}
-      <div
-        className="pointer-events-auto max-w-full flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-white/15 shadow-lg overflow-x-auto"
-        style={{ backgroundColor: 'rgba(15, 23, 42, 0.90)' }}
-      >
-        <span className="hidden md:inline text-sm sm:text-base font-bold tracking-tight text-amber-400 whitespace-nowrap shrink-0 pr-0.5 sm:pr-1">
-          Delivery Tycoon
-        </span>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onToggleFootprintOnly();
-          }}
-          aria-pressed={footprintOnly}
-          aria-label="Podstawy budynków"
-          className={`min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-            footprintOnly
-              ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-              : 'bg-slate-800 text-slate-100 hover:bg-slate-700 border border-white/10'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span className="xl:hidden">Podstawy</span>
-          <span className="hidden xl:inline">Podstawy budynków</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onToggleStreetNames();
-          }}
-          aria-pressed={showStreetNames}
-          aria-label="Nazwy ulic"
-          className={`min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-            showStreetNames
-              ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 hover:bg-sky-500/35'
-              : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-white/10'
-          }`}
-        >
-          <Signpost className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span>Nazwy ulic</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onToggleGrid();
-          }}
-          aria-pressed={showGrid}
-          aria-label={showGrid ? 'Ukryj siatkę dróg' : 'Pokaż siatkę dróg'}
-          className="min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 bg-slate-800 text-slate-100 hover:bg-slate-700 border border-white/10 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
-        >
-          {showGrid ? (
-            <>
-              <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="xl:hidden">Ukryj siatkę</span>
-              <span className="hidden xl:inline">Ukryj siatkę dróg</span>
-            </>
-          ) : (
-            <>
-              <Eye className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="xl:hidden">Pokaż siatkę</span>
-              <span className="hidden xl:inline">Pokaż siatkę dróg</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Right panel: Economy Balance, Weekly Clock, Game Speed Controls & Orders Button */}
-      <div
-        className="pointer-events-auto w-full sm:w-auto max-w-full ml-auto flex flex-wrap items-center justify-between sm:justify-end gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-white/15 shadow-lg"
-        style={{ backgroundColor: 'rgba(15, 23, 42, 0.90)' }}
-      >
-        {/* Account Balance & Weekly Clock */}
-        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+    <header className="pointer-events-none fixed inset-x-0 top-0 z-20">
+      {/* Top-center docked status bar (flush to top: 0, solid #182030, rounded bottom corners only) */}
+      <div className="flex justify-center px-2">
+        <div className="pointer-events-auto max-w-full flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1.5 rounded-b-xl rounded-t-none bg-[#182030] border-x border-b border-t-0 border-slate-700/90 shadow-lg">
+          {/* Account Balance directly on bar surface */}
           <div
             aria-label={`Saldo konta: ${formattedBalance}`}
-            className="min-h-[40px] px-2.5 sm:px-3 rounded-lg bg-emerald-500/15 border border-emerald-400/35 flex items-center text-xs sm:text-sm font-bold text-emerald-300 font-mono-nums whitespace-nowrap shrink-0"
+            className="text-xs sm:text-sm font-bold text-emerald-400 font-mono-nums whitespace-nowrap shrink-0"
           >
             {formattedBalance}
           </div>
 
+          <div className="w-px h-5 bg-slate-700/80 shrink-0" aria-hidden="true" />
+
+          {/* Weekday, Week Number & Clock directly on bar surface */}
           <div
             aria-label={`${clock.weekday}, Tydzień ${clock.week}, godzina ${clock.timeText}`}
-            className="min-h-[40px] px-2.5 sm:px-3 rounded-lg bg-slate-800/90 border border-white/10 flex items-center gap-1.5 text-xs font-semibold text-slate-100 whitespace-nowrap shrink-0"
+            className="flex items-center gap-1 sm:gap-1.5 text-xs font-semibold text-slate-100 whitespace-nowrap shrink-0"
           >
             <Clock
               className={`w-3.5 h-3.5 shrink-0 ${
@@ -147,19 +75,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             />
             <span className="sm:hidden">{clock.weekdayShort}</span>
             <span className="hidden sm:inline">{clock.weekday}</span>
-            <span className="text-slate-400" aria-hidden="true">•</span>
-            <span className="text-slate-300">Tydz. {clock.week}</span>
-            <span className="text-slate-400" aria-hidden="true">•</span>
+            <span className="text-slate-500" aria-hidden="true">•</span>
+            <span className="sm:hidden text-slate-300">T{clock.week}</span>
+            <span className="hidden sm:inline text-slate-300">Tydz. {clock.week}</span>
+            <span className="text-slate-500" aria-hidden="true">•</span>
             <span className="font-mono-nums text-amber-300">{clock.timeText}</span>
           </div>
-        </div>
 
-        {/* Speed Controls & Orders Button */}
-        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto sm:ml-0 shrink-0">
+          <div className="w-px h-5 bg-slate-700/80 shrink-0" aria-hidden="true" />
+
+          {/* Game Speed Controls directly on bar surface */}
           <div
             role="group"
             aria-label="Tempo gry"
-            className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-900/90 border border-white/10"
+            className="flex items-center gap-0.5 shrink-0"
           >
             {GAME_SPEED_OPTIONS.map((speed) => {
               const isActive = gameSpeed === speed;
@@ -175,12 +104,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   aria-pressed={isActive}
                   aria-label={isPause ? 'Pauza' : `Tempo gry ${speed}x`}
                   title={isPause ? 'Pauza' : `Tempo ${speed}x`}
-                  className={`min-h-[36px] min-w-[36px] px-2 rounded-md text-xs font-bold flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                  className={`min-h-[36px] min-w-[32px] sm:min-w-[36px] px-1.5 sm:px-2 rounded-md text-xs font-bold flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                     isActive
                       ? isPause
                         ? 'bg-rose-500 text-white shadow-sm'
                         : 'bg-amber-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                   }`}
                 >
                   {isPause ? (
@@ -192,27 +121,101 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               );
             })}
           </div>
+        </div>
+      </div>
+
+      {/* Left Map View Toolbar & Separate Right "Zlecenia" Button
+          - On desktop (>=1120px): aligned at top-3.5 (14px), slightly lower than the top-0 docked center bar
+          - On mobile/tablet (<1120px): positioned cleanly below the docked center bar with zero overlap */}
+      <div className="fixed inset-x-0 top-[54px] min-[1120px]:top-3.5 px-2 sm:px-3 flex items-center justify-between gap-2 pointer-events-none">
+        {/* Left toolbar: 3 map view buttons only */}
+        <div className="pointer-events-auto max-w-[calc(100%-52px)] sm:max-w-none flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1.5 rounded-xl bg-[#182030] border border-slate-700/90 shadow-lg">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onToggleFootprintOnly();
+            }}
+            aria-pressed={footprintOnly}
+            aria-label="Podstawy budynków"
+            className={`min-h-[38px] sm:min-h-[40px] px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              footprintOnly
+                ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                : 'bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="2xl:hidden">Podstawy</span>
+            <span className="hidden 2xl:inline">Podstawy budynków</span>
+          </button>
 
           <button
             type="button"
             onClick={(e) => {
               e.currentTarget.blur();
-              onOpenOrders();
+              onToggleStreetNames();
             }}
-            aria-haspopup="dialog"
-            aria-expanded={ordersOpen}
-            aria-label="Zlecenia"
-            title="Zlecenia"
-            className={`min-h-[40px] min-w-[40px] px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-              ordersOpen
-                ? 'bg-amber-400 text-slate-950 shadow-sm'
-                : 'bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-sm'
+            aria-pressed={showStreetNames}
+            aria-label="Nazwy ulic"
+            className={`min-h-[38px] sm:min-h-[40px] px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              showStreetNames
+                ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 hover:bg-sky-500/35'
+                : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 border border-slate-700/80'
             }`}
           >
-            <Files className="w-4 h-4 shrink-0" aria-hidden="true" />
-            <span className="hidden sm:inline">Zlecenia</span>
+            <Signpost className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="sm:hidden">Ulice</span>
+            <span className="hidden sm:inline">Nazwy ulic</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onToggleGrid();
+            }}
+            aria-pressed={showGrid}
+            aria-label={showGrid ? 'Ukryj siatkę dróg' : 'Pokaż siatkę dróg'}
+            className="min-h-[38px] sm:min-h-[40px] px-2 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+          >
+            {showGrid ? (
+              <>
+                <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="sm:hidden">Siatka</span>
+                <span className="hidden sm:inline 2xl:hidden">Ukryj siatkę</span>
+                <span className="hidden 2xl:inline">Ukryj siatkę dróg</span>
+              </>
+            ) : (
+              <>
+                <Eye className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="sm:hidden">Siatka</span>
+                <span className="hidden sm:inline 2xl:hidden">Pokaż siatkę</span>
+                <span className="hidden 2xl:inline">Pokaż siatkę dróg</span>
+              </>
+            )}
           </button>
         </div>
+
+        {/* Separate Right "Zlecenia" Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.currentTarget.blur();
+            onOpenOrders();
+          }}
+          aria-haspopup="dialog"
+          aria-expanded={ordersOpen}
+          aria-label="Zlecenia"
+          title="Zlecenia"
+          className={`pointer-events-auto min-h-[40px] min-w-[40px] sm:min-h-[44px] px-2.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+            ordersOpen
+              ? 'bg-amber-400 text-slate-950 border-amber-300'
+              : 'bg-amber-500 text-slate-950 hover:bg-amber-400 border-amber-400/80'
+          }`}
+        >
+          <Files className="w-4 h-4 shrink-0" aria-hidden="true" />
+          <span className="hidden sm:inline">Zlecenia</span>
+        </button>
       </div>
     </header>
   );

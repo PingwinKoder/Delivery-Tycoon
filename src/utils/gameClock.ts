@@ -2,6 +2,13 @@ export type GameSpeed = 0 | 1 | 2 | 4;
 
 export const GAME_SPEED_OPTIONS: readonly GameSpeed[] = [0, 1, 2, 4];
 
+/** Base in-game clock rate at 1x speed: 1 real second = 2 in-game minutes (2x = 4/s, 4x = 8/s) */
+export const BASE_GAME_MINUTES_PER_REAL_SECOND = 2;
+
+export function getGameMinutesPerRealSecond(speed: GameSpeed): number {
+  return speed * BASE_GAME_MINUTES_PER_REAL_SECOND;
+}
+
 export const INITIAL_BALANCE = 1500;
 
 /** Initial game time: Monday (day 0), Week 1, 08:00 (480 minutes from Week 1 start) */

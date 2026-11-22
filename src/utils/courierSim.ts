@@ -1,4 +1,5 @@
 import type { Point } from '../types/roadGraph';
+import { BASE_GAME_MINUTES_PER_REAL_SECOND } from './gameClock';
 
 export type CourierPhase = 'idle' | 'outbound' | 'delivering' | 'returning';
 
@@ -176,7 +177,8 @@ export const MAX_REAL_FRAME_DT = 0.05;
 /**
  * Computes scaled simulation delta time (seconds) from real frame delta and game speed
  * multiplier (0 = paused, 1 = 1x, 2 = 2x, 4 = 4x). Clamps raw real delta first so faster
- * speeds (2x/4x) scale proportionally without being capped. Shared by couriers and future vehicles.
+ * speeds (2x/4x) scale proportionally without being capped, staying in exact lockstep with
+ * the world clock (2 / 4 / 8 game minutes per real second). Shared by couriers and future vehicles.
  */
 export function computeScaledSimDt(rawRealDt: number, speedMultiplier = 1): number {
   if (!Number.isFinite(rawRealDt) || !Number.isFinite(speedMultiplier) || speedMultiplier <= 0) {
@@ -184,6 +186,15 @@ export function computeScaledSimDt(rawRealDt: number, speedMultiplier = 1): numb
   }
   const clampedRealDt = Math.min(Math.max(0, rawRealDt), MAX_REAL_FRAME_DT);
   return clampedRealDt * speedMultiplier;
+}
+
+/**
+ * Converts a scaled simulation delta (from computeScaledSimDt) into elapsed in-game minutes
+ * using the global clock rate (1x = 2 min/s, 2x = 4 min/s, 4x = 8 min/s).
+ */
+export function simDtToGameMinutes(simDt: number): number {
+  if (!Number.isFinite(simDt) || simDt <= 0) return 0;
+  return simDt * BASE_GAME_MINUTES_PER_REAL_SECOND;
 }
 
 function stepCourierBySimDt(state: CourierState, dt: number): CourierState {
