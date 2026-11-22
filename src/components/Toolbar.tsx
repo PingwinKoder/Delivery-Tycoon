@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Building2,
   Clock,
   Eye,
   EyeOff,
@@ -26,6 +27,7 @@ interface ToolbarProps {
   gameSpeed: GameSpeed;
   isNightMode: boolean;
   ordersOpen: boolean;
+  companyOpen: boolean;
   unreadOffersCount: number;
   onToggleGrid: () => void;
   onToggleFootprintOnly: () => void;
@@ -33,6 +35,7 @@ interface ToolbarProps {
   onChangeGameSpeed: (speed: GameSpeed) => void;
   onOpenSkipTime: () => void;
   onOpenOrders: () => void;
+  onOpenCompany: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -44,6 +47,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   gameSpeed,
   isNightMode,
   ordersOpen,
+  companyOpen,
   unreadOffersCount,
   onToggleGrid,
   onToggleFootprintOnly,
@@ -51,6 +55,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onChangeGameSpeed,
   onOpenSkipTime,
   onOpenOrders,
+  onOpenCompany,
 }) => {
   const clock = getGameClockDisplay(gameMinutes);
   const formattedBalance = formatBalanceUsd(balance);
@@ -169,10 +174,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* Left Map View Toolbar & Separate Right "Zlecenia" Button
+      {/* Left Map View Toolbar & Right Stacked "Zlecenia" + "Firma" Column
           - On desktop (>=1360px): aligned at top-3.5 (14px), slightly lower than the top-0 docked center bar
           - On mobile/tablet (<1360px): positioned cleanly below the docked center bar with zero overlap */}
-      <div className="fixed inset-x-0 top-[58px] [@media(max-height:540px)]:top-[42px] min-[1360px]:top-3.5 px-2 sm:px-3 [@media(max-height:540px)]:p-1.5 flex items-center justify-between gap-2 [@media(max-height:540px)]:gap-1.5 pointer-events-none">
+      <div className="fixed inset-x-0 top-[58px] [@media(max-height:540px)]:top-[42px] min-[1360px]:top-3.5 px-2 sm:px-3 [@media(max-height:540px)]:p-1.5 flex items-start justify-between gap-2 [@media(max-height:540px)]:gap-1.5 pointer-events-none">
         {/* Left toolbar: 3 map view buttons only */}
         <div className="pointer-events-auto max-w-[calc(100%-52px)] sm:max-w-none flex items-center gap-1 sm:gap-1.5 [@media(max-height:540px)]:gap-1 px-1.5 sm:px-2 [@media(max-height:540px)]:px-1.5 py-1.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] [@media(max-height:540px)]:bg-slate-900/95 border border-slate-700/90 shadow-lg">
           <button
@@ -241,42 +246,64 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         </div>
 
-        {/* Separate Right "Zlecenia" Button with unread newly-generated offers badge */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onOpenOrders();
-          }}
-          aria-haspopup="dialog"
-          aria-expanded={ordersOpen}
-          aria-label={
-            unreadOffersCount > 0
-              ? `Zlecenia (${unreadOffersCount} nieprzeczytanych ofert)`
-              : 'Zlecenia'
-          }
-          title={
-            unreadOffersCount > 0
-              ? `Zlecenia (${unreadOffersCount} nowych ofert)`
-              : 'Zlecenia'
-          }
-          className={`relative pointer-events-auto min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold flex items-center justify-center gap-2 [@media(max-height:540px)]:gap-1.5 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-            ordersOpen
-              ? 'bg-amber-400 text-slate-950 border-amber-300'
-              : 'bg-amber-500 text-slate-950 hover:bg-amber-400 border-amber-400/80'
-          }`}
-        >
-          <Files className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
-          <span className="hidden sm:inline">Zlecenia</span>
-          {unreadOffersCount > 0 && (
-            <span
-              aria-hidden="true"
-              className="absolute -top-1.5 -right-1.5 [@media(max-height:540px)]:-top-1 [@media(max-height:540px)]:-right-1 min-w-[20px] h-5 [@media(max-height:540px)]:min-w-[16px] [@media(max-height:540px)]:h-4 px-1.5 [@media(max-height:540px)]:px-1 rounded-full bg-rose-600 text-white text-[11px] [@media(max-height:540px)]:text-[10px] font-bold font-mono-nums leading-none flex items-center justify-center border border-slate-950/90 shadow-md pointer-events-none"
-            >
-              {unreadOffersCount}
-            </span>
-          )}
-        </button>
+        {/* Right Vertical Action Column: "Zlecenia" + "Firma" directly underneath */}
+        <div className="flex flex-col items-stretch gap-1.5 shrink-0 pointer-events-none">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onOpenOrders();
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={ordersOpen}
+            aria-label={
+              unreadOffersCount > 0
+                ? `Zlecenia (${unreadOffersCount} nieprzeczytanych ofert)`
+                : 'Zlecenia'
+            }
+            title={
+              unreadOffersCount > 0
+                ? `Zlecenia (${unreadOffersCount} nowych ofert)`
+                : 'Zlecenia'
+            }
+            className={`relative pointer-events-auto min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold flex items-center justify-center gap-2 [@media(max-height:540px)]:gap-1.5 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              ordersOpen
+                ? 'bg-amber-400 text-slate-950 border-amber-300'
+                : 'bg-amber-500 text-slate-950 hover:bg-amber-400 border-amber-400/80'
+            }`}
+          >
+            <Files className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
+            <span className="hidden sm:inline">Zlecenia</span>
+            {unreadOffersCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute -top-1.5 -right-1.5 [@media(max-height:540px)]:-top-1 [@media(max-height:540px)]:-right-1 min-w-[20px] h-5 [@media(max-height:540px)]:min-w-[16px] [@media(max-height:540px)]:h-4 px-1.5 [@media(max-height:540px)]:px-1 rounded-full bg-rose-600 text-white text-[11px] [@media(max-height:540px)]:text-[10px] font-bold font-mono-nums leading-none flex items-center justify-center border border-slate-950/90 shadow-md pointer-events-none"
+              >
+                {unreadOffersCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onOpenCompany();
+            }}
+            aria-haspopup="dialog"
+            aria-expanded={companyOpen}
+            aria-label="Firma"
+            title="Firma — stan przedsiębiorstwa i rozbudowa"
+            className={`pointer-events-auto min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold flex items-center justify-center gap-2 [@media(max-height:540px)]:gap-1.5 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              companyOpen
+                ? 'bg-slate-800 text-amber-300 border-amber-400/70'
+                : 'bg-slate-900/95 text-slate-100 hover:bg-slate-800 border-slate-700/80'
+            }`}
+          >
+            <Building2 className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0 text-amber-400" aria-hidden="true" />
+            <span className="hidden sm:inline">Firma</span>
+          </button>
+        </div>
       </div>
     </header>
   );

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { INITIAL_ROAD_GRAPH } from './data/initialRoadGraph';
+import { CompanyModal } from './components/CompanyModal';
 import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
 import { OrdersModal } from './components/OrdersModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
@@ -55,6 +56,7 @@ export function App() {
   // Tracks whether all couriers are currently parked at Base (required for automatic 15x Night Mode)
   const [allCouriersAtBase, setAllCouriersAtBase] = useState<boolean>(true);
   const [ordersOpen, setOrdersOpen] = useState<boolean>(false);
+  const [companyOpen, setCompanyOpen] = useState<boolean>(false);
   const [skipTimeOpen, setSkipTimeOpen] = useState<boolean>(false);
   const [fps, setFps] = useState<number | null>(null);
 
@@ -152,6 +154,7 @@ export function App() {
 
   const handleOpenOrders = useCallback(() => {
     setSkipTimeOpen(false);
+    setCompanyOpen(false);
     setOrdersOpen(true);
   }, []);
 
@@ -159,8 +162,19 @@ export function App() {
     setOrdersOpen(false);
   }, []);
 
+  const handleOpenCompany = useCallback(() => {
+    setOrdersOpen(false);
+    setSkipTimeOpen(false);
+    setCompanyOpen(true);
+  }, []);
+
+  const handleCloseCompany = useCallback(() => {
+    setCompanyOpen(false);
+  }, []);
+
   const handleOpenSkipTime = useCallback(() => {
     setOrdersOpen(false);
+    setCompanyOpen(false);
     setSkipTimeOpen(true);
   }, []);
 
@@ -340,7 +354,7 @@ export function App() {
         gameSpeed={gameSpeed}
         gameMinutesRef={exactGameMinutesRef}
         economyStateRef={economyStateRef}
-        interactionBlocked={ordersOpen || skipTimeOpen}
+        interactionBlocked={ordersOpen || skipTimeOpen || companyOpen}
         onFpsChange={setFps}
         onCourierAtBaseChange={handleCourierAtBaseChange}
         onLoadFromWarehouse={handleLoadFromWarehouse}
@@ -350,10 +364,10 @@ export function App() {
         controllerRef={canvasControllerRef}
       />
 
-      {/* Compact, discreet FPS counter in top-right corner (cleanly below "Zlecenia" button) */}
+      {/* Compact, discreet FPS counter in top-right corner (cleanly below "Zlecenia" + "Firma" column) */}
       <div
         aria-label={fps !== null ? `Wydajność: ${fps} klatek na sekundę` : 'Pomiar FPS'}
-        className="fixed right-2 sm:right-3 top-[106px] sm:top-[110px] min-[1360px]:top-[66px] z-20 pointer-events-none select-none px-2 py-0.5 rounded-md bg-[#182030]/85 border border-slate-700/80 shadow-sm text-[11px] font-semibold font-mono-nums leading-tight flex items-center gap-1"
+        className="fixed right-2 sm:right-3 [@media(max-height:540px)]:right-1.5 top-[152px] sm:top-[160px] [@media(max-height:540px)]:top-[122px] min-[1360px]:top-[116px] z-20 pointer-events-none select-none px-2 py-0.5 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] font-semibold font-mono-nums leading-tight flex items-center gap-1"
       >
         <span
           className={
@@ -380,6 +394,7 @@ export function App() {
         gameSpeed={gameSpeed}
         isNightMode={isNightMode}
         ordersOpen={ordersOpen}
+        companyOpen={companyOpen}
         unreadOffersCount={unreadOffersCount}
         onToggleGrid={handleToggleGrid}
         onToggleFootprintOnly={handleToggleFootprintOnly}
@@ -387,6 +402,7 @@ export function App() {
         onChangeGameSpeed={handleChangeGameSpeed}
         onOpenSkipTime={handleOpenSkipTime}
         onOpenOrders={handleOpenOrders}
+        onOpenCompany={handleOpenCompany}
       />
 
       <OrdersModal
@@ -398,6 +414,12 @@ export function App() {
         onAcceptOffer={handleAcceptOffer}
         onRejectOffer={handleRejectOffer}
         onMoveWeeklyTaskPriority={handleMoveWeeklyTaskPriority}
+      />
+
+      <CompanyModal
+        isOpen={companyOpen}
+        economyState={economyState}
+        onClose={handleCloseCompany}
       />
 
       <SkipTimeModal
