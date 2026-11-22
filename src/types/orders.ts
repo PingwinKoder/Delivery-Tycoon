@@ -171,6 +171,38 @@ export interface WeeklyOrderSettlementResult {
   terminated: boolean;
 }
 
+export type EmployeeRole = 'owner_bike_courier' | 'bike_courier' | 'van_driver';
+
+export type HirableEmployeeRole = Exclude<EmployeeRole, 'owner_bike_courier'>;
+
+export interface CompanyEmployee {
+  id: string;
+  name: string;
+  role: EmployeeRole;
+  /** True for the starter player-owner courier ($0/mies. salary, only $90/mies. courier insurance) */
+  isOwner: boolean;
+  /** Monthly salary in USD ($0 owner, $1 650 bike courier, $2 300 van driver) */
+  monthlySalary: number;
+  /** Monthly insurance in USD ($90 courier insurance, $180 driver & van insurance) */
+  monthlyInsurance: number;
+  hiredAtGameDay: number;
+}
+
+export interface MonthlyCostBreakdown {
+  /** Fixed base tax & upkeep cost ($350) */
+  baseUpkeepAndTaxCost: number;
+  /** Total monthly salaries for all hired employees ($0 for owner) */
+  salariesCost: number;
+  /** Total monthly insurance for owner + hired bike couriers ($90 each) */
+  courierInsuranceCost: number;
+  /** Total monthly driver & vehicle insurance for hired van drivers ($180 each) */
+  vanInsuranceCost: number;
+  /** Combined monthly insurance cost (courierInsuranceCost + vanInsuranceCost) */
+  insuranceCost: number;
+  /** Total monthly operating costs (baseUpkeepAndTaxCost + salariesCost + insuranceCost) */
+  totalFixedCosts: number;
+}
+
 export interface MonthlySettlementRecord {
   id: string;
   /** Calendar year of the 1st-of-month settlement date */
@@ -182,9 +214,15 @@ export interface MonthlySettlementRecord {
   settledPeriodLabel: string;
   /** Fixed base tax & upkeep cost ($350) */
   baseUpkeepAndTaxCost: number;
-  /** Fixed vehicle service & insurance cost ($90) */
-  serviceAndInsuranceCost: number;
-  /** Total monthly fixed costs ($440) */
+  /** Total monthly employee salaries billed on this settlement */
+  salariesCost: number;
+  /** Monthly courier insurance cost ($90 per bike courier including owner) */
+  courierInsuranceCost: number;
+  /** Monthly van driver & vehicle insurance cost ($180 per van driver) */
+  vanInsuranceCost: number;
+  /** Combined monthly insurance cost (courierInsuranceCost + vanInsuranceCost) */
+  insuranceCost: number;
+  /** Total monthly fixed/operating costs (base upkeep + salaries + insurance) */
   totalFixedCosts: number;
   /** Accumulated payout for packages delivered in the previous month under long-term contracts */
   longTermContractPayout: number;
@@ -280,6 +318,12 @@ export interface OrderEconomyState {
   parkingSpots: number;
   /** Number of unlocked employee licenses/slots (starts at 1, max 6) */
   maxEmployees: number;
+  /** Active company staff roster (starts with 1 owner-courier at $0 salary + $90 courier insurance) */
+  employees: CompanyEmployee[];
+  /** Number of owned bicycles including the owner's starter bike (starts at 1, max MAX_BICYCLES = 3) */
+  bicyclesCount: number;
+  /** Number of owned delivery vans (starts at 0, prepared for future vehicle fleet) */
+  deliveryVansCount: number;
   /** Pending offers waiting to be accepted (max 7 at once, expire after 4 days) */
   pendingOffers: OrderOffer[];
   /** Currently signed & ongoing orders (no upper limit) */

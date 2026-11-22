@@ -43,7 +43,7 @@ export function App() {
   );
   const [gameMinutes, setGameMinutes] = useState<number>(INITIAL_GAME_MINUTES);
   const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
-  // Prepared flag for future courier shift simulation: night mode 12x engages once all couriers return to base
+  // Prepared flag for future courier shift simulation: night mode 15x engages once all couriers return to base
   const [allCouriersAtBase] = useState<boolean>(true);
   const [ordersOpen, setOrdersOpen] = useState<boolean>(false);
   const [skipTimeOpen, setSkipTimeOpen] = useState<boolean>(false);
@@ -60,7 +60,7 @@ export function App() {
   // Advance world clock smoothly:
   // - Pause (0x) always stops time completely
   // - Daytime runs at user's chosen speed (1x/2x/4x -> 2/4/8 in-game min/s)
-  // - Night hours (from seasonal closing time until 08:00) auto-switch to 12x when allCouriersAtBase is true
+  // - Night hours (from seasonal closing time until 08:00) auto-switch to 15x when allCouriersAtBase is true
   useEffect(() => {
     if (gameSpeed === 0) return;
 
@@ -79,7 +79,7 @@ export function App() {
 
       let nextExact = currentExact + realDt * minutesPerRealSecond;
 
-      // When waking up from 12x Night Mode at 08:00, snap cleanly to 08:00 so player speed resumes accurately
+      // When waking up from 15x Night Mode at 08:00, snap cleanly to 08:00 so player speed resumes accurately
       if (isNightNow && !isNightHoursForTime(nextExact)) {
         const morningDay = Math.floor(nextExact / MINUTES_PER_DAY);
         nextExact = morningDay * MINUTES_PER_DAY + WORKDAY_START_MINUTES;

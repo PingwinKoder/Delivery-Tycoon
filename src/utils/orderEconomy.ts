@@ -4,9 +4,12 @@ import type {
   ActiveLongTermOrder,
   ActiveOrder,
   ActiveShortTermOrder,
+  CompanyEmployee,
   EmployeeLicenseUpgradeInfo,
+  HirableEmployeeRole,
   LongTermDurationMonths,
   LongTermOrderOffer,
+  MonthlyCostBreakdown,
   MonthlySettlementRecord,
   OrderDeliveryStop,
   OrderEconomyState,
@@ -47,17 +50,31 @@ import {
 
 /** Monthly fixed cost: tax & upkeep for Base Lv. 1 */
 export const BASE_UPKEEP_AND_TAX_COST = 350;
-/** Monthly fixed cost: vehicle service & liability insurance (OC) */
-export const SERVICE_AND_INSURANCE_COST = 90;
-/** Total mandatory fixed company costs billed on the 1st of every new month */
-export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + SERVICE_AND_INSURANCE_COST; // $440
+/** Monthly fixed cost: courier insurance ($90 / mies. per bike courier, including owner) */
+export const COURIER_INSURANCE_COST = 90;
+/** Monthly fixed cost: delivery van driver & vehicle insurance ($180 / mies. per van driver) */
+export const VAN_DRIVER_INSURANCE_COST = 180;
+
+/** Monthly salaries per employee role */
+export const OWNER_COURIER_SALARY = 0;
+export const HIRED_BIKE_COURIER_SALARY = 1650;
+export const HIRED_VAN_DRIVER_SALARY = 2300;
+
+/** Starter monthly fixed company costs at game start (Base Lv.1 $350 + owner courier insurance $90 = $440) */
+export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + COURIER_INSURANCE_COST; // $440
 
 // ============================================================================
-// Bike Courier Capacity, Base Warehouse & 3 Independent Upgrade Paths
+// Bike Fleet Limit, Courier Capacity, Base Warehouse & 3 Independent Upgrade Paths
 // ============================================================================
 
 /** Maximum packages a bicycle courier can carry in a single pickup or delivery run */
 export const BIKE_COURIER_CAPACITY = 5;
+
+/** Bicycle fleet configuration (includes owner's starter bike; up to 2 extra bikes at $450 each) */
+export const INITIAL_BICYCLES = 1;
+export const MAX_BICYCLES = 3;
+export const MAX_ADDITIONAL_BICYCLES = MAX_BICYCLES - INITIAL_BICYCLES; // 2
+export const BICYCLE_PURCHASE_COST = 450;
 
 /** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity & depot building size */
 export const WAREHOUSE_TIERS: readonly WarehouseTierConfig[] = [
@@ -138,8 +155,8 @@ export const REPUTATION_TIERS: readonly ReputationTierConfig[] = [
     minCompletedOrders: 0,
     maxCompletedOrders: 14,
     minAnnualSatisfaction: null,
-    ratePerPackageMin: 4.0,
-    ratePerPackageMax: 6.5,
+    ratePerPackageMin: 5.5,
+    ratePerPackageMax: 8.0,
     maxShortTermDays: 7,
     allowedLongTermMonths: [],
   },
@@ -149,8 +166,8 @@ export const REPUTATION_TIERS: readonly ReputationTierConfig[] = [
     minCompletedOrders: 15,
     maxCompletedOrders: 39,
     minAnnualSatisfaction: 72,
-    ratePerPackageMin: 5.0,
-    ratePerPackageMax: 8.0,
+    ratePerPackageMin: 7.0,
+    ratePerPackageMax: 10.5,
     maxShortTermDays: 14,
     allowedLongTermMonths: [3],
   },
@@ -160,8 +177,8 @@ export const REPUTATION_TIERS: readonly ReputationTierConfig[] = [
     minCompletedOrders: 40,
     maxCompletedOrders: 84,
     minAnnualSatisfaction: 82,
-    ratePerPackageMin: 6.5,
-    ratePerPackageMax: 10.0,
+    ratePerPackageMin: 9.0,
+    ratePerPackageMax: 13.5,
     maxShortTermDays: 14,
     allowedLongTermMonths: [3, 6],
   },
@@ -171,8 +188,8 @@ export const REPUTATION_TIERS: readonly ReputationTierConfig[] = [
     minCompletedOrders: 85,
     maxCompletedOrders: null,
     minAnnualSatisfaction: 90,
-    ratePerPackageMin: 8.0,
-    ratePerPackageMax: 13.0,
+    ratePerPackageMin: 11.5,
+    ratePerPackageMax: 17.0,
     maxShortTermDays: 14,
     allowedLongTermMonths: [3, 6, 12],
   },
@@ -659,6 +676,15 @@ export function createInitialOrderEconomyState(
   const startDate = getCalendarDateFromElapsedDays(0);
 
   const starterWarehouse = getWarehouseTierConfig(INITIAL_WAREHOUSE_TIER);
+  const ownerCourier: CompanyEmployee = {
+    id: 'emp-owner',
+    name: 'Właściciel',
+    role: 'owner_bike_courier',
+    isOwner: true,
+    monthlySalary: OWNER_COURIER_SALARY,
+    monthlyInsurance: COURIER_INSURANCE_COST,
+    hiredAtGameDay: startDate.gameDay,
+  };
 
   const baseState: OrderEconomyState = {
     balance: INITIAL_BALANCE,
@@ -674,6 +700,9 @@ export function createInitialOrderEconomyState(
     warehouseInventory: {},
     parkingSpots: INITIAL_PARKING_SPOTS,
     maxEmployees: INITIAL_MAX_EMPLOYEES,
+    employees: [ownerCourier],
+    bicyclesCount: INITIAL_BICYCLES,
+    deliveryVansCount: 0,
     pendingOffers: [],
     activeOrders: [],
     archivedOrders: [],
@@ -690,6 +719,122 @@ export function createInitialOrderEconomyState(
 
   // Day 1 starts with 2 unread offers immediately available
   return generateOffersBatch(baseState, INITIAL_OFFERS_COUNT, INITIAL_GAME_MINUTES, buildings);
+}
+
+// ============================================================================
+// Employee Salaries, Insurance, Monthly Cost Breakdown & Bicycle Fleet Helpers
+// ============================================================================
+
+/**
+ * Computes the complete monthly operating cost breakdown for the 1st-of-month settlement
+ * and OrdersModal monthly forecast:
+ * - Base tax & upkeep ($350)
+ * - Owner-courier: $0 salary + $90 courier insurance
+ * - Hired bike couriers: $1 650 salary + $90 courier insurance each
+ * - Hired delivery van drivers: $2 300 salary + $180 driver & vehicle insurance each
+ */
+export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyCostBreakdown {
+  let salariesCost = 0;
+  let courierInsuranceCost = 0;
+  let vanInsuranceCost = 0;
+
+  for (const emp of state.employees) {
+    salariesCost += emp.isOwner ? OWNER_COURIER_SALARY : emp.monthlySalary;
+    if (emp.role === 'van_driver') {
+      vanInsuranceCost += emp.monthlyInsurance;
+    } else {
+      courierInsuranceCost += emp.monthlyInsurance;
+    }
+  }
+
+  salariesCost = roundCurrency(salariesCost);
+  courierInsuranceCost = roundCurrency(courierInsuranceCost);
+  vanInsuranceCost = roundCurrency(vanInsuranceCost);
+  const insuranceCost = roundCurrency(courierInsuranceCost + vanInsuranceCost);
+  const totalFixedCosts = roundCurrency(BASE_UPKEEP_AND_TAX_COST + salariesCost + insuranceCost);
+
+  return {
+    baseUpkeepAndTaxCost: BASE_UPKEEP_AND_TAX_COST,
+    salariesCost,
+    courierInsuranceCost,
+    vanInsuranceCost,
+    insuranceCost,
+    totalFixedCosts,
+  };
+}
+
+/**
+ * Purchases an additional bicycle ($450 each) up to MAX_BICYCLES = 3 (including owner's starter bike).
+ */
+export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult {
+  if (state.bicyclesCount >= MAX_BICYCLES) {
+    return { state, purchased: false, cost: 0, reason: 'max_reached' };
+  }
+  if (state.balance < BICYCLE_PURCHASE_COST) {
+    return { state, purchased: false, cost: BICYCLE_PURCHASE_COST, reason: 'insufficient_funds' };
+  }
+
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - BICYCLE_PURCHASE_COST),
+      bicyclesCount: state.bicyclesCount + 1,
+    },
+    purchased: true,
+    cost: BICYCLE_PURCHASE_COST,
+  };
+}
+
+/**
+ * Hires an additional employee (bike courier or van driver) if an unlocked employee license slot is free.
+ */
+export function hireEmployee(
+  state: OrderEconomyState,
+  role: HirableEmployeeRole,
+  name?: string,
+  currentGameDay?: number
+): { state: OrderEconomyState; hired: boolean; employee?: CompanyEmployee } {
+  if (state.employees.length >= state.maxEmployees) {
+    return { state, hired: false };
+  }
+
+  const isVanDriver = role === 'van_driver';
+  const monthlySalary = isVanDriver ? HIRED_VAN_DRIVER_SALARY : HIRED_BIKE_COURIER_SALARY;
+  const monthlyInsurance = isVanDriver ? VAN_DRIVER_INSURANCE_COST : COURIER_INSURANCE_COST;
+  const staffIndex = state.employees.length + 1;
+  const hiredAtGameDay =
+    currentGameDay ?? Math.floor(state.lastProcessedMinutes / MINUTES_PER_DAY) + 1;
+
+  const employee: CompanyEmployee = {
+    id: `emp-${staffIndex}-${hiredAtGameDay}`,
+    name: name ?? (isVanDriver ? `Kierowca #${staffIndex - 1}` : `Kurier #${staffIndex - 1}`),
+    role,
+    isOwner: false,
+    monthlySalary,
+    monthlyInsurance,
+    hiredAtGameDay,
+  };
+
+  return {
+    state: {
+      ...state,
+      employees: [...state.employees, employee],
+    },
+    hired: true,
+    employee,
+  };
+}
+
+/**
+ * Dismisses a hired employee by ID. The starter owner-courier cannot be dismissed.
+ */
+export function dismissEmployee(state: OrderEconomyState, employeeId: string): OrderEconomyState {
+  const target = state.employees.find((emp) => emp.id === employeeId);
+  if (!target || target.isOwner) return state;
+  return {
+    ...state,
+    employees: state.employees.filter((emp) => emp.id !== employeeId),
+  };
 }
 
 // ============================================================================
@@ -1493,7 +1638,8 @@ export function settleWeeklySatisfaction(
 
 /**
  * Executes the automatic 1st-of-month financial settlement (starting 1 Lipiec, Rok 1):
- * - Deducts $440 fixed costs ($350 base Lv.1 upkeep/tax + $90 service & OC)
+ * - Deducts Base Lv.1 upkeep/tax ($350) + monthly employee salaries + courier/driver insurance
+ *   ($440 at start with owner-courier only: $350 base + $0 owner salary + $90 courier insurance)
  * - Pays out accumulated long-term contract earnings from the previous month
  */
 export function processMonthlySettlement(
@@ -1509,8 +1655,9 @@ export function processMonthlySettlement(
     settlementDate.monthIndex === 0 ? settlementDate.year - 1 : settlementDate.year;
   const prevMonthName = POLISH_MONTHS[prevMonthIndex].name;
 
+  const monthlyCosts = calculateMonthlyCompanyCosts(state);
   const longTermContractPayout = roundCurrency(state.pendingMonthlyLongTermPayout);
-  const netChange = roundCurrency(longTermContractPayout - MONTHLY_FIXED_COSTS);
+  const netChange = roundCurrency(longTermContractPayout - monthlyCosts.totalFixedCosts);
   const balanceAfter = roundCurrency(state.balance + netChange);
 
   const record: MonthlySettlementRecord = {
@@ -1519,9 +1666,12 @@ export function processMonthlySettlement(
     monthIndex: settlementDate.monthIndex,
     monthName: settlementDate.monthName,
     settledPeriodLabel: `${prevMonthName} Rok ${prevMonthYear}`,
-    baseUpkeepAndTaxCost: BASE_UPKEEP_AND_TAX_COST,
-    serviceAndInsuranceCost: SERVICE_AND_INSURANCE_COST,
-    totalFixedCosts: MONTHLY_FIXED_COSTS,
+    baseUpkeepAndTaxCost: monthlyCosts.baseUpkeepAndTaxCost,
+    salariesCost: monthlyCosts.salariesCost,
+    courierInsuranceCost: monthlyCosts.courierInsuranceCost,
+    vanInsuranceCost: monthlyCosts.vanInsuranceCost,
+    insuranceCost: monthlyCosts.insuranceCost,
+    totalFixedCosts: monthlyCosts.totalFixedCosts,
     longTermContractPayout,
     netChange,
     balanceAfter,

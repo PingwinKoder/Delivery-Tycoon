@@ -13,7 +13,6 @@ import {
 import {
   GAME_SPEED_OPTIONS,
   type GameSpeed,
-  NIGHT_MODE_SPEED,
   formatBalanceUsd,
   getGameClockDisplay,
 } from '../utils/gameClock';
@@ -109,23 +108,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             >
               {clock.timeText}
             </span>
-            {isNightMode && (
-              <>
-                <span className="hidden sm:inline text-slate-500" aria-hidden="true">|</span>
-                <span
-                  aria-label={`Tryb nocy ${NIGHT_MODE_SPEED}x`}
-                  className="hidden sm:inline font-mono-nums text-indigo-300 font-bold"
-                >
-                  Noc {NIGHT_MODE_SPEED}x
-                </span>
-                <span
-                  aria-label={`Tryb nocy ${NIGHT_MODE_SPEED}x`}
-                  className="sm:hidden font-mono-nums text-indigo-300 font-bold text-[10px]"
-                >
-                  {NIGHT_MODE_SPEED}x
-                </span>
-              </>
-            )}
           </div>
 
           <div className="w-px h-5 bg-slate-700/80 shrink-0" aria-hidden="true" />

@@ -12,7 +12,7 @@ import {
   getGameClockDisplay,
 } from '../utils/gameClock';
 import {
-  MONTHLY_FIXED_COSTS,
+  calculateMonthlyCompanyCosts,
   countUnreadOffers,
   formatCurrencyUsd,
   getScheduledTasksForWeekday,
@@ -153,7 +153,27 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
   const nextMonthName = POLISH_MONTHS[(clock.monthIndex + 1) % 12].name;
   const accruedLongTerm = economyState.pendingMonthlyLongTermPayout;
-  const monthlyNetForecast = roundCurrency(accruedLongTerm - MONTHLY_FIXED_COSTS);
+  const monthlyCosts = useMemo(() => calculateMonthlyCompanyCosts(economyState), [economyState]);
+  const monthlyNetForecast = roundCurrency(accruedLongTerm - monthlyCosts.totalFixedCosts);
+  const monthlyCostsBreakdownTitle = useMemo(() => {
+    const parts: string[] = [
+      `Utrzymanie i podatek Bazy: ${formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}`,
+    ];
+    if (monthlyCosts.salariesCost > 0) {
+      parts.push(`Pensje pracowników: ${formatCurrencyUsd(monthlyCosts.salariesCost, false)}`);
+    }
+    if (monthlyCosts.courierInsuranceCost > 0) {
+      parts.push(
+        `Ubezpieczenie kuriera: ${formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}`
+      );
+    }
+    if (monthlyCosts.vanInsuranceCost > 0) {
+      parts.push(
+        `Ubezpieczenie kierowców i aut: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`
+      );
+    }
+    return parts.join(' | ');
+  }, [monthlyCosts]);
 
   const weeklyColumns = useMemo(() => {
     const weekMondayGameDay = clock.gameDay - clock.dayIndex;
@@ -221,8 +241,11 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                 +{formatCurrencyUsd(accruedLongTerm, false)}
               </span>
               <span className="text-slate-500" aria-hidden="true">|</span>
-              <span className="font-mono-nums font-semibold text-rose-400 whitespace-nowrap">
-                -{formatCurrencyUsd(MONTHLY_FIXED_COSTS, false)}
+              <span
+                title={monthlyCostsBreakdownTitle}
+                className="font-mono-nums font-semibold text-rose-400 whitespace-nowrap"
+              >
+                -{formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
               </span>
               <span
                 className={`font-mono-nums font-bold whitespace-nowrap ${

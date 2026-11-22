@@ -66,6 +66,32 @@ interface MapCanvasProps {
 }
 
 const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
+const CAMERA_LERP_RATE = 18;
+const CAMERA_POS_EPSILON = 0.08;
+const CAMERA_ZOOM_EPSILON = 0.0004;
+const ARROW_PAN_SCREEN_SPEED = 560; // screen pixels per second (auto-scaled inversely to effectiveZoom)
+
+type ArrowKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
+
+function isArrowKey(key: string): key is ArrowKey {
+  return (
+    key === 'ArrowUp' ||
+    key === 'ArrowDown' ||
+    key === 'ArrowLeft' ||
+    key === 'ArrowRight'
+  );
+}
+
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    target.isContentEditable
+  );
+}
 
 export const MapCanvas: React.FC<MapCanvasProps> = ({
   graph,
@@ -87,7 +113,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
 
   const viewportRef = useRef<Size>({ width: 1440, height: 900 });
   const cameraRef = useRef<CameraState>({ x: 820, y: 1460, zoom: DEFAULT_ZOOM });
+  const targetCameraRef = useRef<CameraState>({ x: 820, y: 1460, zoom: DEFAULT_ZOOM });
   const initializedCameraRef = useRef<boolean>(false);
+  const pressedArrowKeysRef = useRef<Set<ArrowKey>>(new Set());
 
   const courierRef = useRef<CourierState>(createIdleCourier());
   const activeRouteRef = useRef<Point[]>([]);
@@ -125,6 +153,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     interactionBlocked,
   };
 
+  // Clear held arrow keys immediately whenever a modal blocks map interaction
+  useEffect(() => {
+    if (interactionBlocked) {
+      pressedArrowKeysRef.current.clear();
+    }
+  }, [interactionBlocked]);
+
   // Trigger a redraw/resume simulation whenever React props or gameSpeed change
   useEffect(() => {
     scheduleRenderRef.current();
@@ -138,7 +173,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         const focus = baseNode
           ? { x: baseNode.x + 10, y: baseNode.y - 70 }
           : { x: 820, y: 1460 };
-        cameraRef.current = createInitialCamera(viewportRef.current, MAP_SIZE, focus);
+        targetCameraRef.current = createInitialCamera(viewportRef.current, MAP_SIZE, focus);
         scheduleRenderRef.current();
       },
       dispatchCourierToBuilding: (building: Building) => {
@@ -235,15 +270,22 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         const focus = baseNode
           ? { x: baseNode.x + 10, y: baseNode.y - 70 }
           : { x: 820, y: 1460 };
-        cameraRef.current = createInitialCamera(
+        const initialCam = createInitialCamera(
           viewportRef.current,
           MAP_SIZE,
           focus
         );
+        cameraRef.current = initialCam;
+        targetCameraRef.current = initialCam;
         initializedCameraRef.current = true;
       } else {
         cameraRef.current = clampCamera(
           cameraRef.current,
+          viewportRef.current,
+          MAP_SIZE
+        );
+        targetCameraRef.current = clampCamera(
+          targetCameraRef.current,
           viewportRef.current,
           MAP_SIZE
         );
@@ -283,8 +325,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       const pos = getLocalPos(e.clientX, e.clientY);
       const dx = pos.x - pointerLastScreen.x;
       const dy = pos.y - pointerLastScreen.y;
-      cameraRef.current = panCameraByScreenDelta(
-        cameraRef.current,
+      targetCameraRef.current = panCameraByScreenDelta(
+        targetCameraRef.current,
         dx,
         dy,
         viewportRef.current,
@@ -306,7 +348,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       if (propsRef.current.interactionBlocked) return;
       e.preventDefault();
       const pos = getLocalPos(e.clientX, e.clientY);
-      const prev = cameraRef.current;
+      const prev = targetCameraRef.current;
       const next = zoomCameraByWheel(
         prev,
         e.deltaY,
@@ -317,7 +359,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         MAP_SIZE
       );
       if (next !== prev) {
-        cameraRef.current = next;
+        targetCameraRef.current = next;
         scheduleRenderRef.current();
       }
     };
@@ -364,8 +406,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         const t = touches[0];
         const dx = t.x - pointerLastScreen.x;
         const dy = t.y - pointerLastScreen.y;
-        cameraRef.current = panCameraByScreenDelta(
-          cameraRef.current,
+        targetCameraRef.current = panCameraByScreenDelta(
+          targetCameraRef.current,
           dx,
           dy,
           viewportRef.current,
@@ -382,7 +424,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
           const panDx = mid.x - pinchLastMid.x;
           const panDy = mid.y - pinchLastMid.y;
           let next = panCameraByScreenDelta(
-            cameraRef.current,
+            targetCameraRef.current,
             panDx,
             panDy,
             viewportRef.current,
@@ -397,7 +439,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
             viewportRef.current,
             MAP_SIZE
           );
-          cameraRef.current = next;
+          targetCameraRef.current = next;
           scheduleRenderRef.current();
         }
         pinchLastDist = dist;
@@ -416,6 +458,25 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       }
     };
 
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (propsRef.current.interactionBlocked) return;
+      if (isEditableEventTarget(e.target)) return;
+      if (!isArrowKey(e.key)) return;
+      e.preventDefault();
+      pressedArrowKeysRef.current.add(e.key);
+      scheduleRenderRef.current();
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!isArrowKey(e.key)) return;
+      pressedArrowKeysRef.current.delete(e.key);
+    };
+
+    const onWindowBlur = () => {
+      isPanning = false;
+      pressedArrowKeysRef.current.clear();
+    };
+
     canvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -425,6 +486,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
     canvas.addEventListener('touchmove', onTouchMove, { passive: false });
     canvas.addEventListener('touchend', onTouchEnd, { passive: false });
     canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onWindowBlur);
 
     let rafId: number | null = null;
     let lastTime = performance.now();
@@ -433,6 +497,70 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       rafId = null;
       const rawDt = (now - lastTime) / 1000;
       lastTime = now;
+      const frameDt = Math.min(Math.max(rawDt, 0), 0.05);
+
+      // Smooth arrow-key panning scaled inversely to current zoom level (blocked while modals are open)
+      const activeArrowKeys = pressedArrowKeysRef.current;
+      const arrowKeysActive = !propsRef.current.interactionBlocked && activeArrowKeys.size > 0;
+      if (arrowKeysActive && frameDt > 0) {
+        let dirX = 0;
+        let dirY = 0;
+        if (activeArrowKeys.has('ArrowLeft')) dirX -= 1;
+        if (activeArrowKeys.has('ArrowRight')) dirX += 1;
+        if (activeArrowKeys.has('ArrowUp')) dirY -= 1;
+        if (activeArrowKeys.has('ArrowDown')) dirY += 1;
+        if (dirX !== 0 || dirY !== 0) {
+          const len = Math.hypot(dirX, dirY);
+          const screenDist = ARROW_PAN_SCREEN_SPEED * frameDt;
+          // Pan camera toward arrow direction (deltaScreen = -cameraMoveScreen)
+          targetCameraRef.current = panCameraByScreenDelta(
+            targetCameraRef.current,
+            -(dirX / len) * screenDist,
+            -(dirY / len) * screenDist,
+            viewportRef.current,
+            MAP_SIZE
+          );
+        }
+      }
+
+      // Smooth frame-rate-independent camera interpolation (lerp) between current and target state
+      let cameraAnimating = false;
+      {
+        const cur = cameraRef.current;
+        const tgt = targetCameraRef.current;
+        const dx = tgt.x - cur.x;
+        const dy = tgt.y - cur.y;
+        const dz = tgt.zoom - cur.zoom;
+        const isMoving =
+          Math.abs(dx) > CAMERA_POS_EPSILON ||
+          Math.abs(dy) > CAMERA_POS_EPSILON ||
+          Math.abs(dz) > CAMERA_ZOOM_EPSILON;
+
+        if (isMoving) {
+          const alpha = frameDt > 0 ? 1 - Math.exp(-CAMERA_LERP_RATE * frameDt) : 0.25;
+          const nextCam = clampCamera(
+            {
+              x: cur.x + dx * alpha,
+              y: cur.y + dy * alpha,
+              zoom: cur.zoom + dz * alpha,
+            },
+            viewportRef.current,
+            MAP_SIZE
+          );
+          cameraRef.current = nextCam;
+          if (
+            Math.abs(tgt.x - nextCam.x) > CAMERA_POS_EPSILON ||
+            Math.abs(tgt.y - nextCam.y) > CAMERA_POS_EPSILON ||
+            Math.abs(tgt.zoom - nextCam.zoom) > CAMERA_ZOOM_EPSILON
+          ) {
+            cameraAnimating = true;
+          } else {
+            cameraRef.current = clampCamera(tgt, viewportRef.current, MAP_SIZE);
+          }
+        } else if (dx !== 0 || dy !== 0 || dz !== 0) {
+          cameraRef.current = clampCamera(tgt, viewportRef.current, MAP_SIZE);
+        }
+      }
 
       // Shared speed-scaled simulation step for couriers and future fleet vehicles (0 = paused)
       const simDt = computeScaledSimDt(rawDt, propsRef.current.gameSpeed);
@@ -814,7 +942,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
 
       ctx.restore();
 
-      if (courierRef.current.active && propsRef.current.gameSpeed > 0) {
+      if (
+        (courierRef.current.active && propsRef.current.gameSpeed > 0) ||
+        cameraAnimating ||
+        arrowKeysActive
+      ) {
         rafId = requestAnimationFrame(drawScene);
       }
     };
@@ -846,6 +978,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       canvas.removeEventListener('touchmove', onTouchMove);
       canvas.removeEventListener('touchend', onTouchEnd);
       canvas.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
+      pressedArrowKeysRef.current.clear();
     };
   }, []);
 
@@ -858,7 +994,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         ref={canvasRef}
         data-testid="map-canvas"
         aria-label="Interaktywna mapa miasta Delivery Tycoon"
-        className="block w-full h-full touch-none cursor-grab active:cursor-grabbing"
+        className="block w-full h-full touch-none cursor-default"
       />
     </div>
   );

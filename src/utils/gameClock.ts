@@ -1,13 +1,13 @@
 export type GameSpeed = 0 | 1 | 2 | 4;
 
 /** Automatic night fast-forward speed multiplier when workday ends and all couriers are at base */
-export const NIGHT_MODE_SPEED = 12;
+export const NIGHT_MODE_SPEED = 15;
 
 export type EffectiveGameSpeed = GameSpeed | typeof NIGHT_MODE_SPEED;
 
 export const GAME_SPEED_OPTIONS: readonly GameSpeed[] = [0, 1, 2, 4];
 
-/** Base in-game clock rate at 1x speed: 1 real second = 2 in-game minutes (2x = 4/s, 4x = 8/s, 12x = 24/s) */
+/** Base in-game clock rate at 1x speed: 1 real second = 2 in-game minutes (2x = 4/s, 4x = 8/s, 15x = 30/s) */
 export const BASE_GAME_MINUTES_PER_REAL_SECOND = 2;
 
 export function getGameMinutesPerRealSecond(speed: EffectiveGameSpeed): number {
