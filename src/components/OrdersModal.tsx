@@ -219,7 +219,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-1.5 sm:p-4 bg-slate-950/70 backdrop-blur-[2px] touch-none"
+      className="fixed inset-0 z-40 flex items-center justify-center p-1.5 sm:p-4 [@media(max-height:540px)]:p-1.5 bg-slate-950/80 touch-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="orders-modal-heading"
@@ -229,12 +229,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
-        className="w-[96vw] max-w-6xl h-[min(90vh,780px)] flex flex-col rounded-2xl bg-[#131a27] border border-slate-700/90 shadow-2xl overflow-hidden text-slate-100 touch-auto overscroll-contain"
+        className="w-[96vw] max-w-6xl h-[min(90vh,780px)] [@media(max-height:540px)]:h-[95vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-2xl [@media(max-height:540px)]:rounded-xl bg-[#131a27] border border-slate-700/90 shadow-2xl overflow-hidden text-slate-100 touch-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Company Status Bar (no reputation level displayed) */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 sm:px-5 py-2.5 bg-[#182030] border-b border-slate-700/80">
-          <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1.5 text-xs sm:text-sm min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 [@media(max-height:540px)]:gap-x-2.5 [@media(max-height:540px)]:gap-y-1 px-3 sm:px-5 [@media(max-height:540px)]:px-2.5 py-2.5 [@media(max-height:540px)]:py-1.5 bg-[#182030] border-b border-slate-700/80">
+          <div className="flex flex-wrap items-center gap-x-3 sm:gap-x-4 [@media(max-height:540px)]:gap-x-2.5 gap-y-1.5 [@media(max-height:540px)]:gap-y-0.5 text-xs sm:text-sm [@media(max-height:540px)]:text-xs min-w-0">
             <h2 id="orders-modal-heading" className="sr-only">
               Panel zleceń firmy
             </h2>
@@ -286,16 +286,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Zamknij okno Zlecenia"
-            className="min-w-[40px] min-h-[40px] p-2 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+            className="min-w-[40px] min-h-[40px] [@media(max-height:540px)]:min-w-[32px] [@media(max-height:540px)]:min-h-[32px] p-2 [@media(max-height:540px)]:p-1.5 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
           >
-            <X className="w-5 h-5" aria-hidden="true" />
+            <X className="w-5 h-5 [@media(max-height:540px)]:w-4 [@media(max-height:540px)]:h-4" aria-hidden="true" />
           </button>
         </div>
 
         {/* Navigation Tabs Bar */}
-        <div className="px-3 sm:px-5 py-2.5 bg-[#151d2c] border-b border-slate-800">
+        <div className="px-3 sm:px-5 [@media(max-height:540px)]:px-2.5 py-2.5 [@media(max-height:540px)]:py-1.5 bg-[#151d2c] border-b border-slate-800">
           <div
-            className="flex items-center gap-2 overflow-x-auto overscroll-x-contain pb-0.5 sm:pb-0"
+            className="flex items-center gap-2 [@media(max-height:540px)]:gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 sm:pb-0"
             role="tablist"
             aria-label="Zakładki panelu zleceń"
           >
@@ -306,13 +306,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'offers'}
               aria-controls="panel-offers"
               onClick={() => setActiveTab('offers')}
-              className={`relative min-h-[40px] px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`relative min-h-[40px] [@media(max-height:540px)]:min-h-0 px-3.5 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2 [@media(max-height:540px)]:py-1.5 rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-semibold flex items-center gap-2 [@media(max-height:540px)]:gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'offers'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <Files className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <Files className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
               <span>Nowe oferty</span>
               <span
                 className={`font-mono-nums ${
@@ -338,13 +338,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'active'}
               aria-controls="panel-active"
               onClick={() => setActiveTab('active')}
-              className={`min-h-[40px] px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`min-h-[40px] [@media(max-height:540px)]:min-h-0 px-3.5 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2 [@media(max-height:540px)]:py-1.5 rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-semibold flex items-center gap-2 [@media(max-height:540px)]:gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'active'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <ClipboardList className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <ClipboardList className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
               <span>Aktualne</span>
               <span
                 className={`font-mono-nums ${
@@ -362,13 +362,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'schedule'}
               aria-controls="panel-schedule"
               onClick={() => setActiveTab('schedule')}
-              className={`min-h-[40px] px-3.5 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`min-h-[40px] [@media(max-height:540px)]:min-h-0 px-3.5 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2 [@media(max-height:540px)]:py-1.5 rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-semibold flex items-center gap-2 [@media(max-height:540px)]:gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'schedule'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <CalendarDays className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <CalendarDays className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
               <span>Plan tygodnia</span>
             </button>
           </div>
@@ -377,7 +377,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         {/* Scrollable Tab Content Area */}
         <div
           className={`flex-1 overflow-y-auto overscroll-contain ${
-            activeTab === 'schedule' ? 'p-2 sm:p-4' : 'p-3 sm:p-5'
+            activeTab === 'schedule'
+              ? 'p-2 sm:p-4 [@media(max-height:540px)]:p-2.5'
+              : 'p-3 sm:p-5 [@media(max-height:540px)]:p-2.5'
           }`}
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
@@ -386,16 +388,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           {activeTab === 'offers' && (
             <div id="panel-offers" role="tabpanel" aria-labelledby="tab-offers">
               {economyState.pendingOffers.length === 0 ? (
-                <div className="py-12 px-4 text-center border border-slate-800 rounded-xl bg-slate-900/50">
-                  <p className="text-sm sm:text-base font-semibold text-slate-200">
+                <div className="py-12 [@media(max-height:540px)]:py-6 px-4 [@media(max-height:540px)]:px-3 text-center border border-slate-800 rounded-xl bg-slate-900/50">
+                  <p className="text-sm sm:text-base [@media(max-height:540px)]:text-sm font-semibold text-slate-200">
                     Brak oczekujących ofert zleceń
                   </p>
-                  <p className="mt-1.5 text-xs sm:text-sm text-slate-400">
+                  <p className="mt-1.5 text-xs sm:text-sm [@media(max-height:540px)]:text-xs text-slate-400">
                     Nowe propozycje od lokalnych firm pojawią się automatycznie wraz z upływem dni.
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 [@media(max-height:540px)]:gap-2.5">
                   {economyState.pendingOffers.map((offer) => (
                     <OfferCard
                       key={offer.id}
@@ -414,16 +416,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           {activeTab === 'active' && (
             <div id="panel-active" role="tabpanel" aria-labelledby="tab-active">
               {economyState.activeOrders.length === 0 ? (
-                <div className="py-12 px-4 text-center border border-slate-800 rounded-xl bg-slate-900/50">
-                  <p className="text-sm sm:text-base font-semibold text-slate-200">
+                <div className="py-12 [@media(max-height:540px)]:py-6 px-4 [@media(max-height:540px)]:px-3 text-center border border-slate-800 rounded-xl bg-slate-900/50">
+                  <p className="text-sm sm:text-base [@media(max-height:540px)]:text-sm font-semibold text-slate-200">
                     Brak aktywnych zleceń
                   </p>
-                  <p className="mt-1.5 text-xs sm:text-sm text-slate-400">
+                  <p className="mt-1.5 text-xs sm:text-sm [@media(max-height:540px)]:text-xs text-slate-400">
                     Przejdź do zakładki „Nowe oferty”, aby przyjąć pierwsze zlecenie lub kontrakt.
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 [@media(max-height:540px)]:gap-2.5">
                   {economyState.activeOrders.map((order) => (
                     <ActiveOrderCard
                       key={order.id}
@@ -439,8 +441,8 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
           {/* TAB 3: PLAN TYGODNIA — two-tier layout: 7 day-selector tiles on top + full-width task list below */}
           {activeTab === 'schedule' && selectedDay && (
-            <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 px-0.5">
+            <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" className="space-y-4 [@media(max-height:540px)]:space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs [@media(max-height:540px)]:text-[11px] text-slate-400 px-0.5">
                 <span>
                   Wybierz dzień tygodnia i ustaw priorytet osobnych zadań „Odbiór” oraz „Rozwózka” dla kuriera.
                 </span>
@@ -451,7 +453,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
               {/* Tier 1: 7 Day-Selector Tiles (Pon – Nd) */}
               <div
-                className="grid grid-cols-7 gap-1.5 sm:gap-2"
+                className="grid grid-cols-7 gap-1.5 sm:gap-2 [@media(max-height:540px)]:gap-1"
                 role="group"
                 aria-label="Wybór dnia tygodnia"
               >
@@ -463,7 +465,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       type="button"
                       aria-pressed={isSelected}
                       onClick={() => setSelectedWeekday(day.weekdayIndex)}
-                      className={`min-w-0 min-h-[64px] sm:min-h-[72px] rounded-xl border px-1.5 sm:px-3 py-2 text-left flex flex-col justify-between gap-1 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                      className={`min-w-0 min-h-[64px] sm:min-h-[72px] [@media(max-height:540px)]:min-h-[44px] rounded-xl [@media(max-height:540px)]:rounded-lg border px-1.5 sm:px-3 [@media(max-height:540px)]:px-2 py-2 [@media(max-height:540px)]:py-1 text-left flex flex-col justify-between gap-1 [@media(max-height:540px)]:gap-0.5 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                         isSelected
                           ? 'bg-amber-500/15 border-amber-400 shadow-sm'
                           : day.isToday
@@ -473,7 +475,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     >
                       <div className="flex items-center justify-between gap-1 min-w-0">
                         <span
-                          className={`text-xs sm:text-sm font-bold truncate ${
+                          className={`text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold truncate ${
                             isSelected || day.isToday ? 'text-amber-300' : 'text-slate-100'
                           }`}
                         >
@@ -486,7 +488,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-1 gap-y-0.5 text-[10px] sm:text-xs font-mono-nums">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-1 gap-y-0.5 text-[10px] sm:text-xs [@media(max-height:540px)]:text-[10px] font-mono-nums">
                         <span className={isSelected ? 'text-slate-200' : 'text-slate-400'}>
                           {day.dateLabel}
                         </span>
@@ -511,27 +513,27 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               {/* Tier 2: Full-Width Horizontal Task List for the Selected Day */}
               <section
                 aria-label={`Zadania na ${selectedDay.weekdayName}, ${selectedDay.dateLabel}`}
-                className="rounded-xl bg-[#151d2c] border border-slate-800/90 p-3 sm:p-4 space-y-3"
+                className="rounded-xl bg-[#151d2c] border border-slate-800/90 p-3 sm:p-4 [@media(max-height:540px)]:p-2.5 space-y-3 [@media(max-height:540px)]:space-y-2"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 [@media(max-height:540px)]:pb-1.5 border-b border-slate-800">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm sm:text-base font-bold text-slate-100">
+                    <h3 className="text-sm sm:text-base [@media(max-height:540px)]:text-xs font-bold text-slate-100">
                       {selectedDay.weekdayName}, {selectedDay.dateLabel}
                     </h3>
                     {selectedDay.isToday && (
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-[11px] font-bold text-amber-300">
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-[11px] [@media(max-height:540px)]:text-[10px] font-bold text-amber-300">
                         Dziś
                       </span>
                     )}
                   </div>
-                  <span className="text-xs sm:text-sm text-slate-400 font-mono-nums">
+                  <span className="text-xs sm:text-sm [@media(max-height:540px)]:text-xs text-slate-400 font-mono-nums">
                     Liczba zadań: <strong className="text-slate-200">{selectedDay.tasks.length}</strong>
                   </span>
                 </div>
 
                 {selectedDay.tasks.length === 0 ? (
-                  <div className="py-10 px-4 text-center rounded-lg bg-slate-900/45 border border-slate-800/80">
-                    <p className="text-sm font-semibold text-slate-300">
+                  <div className="py-10 [@media(max-height:540px)]:py-5 px-4 [@media(max-height:540px)]:px-3 text-center rounded-lg bg-slate-900/45 border border-slate-800/80">
+                    <p className="text-sm [@media(max-height:540px)]:text-xs font-semibold text-slate-300">
                       Brak zaplanowanych zadań na ten dzień
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
@@ -539,7 +541,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     </p>
                   </div>
                 ) : (
-                  <ol className="flex flex-col gap-2">
+                  <ol className="flex flex-col gap-2 [@media(max-height:540px)]:gap-1.5">
                     {selectedDay.tasks.map((task, idx) => {
                       const isFirst = idx === 0;
                       const isLast = idx === selectedDay.tasks.length - 1;
@@ -547,15 +549,15 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
-                          className="rounded-xl bg-[#182030] border border-slate-700/85 px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4"
+                          className="rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] border border-slate-700/85 px-3 sm:px-4 [@media(max-height:540px)]:px-2.5 py-2.5 sm:py-3 [@media(max-height:540px)]:py-1.5 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 [@media(max-height:540px)]:gap-2"
                         >
                           {/* Left: Priority Rank, Distinct Stage Badge (ODBIÓR / ROZWÓZKA) & Package Count */}
-                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 shrink-0">
-                            <span className="font-mono-nums text-sm font-bold text-amber-400 min-w-[28px]">
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 [@media(max-height:540px)]:gap-1.5 shrink-0">
+                            <span className="font-mono-nums text-sm [@media(max-height:540px)]:text-xs font-bold text-amber-400 min-w-[28px] [@media(max-height:540px)]:min-w-[22px]">
                               #{task.priorityRank}
                             </span>
                             <span
-                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wide uppercase border shrink-0 ${
+                              className={`px-2.5 [@media(max-height:540px)]:px-1.5 py-1 [@media(max-height:540px)]:py-0.5 rounded-md text-[11px] [@media(max-height:540px)]:text-[10px] font-bold tracking-wide uppercase border shrink-0 ${
                                 isPickup
                                   ? 'bg-sky-500/15 text-sky-300 border-sky-400/40'
                                   : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
@@ -563,14 +565,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             >
                               {isPickup ? 'ODBIÓR' : 'ROZWÓZKA'}
                             </span>
-                            <span className="text-xs sm:text-sm font-semibold text-slate-200 font-mono-nums whitespace-nowrap min-w-[82px]">
+                            <span className="text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-semibold text-slate-200 font-mono-nums whitespace-nowrap min-w-[82px] [@media(max-height:540px)]:min-w-[68px]">
                               {formatPolishPackagesNominative(task.packageCount)}
                             </span>
                           </div>
 
                           {/* Center: Full Client Name with 3-digit Order Number & Full Address (no truncation) */}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm sm:text-base font-bold text-slate-100 leading-snug break-words flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                            <p className="text-sm sm:text-base [@media(max-height:540px)]:text-xs font-bold text-slate-100 leading-snug break-words flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                               <span className="font-mono-nums text-amber-300 shrink-0">
                                 #{task.orderNumber}
                               </span>
@@ -579,12 +581,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               </span>
                               <span>{task.clientName}</span>
                             </p>
-                            <p className="mt-0.5 text-xs sm:text-sm text-slate-400 leading-snug break-words">
+                            <p className="mt-0.5 [@media(max-height:540px)]:mt-0 text-xs sm:text-sm [@media(max-height:540px)]:text-[11px] text-slate-400 leading-snug break-words">
                               {task.pickupAddress}
                             </p>
                           </div>
 
-                          {/* Right: Side-by-side Priority Reorder Controls (min 40x40px touch targets) */}
+                          {/* Right: Side-by-side Priority Reorder Controls (min 36x36px on compact screens, 40x40px on desktop) */}
                           <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                             <button
                               type="button"
@@ -598,7 +600,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               }
                               aria-label={`Zwiększ priorytet w ${selectedDay.weekdayName}: ${task.taskLabel} – ${task.clientName}`}
                               title="Wyżej w kolejności"
-                              className={`min-h-[40px] min-w-[40px] rounded-lg text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                              className={`min-h-[40px] min-w-[40px] [@media(max-height:540px)]:min-h-[36px] [@media(max-height:540px)]:min-w-[36px] rounded-lg text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isFirst
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -618,7 +620,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               }
                               aria-label={`Zmniejsz priorytet w ${selectedDay.weekdayName}: ${task.taskLabel} – ${task.clientName}`}
                               title="Niżej w kolejności"
-                              className={`min-h-[40px] min-w-[40px] rounded-lg text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                              className={`min-h-[40px] min-w-[40px] [@media(max-height:540px)]:min-h-[36px] [@media(max-height:540px)]:min-w-[36px] rounded-lg text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isLast
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -659,10 +661,10 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
   const expiresUrgent = offer.expiresAtMinutes - gameMinutes < MINUTES_PER_DAY;
 
   return (
-    <article className="flex flex-col justify-between rounded-xl bg-[#182030] border border-slate-700/85 p-4 gap-3.5">
-      <div className="space-y-2.5">
+    <article className="flex flex-col justify-between rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] border border-slate-700/85 p-4 [@media(max-height:540px)]:p-2.5 gap-3.5 [@media(max-height:540px)]:gap-1.5">
+      <div className="space-y-2.5 [@media(max-height:540px)]:space-y-1.5">
         {/* Quiet Metadata Kicker (order type name only) & Expiry Countdown */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 [@media(max-height:540px)]:gap-1 text-xs [@media(max-height:540px)]:text-[11px]">
           <span className={`font-medium ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
             {isLongTerm ? 'Zlecenie długoterminowe' : 'Zlecenie krótkoterminowe'}
           </span>
@@ -677,19 +679,19 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
 
         {/* Client Name with 3-digit Order Number & Pickup Address */}
         <div>
-          <h3 className="text-base font-bold text-slate-100 leading-snug flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/35 text-xs font-bold font-mono-nums text-amber-300 shrink-0">
+          <h3 className="text-base [@media(max-height:540px)]:text-sm font-bold text-slate-100 leading-snug flex flex-wrap items-baseline gap-x-2 [@media(max-height:540px)]:gap-x-1.5 gap-y-0.5">
+            <span className="px-1.5 [@media(max-height:540px)]:px-1 py-0.5 [@media(max-height:540px)]:py-0 rounded bg-amber-500/15 border border-amber-400/35 text-xs [@media(max-height:540px)]:text-[11px] font-bold font-mono-nums text-amber-300 shrink-0">
               #{offer.orderNumber}
             </span>
             <span>{offer.clientName}</span>
           </h3>
-          <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
+          <p className="mt-0.5 text-xs sm:text-sm [@media(max-height:540px)]:text-xs text-slate-400">
             Adres odbioru: <span className="text-slate-200">{offer.pickupLocation.address}</span>
           </p>
         </div>
 
         {/* Key Terms Grid */}
-        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 pt-2.5 border-t border-slate-800 text-xs sm:text-sm">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 [@media(max-height:540px)]:gap-x-2.5 gap-y-2 [@media(max-height:540px)]:gap-y-1 pt-2.5 [@media(max-height:540px)]:pt-1.5 border-t border-slate-800 text-xs sm:text-sm [@media(max-height:540px)]:text-xs">
           <div>
             <dt className="text-slate-400">Czas realizacji | Ilość i rodzaj</dt>
             <dd className="mt-0.5 font-semibold text-slate-100 font-mono-nums">
@@ -713,24 +715,24 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
             </dd>
           </div>
 
-          <div className="sm:col-span-2 pt-1">
+          <div className="sm:col-span-2 pt-1 [@media(max-height:540px)]:pt-0.5">
             <dt className="text-slate-400">
               {offer.kind === 'long_term'
                 ? 'Przewidywana wartość kontraktu'
                 : 'Przewidywana wypłata całkowita'}
             </dt>
-            <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-              <span className="text-base font-bold text-emerald-400 font-mono-nums">
+            <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 [@media(max-height:540px)]:gap-x-1.5 gap-y-0.5">
+              <span className="text-base [@media(max-height:540px)]:text-sm font-bold text-emerald-400 font-mono-nums">
                 {formatCurrencyUsd(
                   offer.kind === 'long_term' ? offer.totalContractValue : offer.totalExpectedPayout
                 )}
               </span>
               {offer.kind === 'long_term' ? (
-                <span className="text-xs text-slate-300 font-mono-nums">
+                <span className="text-xs [@media(max-height:540px)]:text-[11px] text-slate-300 font-mono-nums">
                   {formatCurrencyUsd(offer.estimatedMonthlyPayout)} / mies. | płatne 1. dnia mies.
                 </span>
               ) : (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs [@media(max-height:540px)]:text-[11px] text-slate-400">
                   Wypłata po dostarczeniu ostatniej paczki
                 </span>
               )}
@@ -740,18 +742,18 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2.5 pt-3 border-t border-slate-800">
+      <div className="flex items-center gap-2.5 [@media(max-height:540px)]:gap-1.5 pt-3 [@media(max-height:540px)]:pt-2 border-t border-slate-800">
         <button
           type="button"
           onClick={() => onAccept(offer.id)}
-          className="flex-1 min-h-[42px] px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+          className="flex-1 min-h-[42px] [@media(max-height:540px)]:min-h-0 px-4 [@media(max-height:540px)]:px-3 py-2 [@media(max-height:540px)]:py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm [@media(max-height:540px)]:text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
         >
           Przyjmij
         </button>
         <button
           type="button"
           onClick={() => onReject(offer.id)}
-          className="min-h-[42px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+          className="min-h-[42px] [@media(max-height:540px)]:min-h-0 px-4 [@media(max-height:540px)]:px-3 py-2 [@media(max-height:540px)]:py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm [@media(max-height:540px)]:text-xs font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
         >
           Odrzuć
         </button>
@@ -794,10 +796,10 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       : pickedUpThisWeek;
 
   return (
-    <article className="flex flex-col justify-between rounded-xl bg-[#182030] border border-slate-700/85 p-4 gap-3.5">
-      <div className="space-y-2.5">
+    <article className="flex flex-col justify-between rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] border border-slate-700/85 p-4 [@media(max-height:540px)]:p-2.5 gap-3.5 [@media(max-height:540px)]:gap-1.5">
+      <div className="space-y-2.5 [@media(max-height:540px)]:space-y-1.5">
         {/* Top Metadata (order type only, no per-package rate) & Remaining Time */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 [@media(max-height:540px)]:gap-1 text-xs [@media(max-height:540px)]:text-[11px]">
           <span className={`font-medium ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
             {isLongTerm ? 'Zlecenie długoterminowe' : 'Zlecenie krótkoterminowe'}
           </span>
@@ -810,20 +812,20 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
 
         {/* Client Name with 3-digit Order Number & Pickup Address */}
         <div>
-          <h3 className="text-base font-bold text-slate-100 leading-snug flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/35 text-xs font-bold font-mono-nums text-amber-300 shrink-0">
+          <h3 className="text-base [@media(max-height:540px)]:text-sm font-bold text-slate-100 leading-snug flex flex-wrap items-baseline gap-x-2 [@media(max-height:540px)]:gap-x-1.5 gap-y-0.5">
+            <span className="px-1.5 [@media(max-height:540px)]:px-1 py-0.5 [@media(max-height:540px)]:py-0 rounded bg-amber-500/15 border border-amber-400/35 text-xs [@media(max-height:540px)]:text-[11px] font-bold font-mono-nums text-amber-300 shrink-0">
               #{order.orderNumber}
             </span>
             <span>{order.clientName}</span>
           </h3>
-          <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
+          <p className="mt-0.5 text-xs sm:text-sm [@media(max-height:540px)]:text-xs text-slate-400">
             Adres odbioru: <span className="text-slate-200">{order.pickupLocation.address}</span>
           </p>
         </div>
 
         {/* Progress & Payout */}
-        <div className="pt-2.5 border-t border-slate-800 space-y-2 text-xs sm:text-sm">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="pt-2.5 [@media(max-height:540px)]:pt-1.5 border-t border-slate-800 space-y-2 [@media(max-height:540px)]:space-y-1 text-xs sm:text-sm [@media(max-height:540px)]:text-xs">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 [@media(max-height:540px)]:gap-1">
             <span className="text-slate-400">
               {isLongTerm ? 'Postęp w tym tygodniu:' : 'Postęp:'}
             </span>
@@ -834,7 +836,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
             </span>
           </div>
 
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 [@media(max-height:540px)]:gap-1">
             <span className="text-slate-400">
               {order.kind === 'long_term'
                 ? 'Naliczone w bieżącym miesiącu:'
@@ -844,7 +846,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
               {order.kind === 'long_term' ? (
                 <>
                   {formatCurrencyUsd(order.accruedMonthlyPayout)}{' '}
-                  <span className="text-xs font-normal text-slate-400">
+                  <span className="text-xs [@media(max-height:540px)]:text-[11px] font-normal text-slate-400">
                     | szac. {formatCurrencyUsd(order.estimatedMonthlyPayout)}/mies.
                   </span>
                 </>
@@ -857,8 +859,8 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       </div>
 
       {/* Individual Client Satisfaction Bar (0–100%) */}
-      <div className="pt-3 border-t border-slate-800 space-y-1.5">
-        <div className="flex items-center justify-between gap-2 text-xs">
+      <div className="pt-3 [@media(max-height:540px)]:pt-2 border-t border-slate-800 space-y-1.5 [@media(max-height:540px)]:space-y-1">
+        <div className="flex items-center justify-between gap-2 text-xs [@media(max-height:540px)]:text-[11px]">
           <span className="text-slate-300 font-medium">Zadowolenie klienta</span>
           <span className={`font-bold font-mono-nums ${satisfactionVis.textClass}`}>
             {order.satisfaction}% | {satisfactionVis.label}
@@ -870,7 +872,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
           aria-valuenow={order.satisfaction}
           aria-valuemin={0}
           aria-valuemax={100}
-          className={`h-2.5 w-full rounded-full bg-slate-800 overflow-hidden ${satisfactionVis.textClass}`}
+          className={`h-2.5 [@media(max-height:540px)]:h-2 w-full rounded-full bg-slate-800 overflow-hidden ${satisfactionVis.textClass}`}
         >
           <svg
             viewBox="0 0 100 10"
@@ -888,7 +890,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
             />
           </svg>
         </div>
-        <div className="flex items-center justify-end text-[11px] text-slate-400">
+        <div className="flex items-center justify-end text-[11px] [@media(max-height:540px)]:text-[10px] text-slate-400">
           <span>Zerwanie umowy: poniżej 20%</span>
         </div>
       </div>
