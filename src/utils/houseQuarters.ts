@@ -115,6 +115,43 @@ export function computeCenteredFenceSpriteBounds(
   };
 }
 
+export interface FenceSpriteAtlasRect {
+  sheetIndex: number;
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
+export interface FencePicketLike {
+  x: number;
+  yBottom: number;
+  yTop: number;
+}
+
+/**
+ * Deterministic visual archetype key for a 3D fence segment relative to its footprint anchor,
+ * enabling identical fence panels across residential yards to share a single Texture Atlas slot.
+ */
+export function getFenceSegmentArchetypeKey(
+  prism: FencePrismBoxLike,
+  pickets: readonly FencePicketLike[]
+): string {
+  const anchorX = (prism.bLeft.x + prism.bRight.x) * 0.5;
+  const anchorY = (prism.bBack.y + prism.bFront.y) * 0.5;
+  const spanX = Math.round((prism.bRight.x - prism.bLeft.x) * 4);
+  const spanY = Math.round((prism.bFront.y - prism.tBack.y) * 4);
+  const frontDx = Math.round((prism.bFront.x - prism.bLeft.x) * 4);
+  const frontDy = Math.round((prism.bFront.y - prism.bLeft.y) * 4);
+  let picketSig = '';
+  for (let i = 0; i < pickets.length; i++) {
+    const pk = pickets[i];
+    if (i > 0) picketSig += ';';
+    picketSig += `${Math.round((pk.x - anchorX) * 4)},${Math.round((pk.yBottom - anchorY) * 4)}`;
+  }
+  return `${spanX}|${spanY}|${frontDx}|${frontDy}|${picketSig}`;
+}
+
 export interface OrganicHouseSlot {
   alongMin: number;
   alongMax: number;

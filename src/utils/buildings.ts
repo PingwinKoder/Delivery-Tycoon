@@ -698,6 +698,153 @@ export function getBuildingSpriteBounds(
   };
 }
 
+/**
+ * Computes translation-invariant world-space bounds centered around `(anchorX, anchorY)`
+ * so buildings sharing identical dimensions/palette reuse a single Texture Atlas slot
+ * with zero sub-pixel drift.
+ */
+export function computeCenteredBuildingSpriteBounds(
+  prism: BuildingPrismPoints,
+  anchorX: number,
+  anchorY: number,
+  pad = 3
+): BuildingSpriteBounds {
+  const halfW = Math.max(
+    1,
+    Math.ceil(Math.max(anchorX - prism.bLeft.x, prism.bRight.x - anchorX) + pad)
+  );
+  const topH = Math.max(1, Math.ceil(anchorY - prism.tBack.y + pad));
+  const botH = Math.max(1, Math.ceil(prism.bFront.y - anchorY + pad));
+  return {
+    minX: anchorX - halfW,
+    minY: anchorY - topH,
+    worldWidth: halfW * 2,
+    worldHeight: topH + botH,
+    offsetX: -halfW,
+    offsetY: -topH,
+  };
+}
+
+/**
+ * Deterministic visual archetype key for a 3D building prism (invariant to world position).
+ * Identical buildings share one packed Texture Atlas rect while keeping per-building Z-sorting.
+ */
+export function getBuildingSpriteArchetypeKey(
+  b: Pick<Building, 'typ' | 'colorVariant' | 'uMin' | 'uMax' | 'vMin' | 'vMax' | 'height'>
+): string {
+  const du = Math.round((b.uMax - b.uMin) * 100);
+  const dv = Math.round((b.vMax - b.vMin) * 100);
+  const h = Math.round(b.height * 100);
+  return `${b.typ}|${b.colorVariant}|${du}|${dv}|${h}`;
+}
+
+export const SPRITE_ATLAS_MAX_SIZE = 2048;
+export const SPRITE_ATLAS_GUTTER = 2;
+
+export interface SpriteAtlasRectInput {
+  id: string;
+  pixelWidth: number;
+  pixelHeight: number;
+}
+
+export interface SpriteAtlasSlot {
+  id: string;
+  sheetIndex: number;
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
+export interface SpriteAtlasSheetSpec {
+  sheetIndex: number;
+  width: number;
+  height: number;
+}
+
+export interface SpriteAtlasPackResult {
+  sheets: SpriteAtlasSheetSpec[];
+  slots: Map<string, SpriteAtlasSlot>;
+}
+
+/**
+ * Packs sprite rectangles row-by-row (shelf packing, sorted by descending height) into
+ * compact Texture Atlas sheets capped at `maxSheetSize x maxSheetSize` px (default 2048x2048).
+ */
+export function packSpritesIntoAtlasSheets(
+  items: readonly SpriteAtlasRectInput[],
+  maxSheetSize = SPRITE_ATLAS_MAX_SIZE,
+  gutter = SPRITE_ATLAS_GUTTER
+): SpriteAtlasPackResult {
+  const slots = new Map<string, SpriteAtlasSlot>();
+  if (items.length === 0) {
+    return { sheets: [], slots };
+  }
+
+  const sorted = [...items].sort((a, b) => {
+    if (b.pixelHeight !== a.pixelHeight) return b.pixelHeight - a.pixelHeight;
+    if (b.pixelWidth !== a.pixelWidth) return b.pixelWidth - a.pixelWidth;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+
+  const sheets: SpriteAtlasSheetSpec[] = [];
+  let sheetIndex = 0;
+  let cursorX = 0;
+  let cursorY = 0;
+  let rowHeight = 0;
+  let usedWidth = 0;
+  let usedHeight = 0;
+
+  const commitCurrentSheet = () => {
+    if (usedWidth > 0 && usedHeight > 0) {
+      sheets.push({
+        sheetIndex,
+        width: Math.min(maxSheetSize, usedWidth),
+        height: Math.min(maxSheetSize, usedHeight),
+      });
+    }
+  };
+
+  for (let i = 0; i < sorted.length; i++) {
+    const item = sorted[i];
+    const sw = Math.max(1, Math.min(maxSheetSize, Math.ceil(item.pixelWidth)));
+    const sh = Math.max(1, Math.min(maxSheetSize, Math.ceil(item.pixelHeight)));
+
+    if (cursorX > 0 && cursorX + sw > maxSheetSize) {
+      cursorX = 0;
+      cursorY += rowHeight + gutter;
+      rowHeight = 0;
+    }
+
+    if (cursorY > 0 && cursorY + sh > maxSheetSize) {
+      commitCurrentSheet();
+      sheetIndex += 1;
+      cursorX = 0;
+      cursorY = 0;
+      rowHeight = 0;
+      usedWidth = 0;
+      usedHeight = 0;
+    }
+
+    slots.set(item.id, {
+      id: item.id,
+      sheetIndex,
+      sx: cursorX,
+      sy: cursorY,
+      sw,
+      sh,
+    });
+
+    usedWidth = Math.max(usedWidth, cursorX + sw);
+    usedHeight = Math.max(usedHeight, cursorY + sh);
+    cursorX += sw + gutter;
+    rowHeight = Math.max(rowHeight, sh);
+  }
+
+  commitCurrentSheet();
+  return { sheets, slots };
+}
+
 export interface PrecomputedBuilding3D {
   building: Building;
   prism: BuildingPrismPoints;

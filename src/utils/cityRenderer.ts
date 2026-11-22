@@ -5,7 +5,10 @@ import {
   PROCEDURAL_DELIVERY_ZONES,
   PROCEDURAL_HOUSE_YARDS,
   PROCEDURAL_PARKING_LOTS,
+  SPRITE_ATLAS_GUTTER,
+  SPRITE_ATLAS_MAX_SIZE,
   type BuildingPrismPoints,
+  type BuildingSpriteBounds,
   type DeliveryZone,
   type DepthSortedEntity,
   type FencePost3D,
@@ -14,17 +17,21 @@ import {
   type ParcelLockerSlot,
   type ParkingLot,
   type PrecomputedBuilding3D,
+  type SpriteAtlasRectInput,
   type StaticScene3DItem,
+  computeCenteredBuildingSpriteBounds,
   computeParkingLayout,
   getBuildingPalette,
   getBuildingPrismPoints,
-  getBuildingSpriteBounds,
+  getBuildingSpriteArchetypeKey,
   getStaticScene3DOrder,
   mergeEntitiesIntoBackToFrontOrder,
+  packSpritesIntoAtlasSheets,
 } from './buildings';
 import {
+  type FenceSpriteAnchorBounds,
   computeCenteredFenceSpriteBounds,
-  computeFenceSpriteAnchorBounds,
+  getFenceSegmentArchetypeKey,
 } from './houseQuarters';
 import type { ParkingNavNetwork } from './parkingNavigation';
 import {
@@ -2350,9 +2357,9 @@ export function renderProceduralCity(
   ctx.restore();
 }
 
-export const STATIC_GROUND_BUFFER_SCALE = 2;
+export const STATIC_GROUND_BUFFER_SCALE = 1.25;
 export const STATIC_GROUND_TILE_PIXEL_SIZE = 1024;
-const STATIC_GROUND_TILE_OVERLAP_WORLD = 1; // 2 buffer px overlap at 2x to prevent sub-pixel seams
+const STATIC_GROUND_TILE_OVERLAP_WORLD = 1; // Overlap world unit to prevent sub-pixel seams between tiles
 const STATIC_GRID_INV_SCALE = 1 / Math.sqrt(1.65);
 
 export interface StaticGroundTile {
@@ -2561,7 +2568,8 @@ export function disposeStaticGroundBuffer(buffer: StaticGroundBuffer | null) {
 /**
  * Renders the static ground layer (terrain, grass tufts, concrete plots, parking, sidewalks,
  * streets, markings, roundabouts, paver pads, optional 2D building footprints, and optional
- * road grid) once into a grid of 2x supersampled offscreen tiles (<= 1024x1024 px each).
+ * road grid) once into a grid of 1.25x HTMLCanvasElement tiles (<= 1024x1024 px each)
+ * to keep VRAM low while preserving crisp dark ink outlines and street markings.
  * Rebuilt only when a static layer setting changes — never during camera pan or zoom.
  */
 export function buildStaticGroundBuffer(
@@ -2745,8 +2753,8 @@ export function clampGroundDrawRect(
 }
 
 /**
- * Blits only the camera-visible tiles of the 2x pre-rendered static ground buffer onto
- * the world-transformed main canvas, with guaranteed in-bounds source pixel clamping.
+ * Blits only the camera-visible tiles of the 1.25x pre-rendered static ground buffer onto
+ * the world-transformed target canvas, with guaranteed in-bounds source pixel clamping.
  */
 export function drawStaticGroundBuffer(
   ctx: CanvasRenderingContext2D,
@@ -2807,6 +2815,155 @@ export function drawStaticGroundBuffer(
       );
     }
   }
+}
+
+const VIEWPORT_CAMERA_POS_EPSILON = 1e-4;
+const VIEWPORT_CAMERA_ZOOM_EPSILON = 1e-5;
+
+export interface ViewportGroundCache {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D | null;
+  groundKey: string;
+  canvasWidth: number;
+  canvasHeight: number;
+  logicalWidth: number;
+  logicalHeight: number;
+  cameraX: number;
+  cameraY: number;
+  cameraZoom: number;
+  hasRendered: boolean;
+}
+
+export interface ViewportGroundUpdateParams {
+  canvasWidth: number;
+  canvasHeight: number;
+  logicalWidth: number;
+  logicalHeight: number;
+  cameraX: number;
+  cameraY: number;
+  cameraZoom: number;
+  effectiveZoom: number;
+  backgroundColor?: string;
+}
+
+/**
+ * Allocates a single viewport-sized HTMLCanvasElement cache for the static ground layer.
+ */
+export function createViewportGroundCache(): ViewportGroundCache {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  return {
+    canvas,
+    ctx,
+    groundKey: '',
+    canvasWidth: 0,
+    canvasHeight: 0,
+    logicalWidth: 0,
+    logicalHeight: 0,
+    cameraX: Number.NaN,
+    cameraY: Number.NaN,
+    cameraZoom: Number.NaN,
+    hasRendered: false,
+  };
+}
+
+/**
+ * Explicitly releases the viewport ground cache backing store.
+ */
+export function disposeViewportGroundCache(cache: ViewportGroundCache | null) {
+  if (!cache) return;
+  cache.canvas.width = 0;
+  cache.canvas.height = 0;
+  cache.canvasWidth = 0;
+  cache.canvasHeight = 0;
+  cache.hasRendered = false;
+  cache.groundKey = '';
+}
+
+/**
+ * Re-renders visible static ground tiles into the viewport-sized HTMLCanvasElement buffer
+ * ONLY when camera position/zoom, viewport/canvas size, or static ground state changes.
+ * Returns `true` if the cache was redrawn, or `false` when it can be blitted directly.
+ */
+export function updateViewportGroundCache(
+  cache: ViewportGroundCache,
+  groundBuffer: StaticGroundBuffer,
+  params: ViewportGroundUpdateParams
+): boolean {
+  const {
+    canvasWidth,
+    canvasHeight,
+    logicalWidth,
+    logicalHeight,
+    cameraX,
+    cameraY,
+    cameraZoom,
+    effectiveZoom,
+    backgroundColor = '#161b22',
+  } = params;
+
+  const isValid =
+    cache.hasRendered &&
+    cache.groundKey === groundBuffer.key &&
+    cache.canvasWidth === canvasWidth &&
+    cache.canvasHeight === canvasHeight &&
+    cache.logicalWidth === logicalWidth &&
+    cache.logicalHeight === logicalHeight &&
+    Math.abs(cache.cameraX - cameraX) <= VIEWPORT_CAMERA_POS_EPSILON &&
+    Math.abs(cache.cameraY - cameraY) <= VIEWPORT_CAMERA_POS_EPSILON &&
+    Math.abs(cache.cameraZoom - cameraZoom) <= VIEWPORT_CAMERA_ZOOM_EPSILON;
+
+  if (isValid) {
+    return false;
+  }
+
+  const targetW = Math.max(1, canvasWidth);
+  const targetH = Math.max(1, canvasHeight);
+  if (cache.canvas.width !== targetW || cache.canvas.height !== targetH) {
+    cache.canvas.width = targetW;
+    cache.canvas.height = targetH;
+  }
+
+  const vgCtx = cache.ctx ?? cache.canvas.getContext('2d');
+  if (!vgCtx) return false;
+  cache.ctx = vgCtx;
+
+  const dprX = targetW / Math.max(1, logicalWidth);
+  const dprY = targetH / Math.max(1, logicalHeight);
+
+  vgCtx.save();
+  vgCtx.setTransform(dprX, 0, 0, dprY, 0, 0);
+  vgCtx.imageSmoothingEnabled = true;
+  vgCtx.imageSmoothingQuality = 'high';
+
+  vgCtx.fillStyle = backgroundColor;
+  vgCtx.fillRect(0, 0, logicalWidth, logicalHeight);
+
+  vgCtx.translate(logicalWidth / 2, logicalHeight / 2);
+  vgCtx.scale(effectiveZoom, effectiveZoom);
+  vgCtx.translate(-cameraX, -cameraY);
+
+  const halfGroundW = logicalWidth / (2 * effectiveZoom) + 4;
+  const halfGroundH = logicalHeight / (2 * effectiveZoom) + 4;
+  drawStaticGroundBuffer(vgCtx, groundBuffer, {
+    minX: cameraX - halfGroundW,
+    maxX: cameraX + halfGroundW,
+    minY: cameraY - halfGroundH,
+    maxY: cameraY + halfGroundH,
+  });
+
+  vgCtx.restore();
+
+  cache.groundKey = groundBuffer.key;
+  cache.canvasWidth = targetW;
+  cache.canvasHeight = targetH;
+  cache.logicalWidth = logicalWidth;
+  cache.logicalHeight = logicalHeight;
+  cache.cameraX = cameraX;
+  cache.cameraY = cameraY;
+  cache.cameraZoom = cameraZoom;
+  cache.hasRendered = true;
+  return true;
 }
 
 interface StreetLabelPlacement {
@@ -3088,20 +3245,27 @@ function drawFencePost3D(
   ctx.stroke();
 }
 
-export const BUILDING_SPRITE_SCALE = 2;
-const BUILDING_SPRITE_PAD = 4;
+export const BUILDING_SPRITE_SCALE = 1.25;
+const BUILDING_SPRITE_PAD = 3;
 const BUILDING_SPRITE_INV_SCALE = 1 / Math.sqrt(1.65);
 
 export interface BuildingSprite {
   id: string;
-  canvas: HTMLCanvasElement;
+  /** Shared Texture Atlas sheet canvas (<= 2048x2048 px) */
+  sheet: HTMLCanvasElement;
+  sheetIndex: number;
+  /** Source crop rectangle in atlas pixel coordinates */
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
   /** World X offset from building footprint center (anchorX) to top-left corner of sprite */
   offsetX: number;
   /** World Y offset from building footprint center (anchorY) to top-left corner of sprite */
   offsetY: number;
-  /** World-space sprite width corresponding to canvas.width / scale */
+  /** World-space sprite width corresponding exactly to sw / scale */
   worldWidth: number;
-  /** World-space sprite height corresponding to canvas.height / scale */
+  /** World-space sprite height corresponding exactly to sh / scale */
   worldHeight: number;
   /** Rasterization supersampling scale */
   scale: number;
@@ -3109,12 +3273,95 @@ export interface BuildingSprite {
 
 export interface BuildingSpriteCache {
   key: string;
+  sheets: HTMLCanvasElement[];
   sprites: Map<string, BuildingSprite>;
+}
+
+export const FENCE_SPRITE_SCALE = 1.25;
+const FENCE_SPRITE_PAD = 2;
+const FENCE_SPRITE_INV_SCALE = 1 / Math.sqrt(1.65);
+
+export interface FenceSprite {
+  id: string;
+  /** Shared Texture Atlas sheet canvas (<= 2048x2048 px) */
+  sheet: HTMLCanvasElement;
+  sheetIndex: number;
+  /** Source crop rectangle in atlas pixel coordinates */
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+  /** World-space anchor X of the fence element (footprint center) */
+  anchorX: number;
+  /** World-space anchor Y of the fence element (footprint center) */
+  anchorY: number;
+  /** World X offset from anchorX to top-left corner of sprite */
+  offsetX: number;
+  /** World Y offset from anchorY to top-left corner of sprite */
+  offsetY: number;
+  /** World-space sprite width corresponding exactly to sw / scale */
+  worldWidth: number;
+  /** World-space sprite height corresponding exactly to sh / scale */
+  worldHeight: number;
+  scale: number;
+}
+
+export interface FenceSpriteCache {
+  sheets: HTMLCanvasElement[];
+  segments: Map<string, FenceSprite>;
+  cornerPost: FenceSprite | null;
+  gatePost: FenceSprite | null;
+}
+
+/**
+ * Unified Texture Atlas storing all pre-rendered 3D buildings and yard fences
+ * packed row-by-row into 1–2 shared HTMLCanvasElement sheets (<= 2048x2048 px each).
+ */
+export interface SceneSpriteAtlas {
+  key: string;
+  sheets: HTMLCanvasElement[];
+  buildings: BuildingSpriteCache;
+  fences: FenceSpriteCache;
+}
+
+function disposeAtlasSheets(sheets: readonly HTMLCanvasElement[]) {
+  for (let i = 0; i < sheets.length; i++) {
+    sheets[i].width = 0;
+    sheets[i].height = 0;
+  }
+}
+
+export function disposeBuildingSpriteCache(cache: BuildingSpriteCache | null) {
+  if (!cache) return;
+  disposeAtlasSheets(cache.sheets);
+  cache.sheets.length = 0;
+  cache.sprites.clear();
+}
+
+export function disposeFenceSpriteCache(cache: FenceSpriteCache | null) {
+  if (!cache) return;
+  disposeAtlasSheets(cache.sheets);
+  cache.sheets.length = 0;
+  cache.segments.clear();
+  cache.cornerPost = null;
+  cache.gatePost = null;
+}
+
+export function disposeSceneSpriteAtlas(atlas: SceneSpriteAtlas | null) {
+  if (!atlas) return;
+  disposeAtlasSheets(atlas.sheets);
+  atlas.sheets.length = 0;
+  atlas.buildings.sheets.length = 0;
+  atlas.buildings.sprites.clear();
+  atlas.fences.sheets.length = 0;
+  atlas.fences.segments.clear();
+  atlas.fences.cornerPost = null;
+  atlas.fences.gatePost = null;
 }
 
 /**
  * Vector rasterizer for a single 3D isometric building volume (walls, roof, architectural edges).
- * Used once per building during sprite baking (and as fallback when no sprite cache is provided).
+ * Used once per unique building archetype during atlas baking (and as fallback without an atlas).
  */
 function drawBuilding3DVector(
   ctx: CanvasRenderingContext2D,
@@ -3185,46 +3432,317 @@ function drawBuilding3DVector(
   ctx.stroke();
 }
 
-/**
- * Renders a single 3D building onto its own compact transparent offscreen canvas sprite
- * with anchor offsets `(offsetX, offsetY)` relative to `(item.anchorX, item.anchorY)`.
- */
-export function createBuildingSprite(
-  item: PrecomputedBuilding3D,
-  scale = BUILDING_SPRITE_SCALE
-): BuildingSprite {
-  const bounds = getBuildingSpriteBounds(
-    item.prism,
-    item.anchorX,
-    item.anchorY,
-    BUILDING_SPRITE_PAD
-  );
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(bounds.worldWidth * scale));
-  canvas.height = Math.max(1, Math.ceil(bounds.worldHeight * scale));
+type AtlasBakeJob =
+  | {
+      kind: 'building';
+      slotId: string;
+      item: PrecomputedBuilding3D;
+      bounds: BuildingSpriteBounds;
+      scale: number;
+    }
+  | {
+      kind: 'fenceSegment';
+      slotId: string;
+      segment: FenceSegment3D;
+      bounds: FenceSpriteAnchorBounds;
+      scale: number;
+    }
+  | {
+      kind: 'fencePost';
+      slotId: string;
+      post: FencePost3D;
+      bounds: FenceSpriteAnchorBounds;
+      scale: number;
+    };
 
-  const sCtx = canvas.getContext('2d');
-  if (sCtx) {
-    sCtx.save();
-    sCtx.setTransform(scale, 0, 0, scale, -bounds.minX * scale, -bounds.minY * scale);
-    sCtx.lineJoin = 'round';
-    drawBuilding3DVector(sCtx, item.building, item.prism, BUILDING_SPRITE_INV_SCALE);
-    sCtx.restore();
+function bakeAtlasJobs(
+  jobs: readonly AtlasBakeJob[],
+  maxSheetSize = SPRITE_ATLAS_MAX_SIZE,
+  gutter = SPRITE_ATLAS_GUTTER
+): {
+  sheets: HTMLCanvasElement[];
+  slots: Map<string, { sheet: HTMLCanvasElement; sheetIndex: number; sx: number; sy: number; sw: number; sh: number }>;
+} {
+  if (jobs.length === 0) {
+    return { sheets: [], slots: new Map() };
   }
 
+  const inputs: SpriteAtlasRectInput[] = new Array(jobs.length);
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i];
+    inputs[i] = {
+      id: job.slotId,
+      pixelWidth: Math.max(1, Math.ceil(job.bounds.worldWidth * job.scale)),
+      pixelHeight: Math.max(1, Math.ceil(job.bounds.worldHeight * job.scale)),
+    };
+  }
+
+  const packed = packSpritesIntoAtlasSheets(inputs, maxSheetSize, gutter);
+  const sheets: HTMLCanvasElement[] = new Array(packed.sheets.length);
+  const sheetContexts: Array<CanvasRenderingContext2D | null> = new Array(packed.sheets.length);
+
+  for (let i = 0; i < packed.sheets.length; i++) {
+    const spec = packed.sheets[i];
+    const sheet = document.createElement('canvas');
+    sheet.width = spec.width;
+    sheet.height = spec.height;
+    sheets[i] = sheet;
+    sheetContexts[i] = sheet.getContext('2d');
+  }
+
+  const slots = new Map<
+    string,
+    { sheet: HTMLCanvasElement; sheetIndex: number; sx: number; sy: number; sw: number; sh: number }
+  >();
+
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i];
+    const placement = packed.slots.get(job.slotId);
+    if (!placement) continue;
+
+    const sheet = sheets[placement.sheetIndex];
+    const sCtx = sheetContexts[placement.sheetIndex];
+    if (sCtx) {
+      sCtx.save();
+      sCtx.beginPath();
+      sCtx.rect(placement.sx, placement.sy, placement.sw, placement.sh);
+      sCtx.clip();
+      sCtx.setTransform(
+        job.scale,
+        0,
+        0,
+        job.scale,
+        placement.sx - job.bounds.minX * job.scale,
+        placement.sy - job.bounds.minY * job.scale
+      );
+      sCtx.lineJoin = 'round';
+
+      if (job.kind === 'building') {
+        drawBuilding3DVector(sCtx, job.item.building, job.item.prism, BUILDING_SPRITE_INV_SCALE);
+      } else if (job.kind === 'fenceSegment') {
+        drawFenceSegment3D(sCtx, job.segment, FENCE_SPRITE_INV_SCALE);
+      } else {
+        drawFencePost3D(sCtx, job.post, FENCE_SPRITE_INV_SCALE);
+      }
+
+      sCtx.restore();
+    }
+
+    slots.set(job.slotId, {
+      sheet,
+      sheetIndex: placement.sheetIndex,
+      sx: placement.sx,
+      sy: placement.sy,
+      sw: placement.sw,
+      sh: placement.sh,
+    });
+  }
+
+  return { sheets, slots };
+}
+
+/**
+ * Packs all 3D buildings and residential yard fences together into 1–2 shared
+ * row-packed HTMLCanvasElement Texture Atlas sheets (<= 2048x2048 px each).
+ * Eliminates hundreds of separate canvas allocations while preserving exact Z-sorting.
+ */
+export function buildSceneSpriteAtlas(
+  buildings: Building[],
+  key: string,
+  scale = BUILDING_SPRITE_SCALE,
+  previousAtlas?: SceneSpriteAtlas | null
+): SceneSpriteAtlas {
+  if (previousAtlas) {
+    disposeSceneSpriteAtlas(previousAtlas);
+  }
+
+  const staticScene = getStaticScene3DOrder(buildings);
+  const jobs: AtlasBakeJob[] = [];
+
+  const buildingArchetypeToSlot = new Map<
+    string,
+    { slotId: string; bounds: BuildingSpriteBounds }
+  >();
+  const buildingInstances: Array<{ id: string; archetypeKey: string }> = [];
+
+  const fenceArchetypeToSlot = new Map<
+    string,
+    { slotId: string; bounds: FenceSpriteAnchorBounds }
+  >();
+  const fenceInstances: Array<{
+    id: string;
+    archetypeKey: string;
+    anchorX: number;
+    anchorY: number;
+  }> = [];
+
+  let cornerPostBounds: FenceSpriteAnchorBounds | null = null;
+  let gatePostBounds: FenceSpriteAnchorBounds | null = null;
+
+  for (let i = 0; i < staticScene.length; i++) {
+    const entry = staticScene[i];
+    if (entry.kind === 'building') {
+      const archetypeKey = getBuildingSpriteArchetypeKey(entry.item.building);
+      if (!buildingArchetypeToSlot.has(archetypeKey)) {
+        const slotId = `b:${buildingArchetypeToSlot.size}`;
+        const bounds = computeCenteredBuildingSpriteBounds(
+          entry.item.prism,
+          entry.item.anchorX,
+          entry.item.anchorY,
+          BUILDING_SPRITE_PAD
+        );
+        buildingArchetypeToSlot.set(archetypeKey, { slotId, bounds });
+        jobs.push({ kind: 'building', slotId, item: entry.item, bounds, scale });
+      }
+      buildingInstances.push({ id: entry.id, archetypeKey });
+    } else if (entry.kind === 'fenceSegment') {
+      const seg = entry.segment;
+      const anchorX = (seg.prism.bLeft.x + seg.prism.bRight.x) * 0.5;
+      const anchorY = (seg.prism.bBack.y + seg.prism.bFront.y) * 0.5;
+      const archetypeKey = getFenceSegmentArchetypeKey(seg.prism, seg.pickets);
+      if (!fenceArchetypeToSlot.has(archetypeKey)) {
+        const slotId = `f:${fenceArchetypeToSlot.size}`;
+        const bounds = computeCenteredFenceSpriteBounds(seg.prism, FENCE_SPRITE_PAD);
+        fenceArchetypeToSlot.set(archetypeKey, { slotId, bounds });
+        jobs.push({ kind: 'fenceSegment', slotId, segment: seg, bounds, scale });
+      }
+      fenceInstances.push({ id: entry.id, archetypeKey, anchorX, anchorY });
+    } else if (entry.kind === 'fencePost') {
+      if (entry.post.isGatePost) {
+        if (!gatePostBounds) {
+          gatePostBounds = computeCenteredFenceSpriteBounds(entry.post.prism, FENCE_SPRITE_PAD);
+          jobs.push({
+            kind: 'fencePost',
+            slotId: 'p:gate',
+            post: entry.post,
+            bounds: gatePostBounds,
+            scale,
+          });
+        }
+      } else if (!cornerPostBounds) {
+        cornerPostBounds = computeCenteredFenceSpriteBounds(entry.post.prism, FENCE_SPRITE_PAD);
+        jobs.push({
+          kind: 'fencePost',
+          slotId: 'p:corner',
+          post: entry.post,
+          bounds: cornerPostBounds,
+          scale,
+        });
+      }
+    }
+  }
+
+  const { sheets, slots } = bakeAtlasJobs(jobs);
+
+  const buildingSprites = new Map<string, BuildingSprite>();
+  for (let i = 0; i < buildingInstances.length; i++) {
+    const inst = buildingInstances[i];
+    const meta = buildingArchetypeToSlot.get(inst.archetypeKey);
+    if (!meta) continue;
+    const slot = slots.get(meta.slotId);
+    if (!slot) continue;
+    buildingSprites.set(inst.id, {
+      id: inst.id,
+      sheet: slot.sheet,
+      sheetIndex: slot.sheetIndex,
+      sx: slot.sx,
+      sy: slot.sy,
+      sw: slot.sw,
+      sh: slot.sh,
+      offsetX: meta.bounds.offsetX,
+      offsetY: meta.bounds.offsetY,
+      worldWidth: slot.sw / scale,
+      worldHeight: slot.sh / scale,
+      scale,
+    });
+  }
+
+  const fenceSegments = new Map<string, FenceSprite>();
+  for (let i = 0; i < fenceInstances.length; i++) {
+    const inst = fenceInstances[i];
+    const meta = fenceArchetypeToSlot.get(inst.archetypeKey);
+    if (!meta) continue;
+    const slot = slots.get(meta.slotId);
+    if (!slot) continue;
+    fenceSegments.set(inst.id, {
+      id: inst.id,
+      sheet: slot.sheet,
+      sheetIndex: slot.sheetIndex,
+      sx: slot.sx,
+      sy: slot.sy,
+      sw: slot.sw,
+      sh: slot.sh,
+      anchorX: inst.anchorX,
+      anchorY: inst.anchorY,
+      offsetX: meta.bounds.offsetX,
+      offsetY: meta.bounds.offsetY,
+      worldWidth: slot.sw / scale,
+      worldHeight: slot.sh / scale,
+      scale,
+    });
+  }
+
+  const cornerSlot = slots.get('p:corner');
+  const cornerPost: FenceSprite | null =
+    cornerSlot && cornerPostBounds
+      ? {
+          id: 'fence_corner_post',
+          sheet: cornerSlot.sheet,
+          sheetIndex: cornerSlot.sheetIndex,
+          sx: cornerSlot.sx,
+          sy: cornerSlot.sy,
+          sw: cornerSlot.sw,
+          sh: cornerSlot.sh,
+          anchorX: cornerPostBounds.anchorX,
+          anchorY: cornerPostBounds.anchorY,
+          offsetX: cornerPostBounds.offsetX,
+          offsetY: cornerPostBounds.offsetY,
+          worldWidth: cornerSlot.sw / scale,
+          worldHeight: cornerSlot.sh / scale,
+          scale,
+        }
+      : null;
+
+  const gateSlot = slots.get('p:gate');
+  const gatePost: FenceSprite | null =
+    gateSlot && gatePostBounds
+      ? {
+          id: 'fence_gate_post',
+          sheet: gateSlot.sheet,
+          sheetIndex: gateSlot.sheetIndex,
+          sx: gateSlot.sx,
+          sy: gateSlot.sy,
+          sw: gateSlot.sw,
+          sh: gateSlot.sh,
+          anchorX: gatePostBounds.anchorX,
+          anchorY: gatePostBounds.anchorY,
+          offsetX: gatePostBounds.offsetX,
+          offsetY: gatePostBounds.offsetY,
+          worldWidth: gateSlot.sw / scale,
+          worldHeight: gateSlot.sh / scale,
+          scale,
+        }
+      : null;
+
   return {
-    id: item.building.id,
-    canvas,
-    offsetX: bounds.offsetX,
-    offsetY: bounds.offsetY,
-    worldWidth: bounds.worldWidth,
-    worldHeight: bounds.worldHeight,
-    scale,
+    key,
+    sheets,
+    buildings: {
+      key,
+      sheets,
+      sprites: buildingSprites,
+    },
+    fences: {
+      sheets,
+      segments: fenceSegments,
+      cornerPost,
+      gatePost,
+    },
   };
 }
 
 /**
- * Pre-renders every 3D building individually into its own transparent sprite canvas.
+ * Packs all 3D building sprites into shared <= 2048x2048 Texture Atlas sheets.
  * Rebuilt only when `warehouseTier` or `footprintOnly` changes.
  */
 export function buildBuildingSpriteCache(
@@ -3233,144 +3751,184 @@ export function buildBuildingSpriteCache(
   scale = BUILDING_SPRITE_SCALE
 ): BuildingSpriteCache {
   const staticScene = getStaticScene3DOrder(buildings);
-  const sprites = new Map<string, BuildingSprite>();
+  const jobs: AtlasBakeJob[] = [];
+  const archetypeToSlot = new Map<string, { slotId: string; bounds: BuildingSpriteBounds }>();
+  const instances: Array<{ id: string; archetypeKey: string }> = [];
 
   for (let i = 0; i < staticScene.length; i++) {
     const entry = staticScene[i];
     if (entry.kind !== 'building') continue;
-    sprites.set(entry.id, createBuildingSprite(entry.item, scale));
+    const archetypeKey = getBuildingSpriteArchetypeKey(entry.item.building);
+    if (!archetypeToSlot.has(archetypeKey)) {
+      const slotId = `b:${archetypeToSlot.size}`;
+      const bounds = computeCenteredBuildingSpriteBounds(
+        entry.item.prism,
+        entry.item.anchorX,
+        entry.item.anchorY,
+        BUILDING_SPRITE_PAD
+      );
+      archetypeToSlot.set(archetypeKey, { slotId, bounds });
+      jobs.push({ kind: 'building', slotId, item: entry.item, bounds, scale });
+    }
+    instances.push({ id: entry.id, archetypeKey });
   }
 
-  return { key, sprites };
-}
+  const { sheets, slots } = bakeAtlasJobs(jobs);
+  const sprites = new Map<string, BuildingSprite>();
+  for (let i = 0; i < instances.length; i++) {
+    const inst = instances[i];
+    const meta = archetypeToSlot.get(inst.archetypeKey);
+    if (!meta) continue;
+    const slot = slots.get(meta.slotId);
+    if (!slot) continue;
+    sprites.set(inst.id, {
+      id: inst.id,
+      sheet: slot.sheet,
+      sheetIndex: slot.sheetIndex,
+      sx: slot.sx,
+      sy: slot.sy,
+      sw: slot.sw,
+      sh: slot.sh,
+      offsetX: meta.bounds.offsetX,
+      offsetY: meta.bounds.offsetY,
+      worldWidth: slot.sw / scale,
+      worldHeight: slot.sh / scale,
+      scale,
+    });
+  }
 
-export const FENCE_SPRITE_SCALE = 2;
-const FENCE_SPRITE_PAD = 3;
-const FENCE_SPRITE_INV_SCALE = 1 / Math.sqrt(1.65);
-
-export interface FenceSprite {
-  id: string;
-  canvas: HTMLCanvasElement;
-  /** World-space anchor X of the fence element (footprint center) */
-  anchorX: number;
-  /** World-space anchor Y of the fence element (footprint center) */
-  anchorY: number;
-  /** World X offset from anchorX to top-left corner of sprite */
-  offsetX: number;
-  /** World Y offset from anchorY to top-left corner of sprite */
-  offsetY: number;
-  /** World-space sprite width corresponding to canvas.width / scale */
-  worldWidth: number;
-  /** World-space sprite height corresponding to canvas.height / scale */
-  worldHeight: number;
-  scale: number;
-}
-
-export interface FenceSpriteCache {
-  segments: Map<string, FenceSprite>;
-  cornerPost: FenceSprite | null;
-  gatePost: FenceSprite | null;
+  return { key, sheets, sprites };
 }
 
 /**
- * Renders a single 3D house yard fence segment (walls, top rail, pickets, outline)
- * onto its own compact transparent offscreen canvas sprite with stored anchor offsets.
- */
-export function createFenceSegmentSprite(
-  seg: FenceSegment3D,
-  scale = FENCE_SPRITE_SCALE
-): FenceSprite {
-  const bounds = computeFenceSpriteAnchorBounds(seg.prism, FENCE_SPRITE_PAD);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(bounds.worldWidth * scale));
-  canvas.height = Math.max(1, Math.ceil(bounds.worldHeight * scale));
-
-  const sCtx = canvas.getContext('2d');
-  if (sCtx) {
-    sCtx.save();
-    sCtx.setTransform(scale, 0, 0, scale, -bounds.minX * scale, -bounds.minY * scale);
-    sCtx.lineJoin = 'round';
-    drawFenceSegment3D(sCtx, seg, FENCE_SPRITE_INV_SCALE);
-    sCtx.restore();
-  }
-
-  return {
-    id: seg.id,
-    canvas,
-    anchorX: bounds.anchorX,
-    anchorY: bounds.anchorY,
-    offsetX: bounds.offsetX,
-    offsetY: bounds.offsetY,
-    worldWidth: bounds.worldWidth,
-    worldHeight: bounds.worldHeight,
-    scale,
-  };
-}
-
-/**
- * Renders a translation-invariant 3D fence post (corner or gate post) onto a compact
- * transparent sprite centered on its footprint anchor so all identical posts blit cleanly.
- */
-export function createFencePostSprite(
-  post: FencePost3D,
-  scale = FENCE_SPRITE_SCALE
-): FenceSprite {
-  const bounds = computeCenteredFenceSpriteBounds(post.prism, FENCE_SPRITE_PAD);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(bounds.worldWidth * scale));
-  canvas.height = Math.max(1, Math.ceil(bounds.worldHeight * scale));
-
-  const sCtx = canvas.getContext('2d');
-  if (sCtx) {
-    sCtx.save();
-    sCtx.setTransform(scale, 0, 0, scale, -bounds.minX * scale, -bounds.minY * scale);
-    sCtx.lineJoin = 'round';
-    drawFencePost3D(sCtx, post, FENCE_SPRITE_INV_SCALE);
-    sCtx.restore();
-  }
-
-  return {
-    id: post.isGatePost ? 'fence_gate_post' : 'fence_corner_post',
-    canvas,
-    anchorX: bounds.anchorX,
-    anchorY: bounds.anchorY,
-    offsetX: bounds.offsetX,
-    offsetY: bounds.offsetY,
-    worldWidth: bounds.worldWidth,
-    worldHeight: bounds.worldHeight,
-    scale,
-  };
-}
-
-/**
- * Pre-renders all residential yard fence segments and post archetypes once at map
- * initialization into transparent offscreen sprites for fast single-drawImage blitting.
+ * Packs all residential yard fence segments and post archetypes into shared <= 2048x2048
+ * Texture Atlas sheets for fast single-drawImage blitting.
  */
 export function buildFenceSpriteCache(
   buildings: Building[],
   scale = FENCE_SPRITE_SCALE
 ): FenceSpriteCache {
   const staticScene = getStaticScene3DOrder(buildings);
-  const segments = new Map<string, FenceSprite>();
-  let cornerPost: FenceSprite | null = null;
-  let gatePost: FenceSprite | null = null;
+  const jobs: AtlasBakeJob[] = [];
+  const archetypeToSlot = new Map<string, { slotId: string; bounds: FenceSpriteAnchorBounds }>();
+  const instances: Array<{
+    id: string;
+    archetypeKey: string;
+    anchorX: number;
+    anchorY: number;
+  }> = [];
+
+  let cornerPostBounds: FenceSpriteAnchorBounds | null = null;
+  let gatePostBounds: FenceSpriteAnchorBounds | null = null;
 
   for (let i = 0; i < staticScene.length; i++) {
     const entry = staticScene[i];
     if (entry.kind === 'fenceSegment') {
-      segments.set(entry.id, createFenceSegmentSprite(entry.segment, scale));
+      const seg = entry.segment;
+      const anchorX = (seg.prism.bLeft.x + seg.prism.bRight.x) * 0.5;
+      const anchorY = (seg.prism.bBack.y + seg.prism.bFront.y) * 0.5;
+      const archetypeKey = getFenceSegmentArchetypeKey(seg.prism, seg.pickets);
+      if (!archetypeToSlot.has(archetypeKey)) {
+        const slotId = `f:${archetypeToSlot.size}`;
+        const bounds = computeCenteredFenceSpriteBounds(seg.prism, FENCE_SPRITE_PAD);
+        archetypeToSlot.set(archetypeKey, { slotId, bounds });
+        jobs.push({ kind: 'fenceSegment', slotId, segment: seg, bounds, scale });
+      }
+      instances.push({ id: entry.id, archetypeKey, anchorX, anchorY });
     } else if (entry.kind === 'fencePost') {
       if (entry.post.isGatePost) {
-        if (!gatePost) {
-          gatePost = createFencePostSprite(entry.post, scale);
+        if (!gatePostBounds) {
+          gatePostBounds = computeCenteredFenceSpriteBounds(entry.post.prism, FENCE_SPRITE_PAD);
+          jobs.push({
+            kind: 'fencePost',
+            slotId: 'p:gate',
+            post: entry.post,
+            bounds: gatePostBounds,
+            scale,
+          });
         }
-      } else if (!cornerPost) {
-        cornerPost = createFencePostSprite(entry.post, scale);
+      } else if (!cornerPostBounds) {
+        cornerPostBounds = computeCenteredFenceSpriteBounds(entry.post.prism, FENCE_SPRITE_PAD);
+        jobs.push({
+          kind: 'fencePost',
+          slotId: 'p:corner',
+          post: entry.post,
+          bounds: cornerPostBounds,
+          scale,
+        });
       }
     }
   }
 
-  return { segments, cornerPost, gatePost };
+  const { sheets, slots } = bakeAtlasJobs(jobs);
+  const segments = new Map<string, FenceSprite>();
+  for (let i = 0; i < instances.length; i++) {
+    const inst = instances[i];
+    const meta = archetypeToSlot.get(inst.archetypeKey);
+    if (!meta) continue;
+    const slot = slots.get(meta.slotId);
+    if (!slot) continue;
+    segments.set(inst.id, {
+      id: inst.id,
+      sheet: slot.sheet,
+      sheetIndex: slot.sheetIndex,
+      sx: slot.sx,
+      sy: slot.sy,
+      sw: slot.sw,
+      sh: slot.sh,
+      anchorX: inst.anchorX,
+      anchorY: inst.anchorY,
+      offsetX: meta.bounds.offsetX,
+      offsetY: meta.bounds.offsetY,
+      worldWidth: slot.sw / scale,
+      worldHeight: slot.sh / scale,
+      scale,
+    });
+  }
+
+  const cornerSlot = slots.get('p:corner');
+  const cornerPost: FenceSprite | null =
+    cornerSlot && cornerPostBounds
+      ? {
+          id: 'fence_corner_post',
+          sheet: cornerSlot.sheet,
+          sheetIndex: cornerSlot.sheetIndex,
+          sx: cornerSlot.sx,
+          sy: cornerSlot.sy,
+          sw: cornerSlot.sw,
+          sh: cornerSlot.sh,
+          anchorX: cornerPostBounds.anchorX,
+          anchorY: cornerPostBounds.anchorY,
+          offsetX: cornerPostBounds.offsetX,
+          offsetY: cornerPostBounds.offsetY,
+          worldWidth: cornerSlot.sw / scale,
+          worldHeight: cornerSlot.sh / scale,
+          scale,
+        }
+      : null;
+
+  const gateSlot = slots.get('p:gate');
+  const gatePost: FenceSprite | null =
+    gateSlot && gatePostBounds
+      ? {
+          id: 'fence_gate_post',
+          sheet: gateSlot.sheet,
+          sheetIndex: gateSlot.sheetIndex,
+          sx: gateSlot.sx,
+          sy: gateSlot.sy,
+          sw: gateSlot.sw,
+          sh: gateSlot.sh,
+          anchorX: gatePostBounds.anchorX,
+          anchorY: gatePostBounds.anchorY,
+          offsetX: gatePostBounds.offsetX,
+          offsetY: gatePostBounds.offsetY,
+          worldWidth: gateSlot.sw / scale,
+          worldHeight: gateSlot.sh / scale,
+          scale,
+        }
+      : null;
+
+  return { sheets, segments, cornerPost, gatePost };
 }
 
 /**
@@ -3470,7 +4028,11 @@ export function renderBuildings3D(
             drawY <= viewBounds.maxY)
         ) {
           ctx.drawImage(
-            segSprite.canvas,
+            segSprite.sheet,
+            segSprite.sx,
+            segSprite.sy,
+            segSprite.sw,
+            segSprite.sh,
             drawX,
             drawY,
             segSprite.worldWidth,
@@ -3502,7 +4064,11 @@ export function renderBuildings3D(
             drawY <= viewBounds.maxY)
         ) {
           ctx.drawImage(
-            postSprite.canvas,
+            postSprite.sheet,
+            postSprite.sx,
+            postSprite.sy,
+            postSprite.sw,
+            postSprite.sh,
             drawX,
             drawY,
             postSprite.worldWidth,
@@ -3529,7 +4095,11 @@ export function renderBuildings3D(
           drawY <= viewBounds.maxY)
       ) {
         ctx.drawImage(
-          sprite.canvas,
+          sprite.sheet,
+          sprite.sx,
+          sprite.sy,
+          sprite.sw,
+          sprite.sh,
           drawX,
           drawY,
           sprite.worldWidth,

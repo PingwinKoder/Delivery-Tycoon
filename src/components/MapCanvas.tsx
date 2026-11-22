@@ -5,20 +5,22 @@ import type { Point, RoadGraph } from '../types/roadGraph';
 import type { DepthSortedEntity } from '../utils/buildings';
 import { BASE_DEPOT, type BaseDepotSpec, canvasToIso } from '../utils/cityMap';
 import {
-  type BuildingSpriteCache,
-  type FenceSpriteCache,
   type ProceduralTextures,
   STATIC_GROUND_BUFFER_SCALE,
   STATIC_GROUND_TILE_PIXEL_SIZE,
+  type SceneSpriteAtlas,
   type StaticGroundBuffer,
-  buildBuildingSpriteCache,
-  buildFenceSpriteCache,
+  type ViewportGroundCache,
+  buildSceneSpriteAtlas,
   buildStaticGroundBuffer,
   createProceduralTextures,
+  createViewportGroundCache,
+  disposeSceneSpriteAtlas,
   disposeStaticGroundBuffer,
-  drawStaticGroundBuffer,
+  disposeViewportGroundCache,
   renderBuildings3D,
   renderStreetNames,
+  updateViewportGroundCache,
 } from '../utils/cityRenderer';
 import {
   drawBaseLoadingZone,
@@ -161,8 +163,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const texturesRef = useRef<ProceduralTextures | null>(null);
   const groundBufferRef = useRef<StaticGroundBuffer | null>(null);
-  const buildingSpriteCacheRef = useRef<BuildingSpriteCache | null>(null);
-  const fenceSpriteCacheRef = useRef<FenceSpriteCache | null>(null);
+  const viewportGroundCacheRef = useRef<ViewportGroundCache | null>(null);
+  const sceneSpriteAtlasRef = useRef<SceneSpriteAtlas | null>(null);
   const internalGameMinutesRef = useRef<number>(0);
 
   const viewportRef = useRef<Size>({ width: 1440, height: 900 });
@@ -383,7 +385,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
     };
 
-    // Pre-build 2x tiled static ground buffer & individual 3D building sprites once on mount
+    // Pre-build 1.25x tiled static ground buffer & shared 2048x2048 building/fence Texture Atlas
     // (rebuilt strictly when road grid, footprint mode, warehouse tier, or parking spots change)
     const ensureStaticCaches = () => {
       const {
@@ -415,14 +417,23 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       const spriteKey = `w${curBaseDepot.warehouseTier}:f${isFootprintOnly ? 1 : 0}`;
-      if (buildingSpriteCacheRef.current?.key !== spriteKey) {
-        buildingSpriteCacheRef.current = isFootprintOnly
-          ? { key: spriteKey, sprites: new Map() }
-          : buildBuildingSpriteCache(curBuildings, spriteKey);
-      }
-
-      if (!fenceSpriteCacheRef.current) {
-        fenceSpriteCacheRef.current = buildFenceSpriteCache(curBuildings);
+      if (sceneSpriteAtlasRef.current?.key !== spriteKey) {
+        if (isFootprintOnly) {
+          disposeSceneSpriteAtlas(sceneSpriteAtlasRef.current);
+          sceneSpriteAtlasRef.current = {
+            key: spriteKey,
+            sheets: [],
+            buildings: { key: spriteKey, sheets: [], sprites: new Map() },
+            fences: { sheets: [], segments: new Map(), cornerPost: null, gatePost: null },
+          };
+        } else {
+          sceneSpriteAtlasRef.current = buildSceneSpriteAtlas(
+            curBuildings,
+            spriteKey,
+            undefined,
+            sceneSpriteAtlasRef.current
+          );
+        }
       }
     };
 
@@ -934,27 +945,32 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
-      ctx.fillStyle = '#161b22';
-      ctx.fillRect(0, 0, vw, vh);
+      // 1. Update Viewport Ground Cache ONLY on camera/viewport/static-ground change,
+      //    then blit the entire static ground in a single drawImage call (1:1 physical pixels, no double-scaling)
+      if (groundBufferRef.current) {
+        if (!viewportGroundCacheRef.current) {
+          viewportGroundCacheRef.current = createViewportGroundCache();
+        }
+        updateViewportGroundCache(viewportGroundCacheRef.current, groundBufferRef.current, {
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+          logicalWidth: vw,
+          logicalHeight: vh,
+          cameraX: cam.x,
+          cameraY: cam.y,
+          cameraZoom: cam.zoom,
+          effectiveZoom,
+        });
+        ctx.drawImage(viewportGroundCacheRef.current.canvas, 0, 0, vw, vh);
+      } else {
+        ctx.fillStyle = '#161b22';
+        ctx.fillRect(0, 0, vw, vh);
+      }
 
-      // Apply camera transform once for tiled ground blit & dynamic overlays
+      // Apply camera transform once for dynamic overlays (route, courier, Z-sorted 3D atlas sprites, labels)
       ctx.translate(vw / 2, vh / 2);
       ctx.scale(effectiveZoom, effectiveZoom);
       ctx.translate(-cam.x, -cam.y);
-
-      const halfGroundW = vw / (2 * effectiveZoom) + 4;
-      const halfGroundH = vh / (2 * effectiveZoom) + 4;
-      const groundViewBounds = {
-        minX: cam.x - halfGroundW,
-        maxX: cam.x + halfGroundW,
-        minY: cam.y - halfGroundH,
-        maxY: cam.y + halfGroundH,
-      };
-
-      // 1. Blit only camera-visible 2x static ground tiles (terrain, roads, markings, parking, optional 2D footprints & road grid)
-      if (groundBufferRef.current) {
-        drawStaticGroundBuffer(ctx, groundBufferRef.current, groundViewBounds);
-      }
 
       const invScale = 1 / Math.sqrt(effectiveZoom);
 
@@ -1073,8 +1089,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           effectiveZoom,
           viewBounds,
           depthEntities,
-          buildingSpriteCacheRef.current,
-          fenceSpriteCacheRef.current
+          sceneSpriteAtlasRef.current?.buildings ?? null,
+          sceneSpriteAtlasRef.current?.fences ?? null
         );
         if (curBaseNode) {
           drawBaseMarker(curBaseNode);
@@ -1113,8 +1129,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onWindowBlur);
       pressedArrowKeysRef.current.clear();
+      disposeViewportGroundCache(viewportGroundCacheRef.current);
+      viewportGroundCacheRef.current = null;
       disposeStaticGroundBuffer(groundBufferRef.current);
       groundBufferRef.current = null;
+      disposeSceneSpriteAtlas(sceneSpriteAtlasRef.current);
+      sceneSpriteAtlasRef.current = null;
     };
   }, []);
 
