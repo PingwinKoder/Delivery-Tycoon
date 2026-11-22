@@ -568,10 +568,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             </span>
                           </div>
 
-                          {/* Center: Full Client Name & Full Address (no truncation) */}
+                          {/* Center: Full Client Name with 3-digit Order Number & Full Address (no truncation) */}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm sm:text-base font-bold text-slate-100 leading-snug break-words">
-                              {task.clientName}
+                            <p className="text-sm sm:text-base font-bold text-slate-100 leading-snug break-words flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                              <span className="font-mono-nums text-amber-300 shrink-0">
+                                #{task.orderNumber}
+                              </span>
+                              <span className="text-slate-500 shrink-0" aria-hidden="true">
+                                •
+                              </span>
+                              <span>{task.clientName}</span>
                             </p>
                             <p className="mt-0.5 text-xs sm:text-sm text-slate-400 leading-snug break-words">
                               {task.pickupAddress}
@@ -669,9 +675,14 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
           </span>
         </div>
 
-        {/* Client Name & Pickup Address */}
+        {/* Client Name with 3-digit Order Number & Pickup Address */}
         <div>
-          <h3 className="text-base font-bold text-slate-100 leading-snug">{offer.clientName}</h3>
+          <h3 className="text-base font-bold text-slate-100 leading-snug flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/35 text-xs font-bold font-mono-nums text-amber-300 shrink-0">
+              #{offer.orderNumber}
+            </span>
+            <span>{offer.clientName}</span>
+          </h3>
           <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
             Adres odbioru: <span className="text-slate-200">{offer.pickupLocation.address}</span>
           </p>
@@ -797,9 +808,14 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
           </span>
         </div>
 
-        {/* Client Name & Pickup Address */}
+        {/* Client Name with 3-digit Order Number & Pickup Address */}
         <div>
-          <h3 className="text-base font-bold text-slate-100 leading-snug">{order.clientName}</h3>
+          <h3 className="text-base font-bold text-slate-100 leading-snug flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/35 text-xs font-bold font-mono-nums text-amber-300 shrink-0">
+              #{order.orderNumber}
+            </span>
+            <span>{order.clientName}</span>
+          </h3>
           <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
             Adres odbioru: <span className="text-slate-200">{order.pickupLocation.address}</span>
           </p>

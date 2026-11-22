@@ -46,6 +46,8 @@ export interface OrderDeliveryStop {
 
 export interface OrderOfferBase {
   id: string;
+  /** Unique 3-digit human-readable order number (101–999) */
+  orderNumber: number;
   kind: OrderKind;
   clientName: string;
   title: string;
@@ -123,6 +125,8 @@ export interface WeeklyScheduleTask {
   /** Fulfillment stage: 'pickup' (sender -> Base warehouse) or 'delivery' (Base warehouse -> recipients) */
   taskType: WeeklyTaskType;
   orderId: string;
+  /** Unique 3-digit human-readable order number (101–999) */
+  orderNumber: number;
   weekdayIndex: number;
   kind: OrderKind;
   clientName: string;

@@ -463,12 +463,39 @@ function buildDeliveryStops(
 // Offer Generator
 // ============================================================================
 
+const ORDER_NUMBER_MIN = 101;
+const ORDER_NUMBER_MAX = 999;
+const ORDER_NUMBER_SPAN = ORDER_NUMBER_MAX - ORDER_NUMBER_MIN + 1; // 899
+
+/**
+ * Draws a random 3-digit integer in [101, 999] that is not currently used by any
+ * active order or pending offer.
+ */
+export function generateUniqueOrderNumber(usedNumbers: ReadonlySet<number>): number {
+  for (let attempt = 0; attempt < 250; attempt++) {
+    const candidate = Math.floor(Math.random() * ORDER_NUMBER_SPAN) + ORDER_NUMBER_MIN;
+    if (!usedNumbers.has(candidate)) {
+      return candidate;
+    }
+  }
+  // Linear fallback scan in case nearly all 899 numbers are occupied simultaneously
+  const startOffset = Math.floor(Math.random() * ORDER_NUMBER_SPAN);
+  for (let i = 0; i < ORDER_NUMBER_SPAN; i++) {
+    const candidate = ORDER_NUMBER_MIN + ((startOffset + i) % ORDER_NUMBER_SPAN);
+    if (!usedNumbers.has(candidate)) {
+      return candidate;
+    }
+  }
+  return Math.floor(Math.random() * ORDER_NUMBER_SPAN) + ORDER_NUMBER_MIN;
+}
+
 export function generateSingleOffer(
   reputationLevel: ReputationLevel,
   currentMinutes: number,
   buildings: readonly Building[],
   orderSeq: number,
-  rngState: number
+  rngState: number,
+  usedOrderNumbers?: ReadonlySet<number>
 ): { offer: OrderOffer; nextState: number } {
   let state = rngState;
   const tier = getReputationTierConfig(reputationLevel);
@@ -491,6 +518,7 @@ export function generateSingleOffer(
   const expiresAtGameDay = createdAtGameDay + OFFER_EXPIRY_DAYS;
   const expiresAtMinutes = (expiresAtGameDay - 1) * MINUTES_PER_DAY;
   const id = `ord-${orderSeq}`;
+  const orderNumber = generateUniqueOrderNumber(usedOrderNumbers ?? new Set<number>());
 
   // Decide short-term vs long-term based on reputation tier unlocks
   const canGenerateLongTerm = tier.allowedLongTermMonths.length > 0;
@@ -542,6 +570,7 @@ export function generateSingleOffer(
 
     const offer: LongTermOrderOffer = {
       id,
+      orderNumber,
       kind: 'long_term',
       clientName: clientPick.clientName,
       title: `Kontrakt ${durationMonths} mies. — ${clientPick.clientName}`,
@@ -608,6 +637,7 @@ export function generateSingleOffer(
   const dayLabel = durationDays === 1 ? '1 dzień' : `${durationDays} dni`;
   const offer: ShortTermOrderOffer = {
     id,
+    orderNumber,
     kind: 'short_term',
     clientName: clientPick.clientName,
     title: `Zlecenie (${dayLabel}) — ${clientPick.clientName}`,
@@ -642,6 +672,14 @@ function generateOffersBatch(
   }
 
   const newOffers: OrderOffer[] = [];
+  const usedOrderNumbers = new Set<number>();
+  for (const active of state.activeOrders) {
+    usedOrderNumbers.add(active.orderNumber);
+  }
+  for (const pending of state.pendingOffers) {
+    usedOrderNumbers.add(pending.orderNumber);
+  }
+
   let rngState = state.rngState;
   let nextOrderSeq = state.nextOrderSeq;
 
@@ -651,8 +689,10 @@ function generateOffersBatch(
       currentMinutes,
       buildings,
       nextOrderSeq,
-      rngState
+      rngState,
+      usedOrderNumbers
     );
+    usedOrderNumbers.add(generated.offer.orderNumber);
     newOffers.push(generated.offer);
     rngState = generated.nextState;
     nextOrderSeq += 1;
@@ -2187,6 +2227,7 @@ export function getScheduledTasksForWeekday(
     taskId: item.taskId,
     taskType: item.taskType,
     orderId: item.order.id,
+    orderNumber: item.order.orderNumber,
     weekdayIndex,
     kind: item.order.kind,
     clientName: item.order.clientName,

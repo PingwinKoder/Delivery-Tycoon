@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { INITIAL_ROAD_GRAPH } from './data/initialRoadGraph';
 import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
 import { OrdersModal } from './components/OrdersModal';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { SkipTimeModal } from './components/SkipTimeModal';
 import { Toolbar } from './components/Toolbar';
 import {
@@ -407,6 +408,8 @@ export function App() {
         onSkipDay={handleSkipOneDay}
         onSkipToNextOrder={handleSkipToNextOrder}
       />
+
+      <PWAInstallButton />
     </main>
   );
 }
