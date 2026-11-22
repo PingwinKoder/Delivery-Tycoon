@@ -1,4 +1,5 @@
-import type { BaseBikeRackSpec } from './cityMap';
+import type { Point } from '../types/roadGraph';
+import type { BaseBikeRackSpec, BaseLoadingZoneSpec } from './cityMap';
 import { isoToCanvas } from './cityMap';
 
 /** Compact, minimalist bicycle & rider scale (~20% smaller than 0.67 for crisp city readability) */
@@ -399,3 +400,129 @@ export function drawBikeRackWithOptionalBike(
 
   ctx.restore();
 }
+
+/**
+ * Renders the courier's active road route with a subtle, slender stroke so streets
+ * and buildings remain crisp and unobstructed.
+ */
+export function drawCourierRoute(
+  ctx: CanvasRenderingContext2D,
+  route: readonly Point[],
+  invScale: number
+) {
+  if (route.length < 2) return;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Subtle dark outer casing
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.58)';
+  ctx.lineWidth = 4.2 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(route[0].x, route[0].y);
+  for (let i = 1; i < route.length; i++) {
+    ctx.lineTo(route[i].x, route[i].y);
+  }
+  ctx.stroke();
+
+  // Slender courier orange inner line
+  ctx.strokeStyle = '#f97316';
+  ctx.lineWidth = 2.1 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(route[0].x, route[0].y);
+  for (let i = 1; i < route.length; i++) {
+    ctx.lineTo(route[i].x, route[i].y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Renders a crisp, understated destination marker at the active pickup or delivery stop.
+ */
+export function drawCourierDestinationPin(
+  ctx: CanvasRenderingContext2D,
+  targetPoint: Point,
+  invScale: number
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(targetPoint.x, targetPoint.y, 5.5 * invScale, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(249, 115, 22, 0.24)';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(targetPoint.x, targetPoint.y, 3.0 * invScale, 0, Math.PI * 2);
+  ctx.fillStyle = '#f97316';
+  ctx.fill();
+  ctx.lineWidth = 1.4 * invScale;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Renders the dedicated package loading/unloading bay on the Base yard directly opposite
+ * the street driveway entrance (flush in front of the Base building front facade).
+ */
+export function drawBaseLoadingZone(
+  ctx: CanvasRenderingContext2D,
+  zone: BaseLoadingZoneSpec
+) {
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const p0 = isoToCanvas(zone.uMin, zone.vMin);
+  const p1 = isoToCanvas(zone.uMax, zone.vMin);
+  const p2 = isoToCanvas(zone.uMax, zone.vMax);
+  const p3 = isoToCanvas(zone.uMin, zone.vMax);
+
+  // Subtle translucent concrete/amber transfer bay fill
+  ctx.fillStyle = 'rgba(245, 158, 11, 0.13)';
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.lineTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p3.x, p3.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crisp dashed amber logistics zone border
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.72)';
+  ctx.lineWidth = 1.25;
+  ctx.setLineDash([4, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Accent loading dock threshold strip flush against the Base entrance (uMax edge)
+  const dockIn0 = isoToCanvas(zone.uMax - 3.2, zone.vMin + 2.0);
+  const dockIn1 = isoToCanvas(zone.uMax - 0.6, zone.vMin + 2.0);
+  const dockIn2 = isoToCanvas(zone.uMax - 0.6, zone.vMax - 2.0);
+  const dockIn3 = isoToCanvas(zone.uMax - 3.2, zone.vMax - 2.0);
+
+  ctx.fillStyle = 'rgba(249, 115, 22, 0.34)';
+  ctx.beginPath();
+  ctx.moveTo(dockIn0.x, dockIn0.y);
+  ctx.lineTo(dockIn1.x, dockIn1.y);
+  ctx.lineTo(dockIn2.x, dockIn2.y);
+  ctx.lineTo(dockIn3.x, dockIn3.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Small directional chevron at bay center pointing toward Base entrance (+u)
+  const tip = isoToCanvas(zone.stopU + 2.4, zone.stopV);
+  const wingL = isoToCanvas(zone.stopU - 1.6, zone.stopV - 3.0);
+  const wingR = isoToCanvas(zone.stopU - 1.6, zone.stopV + 3.0);
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.78)';
+  ctx.lineWidth = 1.35;
+  ctx.beginPath();
+  ctx.moveTo(wingL.x, wingL.y);
+  ctx.lineTo(tip.x, tip.y);
+  ctx.lineTo(wingR.x, wingR.y);
+  ctx.stroke();
+
+  ctx.restore();
+}
+

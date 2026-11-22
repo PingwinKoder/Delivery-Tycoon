@@ -1,9 +1,11 @@
 import type { Building } from '../types/building';
+import type { RoadGraph } from '../types/roadGraph';
 import {
   PARCEL_LOCKER_SLOTS,
   PROCEDURAL_DELIVERY_ZONES,
   PROCEDURAL_HOUSE_YARDS,
   PROCEDURAL_PARKING_LOTS,
+  type BuildingPrismPoints,
   type DeliveryZone,
   type DepthSortedEntity,
   type FencePost3D,
@@ -11,13 +13,20 @@ import {
   type HouseYardFence,
   type ParcelLockerSlot,
   type ParkingLot,
+  type PrecomputedBuilding3D,
   type StaticScene3DItem,
   computeParkingLayout,
   getBuildingPalette,
   getBuildingPrismPoints,
+  getBuildingSpriteBounds,
   getStaticScene3DOrder,
   mergeEntitiesIntoBackToFrontOrder,
 } from './buildings';
+import {
+  computeCenteredFenceSpriteBounds,
+  computeFenceSpriteAnchorBounds,
+} from './houseQuarters';
+import type { ParkingNavNetwork } from './parkingNavigation';
 import {
   ALL_STREETS,
   BASE_DEPOT,
@@ -1360,6 +1369,313 @@ export function renderProceduralCity(
   ctx.restore();
 }
 
+export const STATIC_GROUND_BUFFER_SCALE = 1.25;
+const STATIC_GRID_INV_SCALE = 1 / Math.sqrt(1.65);
+
+export interface StaticGroundBuffer {
+  key: string;
+  canvas: HTMLCanvasElement;
+  scale: number;
+  worldWidth: number;
+  worldHeight: number;
+}
+
+export interface StaticGroundBufferOptions {
+  textures: ProceduralTextures;
+  baseDepot: BaseDepotSpec;
+  buildings: Building[];
+  graph: RoadGraph;
+  parkingNavNetworks: ParkingNavNetwork[];
+  showGrid: boolean;
+  footprintOnly: boolean;
+  scale?: number;
+}
+
+/**
+ * Renders static road graph edges, one-way roundabout arrows, internal parking navigation
+ * aisles, and non-base road nodes onto the static ground buffer when grid mode is enabled.
+ */
+export function renderStaticRoadGrid(
+  ctx: CanvasRenderingContext2D,
+  graph: RoadGraph,
+  parkingNavNetworks: ParkingNavNetwork[],
+  invScale = STATIC_GRID_INV_SCALE
+) {
+  const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]));
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Dark road edge casing
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.78)';
+  ctx.lineWidth = 6 * invScale;
+  ctx.beginPath();
+  for (const [aId, bId] of graph.edges) {
+    const a = nodeMap.get(aId);
+    const b = nodeMap.get(bId);
+    if (!a || !b) continue;
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+  }
+  ctx.stroke();
+
+  // Yellow road graph centerline
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.72)';
+  ctx.lineWidth = 2.6 * invScale;
+  ctx.beginPath();
+  for (const [aId, bId] of graph.edges) {
+    const a = nodeMap.get(aId);
+    const b = nodeMap.get(bId);
+    if (!a || !b) continue;
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+  }
+  ctx.stroke();
+
+  // Subtle directional arrowheads on one-way roundabout edges (CCW)
+  ctx.fillStyle = '#2dd4bf';
+  for (const edge of graph.edges) {
+    if (!edge[2]?.oneWay) continue;
+    const a = nodeMap.get(edge[0]);
+    const b = nodeMap.get(edge[1]);
+    if (!a || !b) continue;
+    const mx = (a.x + b.x) * 0.5;
+    const my = (a.y + b.y) * 0.5;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const sz = 4.2 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(mx + Math.cos(ang) * sz, my + Math.sin(ang) * sz);
+    ctx.lineTo(
+      mx + Math.cos(ang + 2.45) * sz * 0.85,
+      my + Math.sin(ang + 2.45) * sz * 0.85
+    );
+    ctx.lineTo(
+      mx + Math.cos(ang - 2.45) * sz * 0.85,
+      my + Math.sin(ang - 2.45) * sz * 0.85
+    );
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Subtle internal parking navigation aisles across ALL parking lots
+  ctx.save();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.62)';
+  ctx.lineWidth = 1.9 * invScale;
+  ctx.setLineDash([5 * invScale, 4 * invScale]);
+  ctx.beginPath();
+  for (const net of parkingNavNetworks) {
+    const pNodeMap = new Map(net.nodes.map((n) => [n.id, n]));
+    for (const edge of net.edges) {
+      const a = pNodeMap.get(edge.from);
+      const b = pNodeMap.get(edge.to);
+      if (!a || !b) continue;
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Directional arrows on one-way internal parking lanes
+  ctx.fillStyle = '#38bdf8';
+  for (const net of parkingNavNetworks) {
+    const pNodeMap = new Map(net.nodes.map((n) => [n.id, n]));
+    for (const edge of net.edges) {
+      if (!edge.oneWay) continue;
+      const a = pNodeMap.get(edge.from);
+      const b = pNodeMap.get(edge.to);
+      if (!a || !b) continue;
+      const mx = (a.x + b.x) * 0.5;
+      const my = (a.y + b.y) * 0.5;
+      const ang = Math.atan2(b.y - a.y, b.x - a.x);
+      const sz = 3.8 * invScale;
+      ctx.beginPath();
+      ctx.moveTo(mx + Math.cos(ang) * sz, my + Math.sin(ang) * sz);
+      ctx.lineTo(
+        mx + Math.cos(ang + 2.45) * sz * 0.85,
+        my + Math.sin(ang + 2.45) * sz * 0.85
+      );
+      ctx.lineTo(
+        mx + Math.cos(ang - 2.45) * sz * 0.85,
+        my + Math.sin(ang - 2.45) * sz * 0.85
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Non-base road graph nodes (base marker is rendered dynamically on top)
+  const radius = 4.5 * invScale;
+  ctx.lineWidth = 1.8 * invScale;
+  ctx.strokeStyle = '#0f172a';
+  for (const node of graph.nodes) {
+    if (node.id === 'base' || node.kind === 'base') continue;
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+    if (node.kind === 'roundabout') {
+      ctx.fillStyle = '#2dd4bf';
+    } else if (node.kind === 'endpoint') {
+      ctx.fillStyle = '#cbd5e1';
+    } else {
+      ctx.fillStyle = '#fbbf24';
+    }
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Renders the entire static ground layer (terrain, concrete plots, parking, sidewalks,
+ * streets, markings, roundabouts, paver pads, optional 2D building footprints, and
+ * optional road grid) once into an offscreen canvas buffer in world coordinates.
+ * Rebuilt only when a static layer setting changes — never during camera pan or zoom.
+ */
+export function buildStaticGroundBuffer(
+  options: StaticGroundBufferOptions,
+  key: string,
+  existingBuffer?: StaticGroundBuffer | null
+): StaticGroundBuffer {
+  const scale = options.scale ?? STATIC_GROUND_BUFFER_SCALE;
+  const bufW = Math.round(MAP_WIDTH * scale);
+  const bufH = Math.round(MAP_HEIGHT * scale);
+
+  const canvas = existingBuffer?.canvas ?? document.createElement('canvas');
+  if (canvas.width !== bufW || canvas.height !== bufH) {
+    canvas.width = bufW;
+    canvas.height = bufH;
+  }
+
+  const bCtx = canvas.getContext('2d');
+  if (bCtx) {
+    bCtx.save();
+    bCtx.setTransform(1, 0, 0, 1, 0, 0);
+    bCtx.clearRect(0, 0, bufW, bufH);
+    bCtx.setTransform(scale, 0, 0, scale, 0, 0);
+
+    renderProceduralCity(bCtx, options.textures, options.baseDepot);
+
+    if (options.footprintOnly) {
+      renderBuildingFootprints(bCtx, options.buildings, null, null, 1.65);
+    }
+
+    if (options.showGrid) {
+      renderStaticRoadGrid(
+        bCtx,
+        options.graph,
+        options.parkingNavNetworks,
+        STATIC_GRID_INV_SCALE
+      );
+    }
+
+    bCtx.restore();
+  }
+
+  return {
+    key,
+    canvas,
+    scale,
+    worldWidth: MAP_WIDTH,
+    worldHeight: MAP_HEIGHT,
+  };
+}
+
+export interface ClampedDrawImageRect {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+  dx: number;
+  dy: number;
+  dw: number;
+  dh: number;
+}
+
+/**
+ * Strictly clamps the requested source rectangle `(sx, sy, sw, sh)` to the exact pixel
+ * bounds `[0..bufferWidth] x [0..bufferHeight]` and proportionally adjusts the destination
+ * rectangle `(dx, dy, dw, dh)` in world coordinates so `ctx.drawImage` never reads outside
+ * the offscreen buffer (preventing GPU acceleration fallbacks near map edges).
+ */
+export function clampGroundDrawRect(
+  viewBounds: WorldViewBounds,
+  bufferWidth: number,
+  bufferHeight: number,
+  worldWidth: number,
+  worldHeight: number
+): ClampedDrawImageRect | null {
+  if (bufferWidth <= 0 || bufferHeight <= 0 || worldWidth <= 0 || worldHeight <= 0) {
+    return null;
+  }
+
+  const rawDx = viewBounds.minX;
+  const rawDy = viewBounds.minY;
+  const rawDw = viewBounds.maxX - viewBounds.minX;
+  const rawDh = viewBounds.maxY - viewBounds.minY;
+  if (rawDw <= 0 || rawDh <= 0) return null;
+
+  const scaleX = bufferWidth / worldWidth;
+  const scaleY = bufferHeight / worldHeight;
+
+  const reqSx = rawDx * scaleX;
+  const reqSy = rawDy * scaleY;
+  const reqSw = rawDw * scaleX;
+  const reqSh = rawDh * scaleY;
+
+  const sx = Math.max(0, Math.min(bufferWidth, Math.floor(reqSx)));
+  const sy = Math.max(0, Math.min(bufferHeight, Math.floor(reqSy)));
+  const sxEnd = Math.max(sx, Math.min(bufferWidth, Math.ceil(reqSx + reqSw)));
+  const syEnd = Math.max(sy, Math.min(bufferHeight, Math.ceil(reqSy + reqSh)));
+
+  const sw = Math.min(bufferWidth - sx, sxEnd - sx);
+  const sh = Math.min(bufferHeight - sy, syEnd - sy);
+  if (sw <= 0 || sh <= 0) return null;
+
+  // Proportionally adjust destination rect for the exact clipped source edges
+  const dx = rawDx + ((sx - reqSx) / reqSw) * rawDw;
+  const dy = rawDy + ((sy - reqSy) / reqSh) * rawDh;
+  const dw = (sw / reqSw) * rawDw;
+  const dh = (sh / reqSh) * rawDh;
+  if (dw <= 0 || dh <= 0) return null;
+
+  return { sx, sy, sw, sh, dx, dy, dw, dh };
+}
+
+/**
+ * Blits only the camera-visible slice of the pre-rendered static ground buffer onto the
+ * world-transformed main canvas in a single `ctx.drawImage(...)` call with guaranteed
+ * in-bounds source clamping and proportional destination correction.
+ */
+export function drawStaticGroundBuffer(
+  ctx: CanvasRenderingContext2D,
+  buffer: StaticGroundBuffer,
+  viewBounds: WorldViewBounds
+) {
+  const rect = clampGroundDrawRect(
+    viewBounds,
+    buffer.canvas.width,
+    buffer.canvas.height,
+    buffer.worldWidth,
+    buffer.worldHeight
+  );
+  if (!rect) return;
+
+  ctx.drawImage(
+    buffer.canvas,
+    rect.sx,
+    rect.sy,
+    rect.sw,
+    rect.sh,
+    rect.dx,
+    rect.dy,
+    rect.dw,
+    rect.dh
+  );
+}
+
 interface StreetLabelPlacement {
   name: string;
   kind: StreetSpec['kind'];
@@ -1639,9 +1955,294 @@ function drawFencePost3D(
   ctx.stroke();
 }
 
+export const BUILDING_SPRITE_SCALE = 2;
+const BUILDING_SPRITE_PAD = 4;
+const BUILDING_SPRITE_INV_SCALE = 1 / Math.sqrt(1.65);
+
+export interface BuildingSprite {
+  id: string;
+  canvas: HTMLCanvasElement;
+  /** World X offset from building footprint center (anchorX) to top-left corner of sprite */
+  offsetX: number;
+  /** World Y offset from building footprint center (anchorY) to top-left corner of sprite */
+  offsetY: number;
+  /** World-space sprite width corresponding to canvas.width / scale */
+  worldWidth: number;
+  /** World-space sprite height corresponding to canvas.height / scale */
+  worldHeight: number;
+  /** Rasterization supersampling scale */
+  scale: number;
+}
+
+export interface BuildingSpriteCache {
+  key: string;
+  sprites: Map<string, BuildingSprite>;
+}
+
 /**
- * Draws all buildings and 3D wooden yard fences as clean 3D orthographic isometric prisms
- * in exact Painter's Algorithm back-to-front order using the pre-sorted static scene cache,
+ * Vector rasterizer for a single 3D isometric building volume (walls, roof, architectural edges).
+ * Used once per building during sprite baking (and as fallback when no sprite cache is provided).
+ */
+function drawBuilding3DVector(
+  ctx: CanvasRenderingContext2D,
+  b: Building,
+  p: BuildingPrismPoints,
+  invScale: number
+) {
+  const palette = getBuildingPalette(b.typ, b.colorVariant);
+
+  // 1. Left wall (SW-facing, mid-lit)
+  ctx.fillStyle = palette.leftWall;
+  ctx.beginPath();
+  ctx.moveTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 2. Right wall (SE-facing, darker shadow side for crisp 3D volume)
+  ctx.fillStyle = palette.rightWall;
+  ctx.beginPath();
+  ctx.moveTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 3. Roof top face (brightest surface)
+  ctx.fillStyle = palette.roof;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Subtle roof edge highlight + crisp architectural ridge crease
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.34)';
+  ctx.lineWidth = 1.15 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tLeft.x, p.tLeft.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.stroke();
+
+  // Vertical corner seam between left and right walls
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.28)';
+  ctx.lineWidth = 1.05 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.stroke();
+
+  // Clean outer silhouette hairline so wall-to-wall touching blocks separate crisply
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.44)';
+  ctx.lineWidth = 1.1 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+/**
+ * Renders a single 3D building onto its own compact transparent offscreen canvas sprite
+ * with anchor offsets `(offsetX, offsetY)` relative to `(item.anchorX, item.anchorY)`.
+ */
+export function createBuildingSprite(
+  item: PrecomputedBuilding3D,
+  scale = BUILDING_SPRITE_SCALE
+): BuildingSprite {
+  const bounds = getBuildingSpriteBounds(
+    item.prism,
+    item.anchorX,
+    item.anchorY,
+    BUILDING_SPRITE_PAD
+  );
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(bounds.worldWidth * scale));
+  canvas.height = Math.max(1, Math.ceil(bounds.worldHeight * scale));
+
+  const sCtx = canvas.getContext('2d');
+  if (sCtx) {
+    sCtx.save();
+    sCtx.setTransform(scale, 0, 0, scale, -bounds.minX * scale, -bounds.minY * scale);
+    sCtx.lineJoin = 'round';
+    drawBuilding3DVector(sCtx, item.building, item.prism, BUILDING_SPRITE_INV_SCALE);
+    sCtx.restore();
+  }
+
+  return {
+    id: item.building.id,
+    canvas,
+    offsetX: bounds.offsetX,
+    offsetY: bounds.offsetY,
+    worldWidth: bounds.worldWidth,
+    worldHeight: bounds.worldHeight,
+    scale,
+  };
+}
+
+/**
+ * Pre-renders every 3D building individually into its own transparent sprite canvas.
+ * Rebuilt only when `warehouseTier` or `footprintOnly` changes.
+ */
+export function buildBuildingSpriteCache(
+  buildings: Building[],
+  key: string,
+  scale = BUILDING_SPRITE_SCALE
+): BuildingSpriteCache {
+  const staticScene = getStaticScene3DOrder(buildings);
+  const sprites = new Map<string, BuildingSprite>();
+
+  for (let i = 0; i < staticScene.length; i++) {
+    const entry = staticScene[i];
+    if (entry.kind !== 'building') continue;
+    sprites.set(entry.id, createBuildingSprite(entry.item, scale));
+  }
+
+  return { key, sprites };
+}
+
+export const FENCE_SPRITE_SCALE = 2;
+const FENCE_SPRITE_PAD = 3;
+const FENCE_SPRITE_INV_SCALE = 1 / Math.sqrt(1.65);
+
+export interface FenceSprite {
+  id: string;
+  canvas: HTMLCanvasElement;
+  /** World-space anchor X of the fence element (footprint center) */
+  anchorX: number;
+  /** World-space anchor Y of the fence element (footprint center) */
+  anchorY: number;
+  /** World X offset from anchorX to top-left corner of sprite */
+  offsetX: number;
+  /** World Y offset from anchorY to top-left corner of sprite */
+  offsetY: number;
+  /** World-space sprite width corresponding to canvas.width / scale */
+  worldWidth: number;
+  /** World-space sprite height corresponding to canvas.height / scale */
+  worldHeight: number;
+  scale: number;
+}
+
+export interface FenceSpriteCache {
+  segments: Map<string, FenceSprite>;
+  cornerPost: FenceSprite | null;
+  gatePost: FenceSprite | null;
+}
+
+/**
+ * Renders a single 3D house yard fence segment (walls, top rail, pickets, outline)
+ * onto its own compact transparent offscreen canvas sprite with stored anchor offsets.
+ */
+export function createFenceSegmentSprite(
+  seg: FenceSegment3D,
+  scale = FENCE_SPRITE_SCALE
+): FenceSprite {
+  const bounds = computeFenceSpriteAnchorBounds(seg.prism, FENCE_SPRITE_PAD);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(bounds.worldWidth * scale));
+  canvas.height = Math.max(1, Math.ceil(bounds.worldHeight * scale));
+
+  const sCtx = canvas.getContext('2d');
+  if (sCtx) {
+    sCtx.save();
+    sCtx.setTransform(scale, 0, 0, scale, -bounds.minX * scale, -bounds.minY * scale);
+    sCtx.lineJoin = 'round';
+    drawFenceSegment3D(sCtx, seg, FENCE_SPRITE_INV_SCALE);
+    sCtx.restore();
+  }
+
+  return {
+    id: seg.id,
+    canvas,
+    anchorX: bounds.anchorX,
+    anchorY: bounds.anchorY,
+    offsetX: bounds.offsetX,
+    offsetY: bounds.offsetY,
+    worldWidth: bounds.worldWidth,
+    worldHeight: bounds.worldHeight,
+    scale,
+  };
+}
+
+/**
+ * Renders a translation-invariant 3D fence post (corner or gate post) onto a compact
+ * transparent sprite centered on its footprint anchor so all identical posts blit cleanly.
+ */
+export function createFencePostSprite(
+  post: FencePost3D,
+  scale = FENCE_SPRITE_SCALE
+): FenceSprite {
+  const bounds = computeCenteredFenceSpriteBounds(post.prism, FENCE_SPRITE_PAD);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(bounds.worldWidth * scale));
+  canvas.height = Math.max(1, Math.ceil(bounds.worldHeight * scale));
+
+  const sCtx = canvas.getContext('2d');
+  if (sCtx) {
+    sCtx.save();
+    sCtx.setTransform(scale, 0, 0, scale, -bounds.minX * scale, -bounds.minY * scale);
+    sCtx.lineJoin = 'round';
+    drawFencePost3D(sCtx, post, FENCE_SPRITE_INV_SCALE);
+    sCtx.restore();
+  }
+
+  return {
+    id: post.isGatePost ? 'fence_gate_post' : 'fence_corner_post',
+    canvas,
+    anchorX: bounds.anchorX,
+    anchorY: bounds.anchorY,
+    offsetX: bounds.offsetX,
+    offsetY: bounds.offsetY,
+    worldWidth: bounds.worldWidth,
+    worldHeight: bounds.worldHeight,
+    scale,
+  };
+}
+
+/**
+ * Pre-renders all residential yard fence segments and post archetypes once at map
+ * initialization into transparent offscreen sprites for fast single-drawImage blitting.
+ */
+export function buildFenceSpriteCache(
+  buildings: Building[],
+  scale = FENCE_SPRITE_SCALE
+): FenceSpriteCache {
+  const staticScene = getStaticScene3DOrder(buildings);
+  const segments = new Map<string, FenceSprite>();
+  let cornerPost: FenceSprite | null = null;
+  let gatePost: FenceSprite | null = null;
+
+  for (let i = 0; i < staticScene.length; i++) {
+    const entry = staticScene[i];
+    if (entry.kind === 'fenceSegment') {
+      segments.set(entry.id, createFenceSegmentSprite(entry.segment, scale));
+    } else if (entry.kind === 'fencePost') {
+      if (entry.post.isGatePost) {
+        if (!gatePost) {
+          gatePost = createFencePostSprite(entry.post, scale);
+        }
+      } else if (!cornerPost) {
+        cornerPost = createFencePostSprite(entry.post, scale);
+      }
+    }
+  }
+
+  return { segments, cornerPost, gatePost };
+}
+
+/**
+ * Draws all buildings and 3D wooden yard fences in exact Painter's Algorithm back-to-front
+ * order using the pre-sorted static scene cache and per-building / per-fence cached sprites,
  * dynamically interleaving only moving/interactive entities (bike rack, courier) per frame.
  */
 export function renderBuildings3D(
@@ -1651,7 +2252,9 @@ export function renderBuildings3D(
   hoveredId: string | null,
   zoom: number,
   viewBounds?: WorldViewBounds,
-  entities: DepthSortedEntity[] = []
+  entities: DepthSortedEntity[] = [],
+  spriteCache?: BuildingSpriteCache | null,
+  fenceSpriteCache?: FenceSpriteCache | null
 ) {
   const invScale = 1 / Math.sqrt(zoom);
   const staticScene = getStaticScene3DOrder(buildings);
@@ -1710,6 +2313,9 @@ export function renderBuildings3D(
   // Pass 2: Interleave ONLY dynamic entities (bike rack, courier) into the already-sorted
   // visible static list (buildings + 3D wooden yard fence panels & posts)
   const orderedScene = mergeEntitiesIntoBackToFrontOrder(visible, entities);
+  const spriteMap = spriteCache?.sprites;
+  const fenceSegmentMap = fenceSpriteCache?.segments;
+
   for (let i = 0; i < orderedScene.length; i++) {
     const sceneEntry = orderedScene[i];
     if (sceneEntry.kind === 'entity') {
@@ -1719,78 +2325,90 @@ export function renderBuildings3D(
 
     const staticEntry = sceneEntry.item;
     if (staticEntry.kind === 'fenceSegment') {
-      drawFenceSegment3D(ctx, staticEntry.segment, invScale);
+      const segSprite = fenceSegmentMap?.get(staticEntry.id);
+      if (segSprite) {
+        const drawX = segSprite.anchorX + segSprite.offsetX;
+        const drawY = segSprite.anchorY + segSprite.offsetY;
+        if (
+          !viewBounds ||
+          (drawX + segSprite.worldWidth >= viewBounds.minX &&
+            drawX <= viewBounds.maxX &&
+            drawY + segSprite.worldHeight >= viewBounds.minY &&
+            drawY <= viewBounds.maxY)
+        ) {
+          ctx.drawImage(
+            segSprite.canvas,
+            drawX,
+            drawY,
+            segSprite.worldWidth,
+            segSprite.worldHeight
+          );
+        }
+      } else {
+        drawFenceSegment3D(ctx, staticEntry.segment, invScale);
+      }
       continue;
     }
     if (staticEntry.kind === 'fencePost') {
-      drawFencePost3D(ctx, staticEntry.post, invScale);
+      const post = staticEntry.post;
+      const postSprite = fenceSpriteCache
+        ? post.isGatePost
+          ? fenceSpriteCache.gatePost
+          : fenceSpriteCache.cornerPost
+        : null;
+      if (postSprite) {
+        const postAnchorX = (post.prism.bLeft.x + post.prism.bRight.x) * 0.5;
+        const postAnchorY = (post.prism.bBack.y + post.prism.bFront.y) * 0.5;
+        const drawX = postAnchorX + postSprite.offsetX;
+        const drawY = postAnchorY + postSprite.offsetY;
+        if (
+          !viewBounds ||
+          (drawX + postSprite.worldWidth >= viewBounds.minX &&
+            drawX <= viewBounds.maxX &&
+            drawY + postSprite.worldHeight >= viewBounds.minY &&
+            drawY <= viewBounds.maxY)
+        ) {
+          ctx.drawImage(
+            postSprite.canvas,
+            drawX,
+            drawY,
+            postSprite.worldWidth,
+            postSprite.worldHeight
+          );
+        }
+      } else {
+        drawFencePost3D(ctx, post, invScale);
+      }
       continue;
     }
 
-    const { building: b, prism: p } = staticEntry.item;
-    const palette = getBuildingPalette(b.typ, b.colorVariant);
+    const { building: b, prism: p, anchorX, anchorY } = staticEntry.item;
+    const sprite = spriteMap?.get(b.id);
+
+    if (sprite) {
+      const drawX = anchorX + sprite.offsetX;
+      const drawY = anchorY + sprite.offsetY;
+      if (
+        !viewBounds ||
+        (drawX + sprite.worldWidth >= viewBounds.minX &&
+          drawX <= viewBounds.maxX &&
+          drawY + sprite.worldHeight >= viewBounds.minY &&
+          drawY <= viewBounds.maxY)
+      ) {
+        ctx.drawImage(
+          sprite.canvas,
+          drawX,
+          drawY,
+          sprite.worldWidth,
+          sprite.worldHeight
+        );
+      }
+    } else {
+      drawBuilding3DVector(ctx, b, p, invScale);
+    }
+
     const isSelected = b.id === selectedId;
     const isHovered = b.id === hoveredId;
-
-    // 1. Left wall (SW-facing, mid-lit)
-    ctx.fillStyle = palette.leftWall;
-    ctx.beginPath();
-    ctx.moveTo(p.bLeft.x, p.bLeft.y);
-    ctx.lineTo(p.bFront.x, p.bFront.y);
-    ctx.lineTo(p.tFront.x, p.tFront.y);
-    ctx.lineTo(p.tLeft.x, p.tLeft.y);
-    ctx.closePath();
-    ctx.fill();
-
-    // 2. Right wall (SE-facing, darker shadow side for crisp 3D volume)
-    ctx.fillStyle = palette.rightWall;
-    ctx.beginPath();
-    ctx.moveTo(p.bFront.x, p.bFront.y);
-    ctx.lineTo(p.bRight.x, p.bRight.y);
-    ctx.lineTo(p.tRight.x, p.tRight.y);
-    ctx.lineTo(p.tFront.x, p.tFront.y);
-    ctx.closePath();
-    ctx.fill();
-
-    // 3. Roof top face (brightest surface)
-    ctx.fillStyle = palette.roof;
-    ctx.beginPath();
-    ctx.moveTo(p.tBack.x, p.tBack.y);
-    ctx.lineTo(p.tRight.x, p.tRight.y);
-    ctx.lineTo(p.tFront.x, p.tFront.y);
-    ctx.lineTo(p.tLeft.x, p.tLeft.y);
-    ctx.closePath();
-    ctx.fill();
-
-    // Subtle roof edge highlight + crisp architectural ridge crease
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.34)';
-    ctx.lineWidth = 1.15 * invScale;
-    ctx.beginPath();
-    ctx.moveTo(p.tLeft.x, p.tLeft.y);
-    ctx.lineTo(p.tFront.x, p.tFront.y);
-    ctx.lineTo(p.tRight.x, p.tRight.y);
-    ctx.stroke();
-
-    // Vertical corner seam between left and right walls
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.28)';
-    ctx.lineWidth = 1.05 * invScale;
-    ctx.beginPath();
-    ctx.moveTo(p.tFront.x, p.tFront.y);
-    ctx.lineTo(p.bFront.x, p.bFront.y);
-    ctx.stroke();
-
-    // Clean outer silhouette hairline so wall-to-wall touching blocks separate crisply
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.44)';
-    ctx.lineWidth = 1.1 * invScale;
-    ctx.beginPath();
-    ctx.moveTo(p.tBack.x, p.tBack.y);
-    ctx.lineTo(p.tRight.x, p.tRight.y);
-    ctx.lineTo(p.bRight.x, p.bRight.y);
-    ctx.lineTo(p.bFront.x, p.bFront.y);
-    ctx.lineTo(p.bLeft.x, p.bLeft.y);
-    ctx.lineTo(p.tLeft.x, p.tLeft.y);
-    ctx.closePath();
-    ctx.stroke();
 
     // Subtle roof tint & crisp outline when selected or hovered
     if (isSelected || isHovered) {

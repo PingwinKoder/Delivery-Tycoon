@@ -28,6 +28,7 @@ import type {
   WarehouseUpgradeInfo,
   WeeklyOrderSettlementResult,
   WeeklyScheduleTask,
+  WeeklyTaskType,
 } from '../types/orders';
 import { PROCEDURAL_BUILDINGS } from './buildings';
 import {
@@ -893,14 +894,38 @@ export function unloadPackagesToWarehouse(
 }
 
 /**
+ * Safely returns packages carried by a courier back into the Base warehouse
+ * (used both after pickup runs, on end-of-workday return, and when skipping time).
+ */
+export function returnPackagesToWarehouse(
+  state: OrderEconomyState,
+  batches: readonly WarehouseLoadedBatch[]
+): OrderEconomyState {
+  if (batches.length === 0) return state;
+
+  let current = state;
+  const activeIds = new Set(current.activeOrders.map((o) => o.id));
+
+  for (const batch of batches) {
+    if (batch.count <= 0) continue;
+    if (!activeIds.has(batch.orderId)) continue;
+    const unloaded = unloadPackagesToWarehouse(current, batch.orderId, batch.count);
+    current = unloaded.state;
+  }
+
+  return current;
+}
+
+/**
  * Loads up to `BIKE_COURIER_CAPACITY` (5) packages from the Base warehouse onto a bicycle
  * for a delivery run. When `orderId` is omitted, packages are drawn from stored orders
- * following active order order (and any remaining inventory keys).
+ * respecting `priorityOrderIds` (today's Plan tygodnia order), then active orders, then any remaining keys.
  */
 export function loadPackagesFromWarehouseForBike(
   state: OrderEconomyState,
   orderId?: string,
-  maxCapacity: number = BIKE_COURIER_CAPACITY
+  maxCapacity: number = BIKE_COURIER_CAPACITY,
+  priorityOrderIds?: readonly string[]
 ): WarehouseLoadForBikeResult {
   const effectiveCap = Math.max(0, Math.min(Math.floor(maxCapacity), BIKE_COURIER_CAPACITY));
   if (effectiveCap === 0 || state.warehousePackages <= 0) {
@@ -913,18 +938,27 @@ export function loadPackagesFromWarehouseForBike(
   let totalLoaded = 0;
 
   const candidateOrderIds: string[] = [];
+  const seen = new Set<string>();
+  const enqueue = (id: string) => {
+    if (seen.has(id)) return;
+    if ((nextInventory[id] ?? 0) <= 0) return;
+    seen.add(id);
+    candidateOrderIds.push(id);
+  };
+
   if (orderId) {
-    candidateOrderIds.push(orderId);
+    enqueue(orderId);
   } else {
-    for (const active of state.activeOrders) {
-      if ((nextInventory[active.id] ?? 0) > 0) {
-        candidateOrderIds.push(active.id);
+    if (priorityOrderIds) {
+      for (const id of priorityOrderIds) {
+        enqueue(id);
       }
     }
+    for (const active of state.activeOrders) {
+      enqueue(active.id);
+    }
     for (const invOrderId of Object.keys(nextInventory)) {
-      if (!candidateOrderIds.includes(invOrderId) && (nextInventory[invOrderId] ?? 0) > 0) {
-        candidateOrderIds.push(invOrderId);
-      }
+      enqueue(invOrderId);
     }
   }
 
@@ -1098,6 +1132,24 @@ function createEmptyWeeklyPriorityOrder(): Record<number, string[]> {
   };
 }
 
+/**
+ * Builds a unique schedule task ID distinguishing independent `pickup` and `delivery` tasks
+ * belonging to the same order.
+ */
+export function makeWeeklyTaskId(orderId: string, taskType: WeeklyTaskType): string {
+  return `${orderId}:${taskType}`;
+}
+
+function extractOrderIdFromTaskKey(taskKey: string): string {
+  const sepIdx = taskKey.lastIndexOf(':');
+  if (sepIdx === -1) return taskKey;
+  const suffix = taskKey.slice(sepIdx + 1);
+  if (suffix === 'pickup' || suffix === 'delivery') {
+    return taskKey.slice(0, sepIdx);
+  }
+  return taskKey;
+}
+
 function removeOrderIdsFromWeeklyPriority(
   priorityMap: Record<number, string[]>,
   idsToRemove: ReadonlySet<string>
@@ -1105,9 +1157,43 @@ function removeOrderIdsFromWeeklyPriority(
   if (idsToRemove.size === 0) return priorityMap;
   const next: Record<number, string[]> = {};
   for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
-    next[wd] = (priorityMap[wd] ?? []).filter((id) => !idsToRemove.has(id));
+    next[wd] = (priorityMap[wd] ?? []).filter(
+      (entryId) => !idsToRemove.has(entryId) && !idsToRemove.has(extractOrderIdFromTaskKey(entryId))
+    );
   }
   return next;
+}
+
+function removeOrderIdsFromWarehouseInventory(
+  warehouseInventory: Record<string, number>,
+  warehousePackages: number,
+  idsToRemove: ReadonlySet<string>
+): { warehouseInventory: Record<string, number>; warehousePackages: number } {
+  if (idsToRemove.size === 0) {
+    return { warehouseInventory, warehousePackages };
+  }
+
+  let removedTotal = 0;
+  let changed = false;
+  const nextInventory: Record<string, number> = {};
+
+  for (const [id, count] of Object.entries(warehouseInventory)) {
+    if (idsToRemove.has(id)) {
+      removedTotal += Math.max(0, count);
+      changed = true;
+    } else if (count > 0) {
+      nextInventory[id] = count;
+    }
+  }
+
+  if (!changed) {
+    return { warehouseInventory, warehousePackages };
+  }
+
+  return {
+    warehouseInventory: nextInventory,
+    warehousePackages: Math.max(0, warehousePackages - removedTotal),
+  };
 }
 
 /**
@@ -1247,16 +1333,26 @@ export function acceptOrderOffer(
     ...state.pendingOffers.slice(offerIndex + 1),
   ];
 
-  // Register accepted order in per-weekday priority queues
+  // Register accepted order as two independent tasks (Odbiór + Rozwózka) in per-weekday priority queues
+  const pickupTaskId = makeWeeklyTaskId(activeOrder.id, 'pickup');
+  const deliveryTaskId = makeWeeklyTaskId(activeOrder.id, 'delivery');
   const nextPriorityOrder: Record<number, string[]> = {};
   for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
     const existing = state.weeklyPriorityOrder[wd] ?? [];
     const appliesToDay =
       activeOrder.kind === 'long_term' ? activeOrder.pickupWeekdays.includes(wd) : true;
-    nextPriorityOrder[wd] =
-      appliesToDay && !existing.includes(activeOrder.id)
-        ? [...existing, activeOrder.id]
-        : existing;
+    if (!appliesToDay) {
+      nextPriorityOrder[wd] = existing;
+      continue;
+    }
+    const updated = [...existing];
+    if (!updated.includes(pickupTaskId)) {
+      updated.push(pickupTaskId);
+    }
+    if (!updated.includes(deliveryTaskId)) {
+      updated.push(deliveryTaskId);
+    }
+    nextPriorityOrder[wd] = updated;
   }
 
   return {
@@ -1300,23 +1396,36 @@ export function recordLatePickup(state: OrderEconomyState, orderId: string): Ord
 }
 
 /**
- * Records packages picked up from the sender during the current week for an active order.
+ * Records packages picked up from the sender during the current week (and optional gameDay)
+ * for an active order.
  */
 export function recordPackagePickup(
   state: OrderEconomyState,
   orderId: string,
-  pickedUpCount = 1
+  pickedUpCount = 1,
+  currentGameDay?: number
 ): OrderEconomyState {
   if (pickedUpCount <= 0) return state;
   let changed = false;
   const activeOrders = state.activeOrders.map((order) => {
     if (order.id !== orderId || order.status !== 'active') return order;
     changed = true;
+    const nextDailyPickupFields =
+      currentGameDay !== undefined
+        ? {
+            lastPickupGameDay: currentGameDay,
+            pickedUpOnLastPickupDay:
+              (order.weekly.lastPickupGameDay === currentGameDay
+                ? (order.weekly.pickedUpOnLastPickupDay ?? 0)
+                : 0) + pickedUpCount,
+          }
+        : {};
     return {
       ...order,
       weekly: {
         ...order.weekly,
         pickedUpPackagesThisWeek: order.weekly.pickedUpPackagesThisWeek + pickedUpCount,
+        ...nextDailyPickupFields,
       },
     };
   });
@@ -1620,6 +1729,11 @@ export function settleWeeklySatisfaction(
     annualSatisfactionAvg
   );
   const archivedIds = new Set(newlyArchived.map((o) => o.id));
+  const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(
+    state.warehouseInventory,
+    state.warehousePackages,
+    archivedIds
+  );
 
   return {
     ...state,
@@ -1628,6 +1742,8 @@ export function settleWeeklySatisfaction(
     annualSatisfactionCount,
     annualSatisfactionAvg,
     reputationLevel,
+    warehouseInventory: cleanedWarehouse.warehouseInventory,
+    warehousePackages: cleanedWarehouse.warehousePackages,
     activeOrders: remainingActive,
     archivedOrders: [...newlyArchived, ...state.archivedOrders],
     recentWeeklySettlements: [...settlementResults, ...state.recentWeeklySettlements].slice(0, 20),
@@ -1760,6 +1876,11 @@ function concludeDueOrdersOnNewDay(
   const reputationLevel = calculateReputationLevel(completedOrdersCount, annualSatisfactionAvg);
 
   const archivedIds = new Set(newlyArchived.map((o) => o.id));
+  const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(
+    state.warehouseInventory,
+    state.warehousePackages,
+    archivedIds
+  );
 
   return {
     ...state,
@@ -1769,6 +1890,8 @@ function concludeDueOrdersOnNewDay(
     annualSatisfactionCount,
     annualSatisfactionAvg,
     reputationLevel,
+    warehouseInventory: cleanedWarehouse.warehouseInventory,
+    warehousePackages: cleanedWarehouse.warehousePackages,
     activeOrders: stillActive,
     archivedOrders: [...newlyArchived, ...state.archivedOrders],
     weeklyPriorityOrder: removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, archivedIds),
@@ -1918,8 +2041,9 @@ export function advanceOrderEconomy(
 }
 
 /**
- * Computes the ordered list of scheduled pickup/delivery tasks for a given weekday (0 = Pon .. 6 = Nd)
- * within the current calendar week, respecting the player's saved `weeklyPriorityOrder`.
+ * Computes the ordered list of independent scheduled `Odbiór` (pickup) and `Rozwózka` (delivery)
+ * tasks for a given weekday (0 = Pon .. 6 = Nd) within the current calendar week,
+ * respecting the player's saved `weeklyPriorityOrder`.
  */
 export function getScheduledTasksForWeekday(
   state: OrderEconomyState,
@@ -1929,8 +2053,11 @@ export function getScheduledTasksForWeekday(
   const currentDate = getCalendarDateFromGameDay(currentGameDay);
   const weekMondayGameDay = currentGameDay - currentDate.dayIndex;
   const targetGameDay = weekMondayGameDay + weekdayIndex;
+  const isToday = targetGameDay === currentGameDay;
 
   const unsorted: Array<{
+    taskId: string;
+    taskType: WeeklyTaskType;
     order: ActiveOrder;
     taskLabel: string;
     packageCount: number;
@@ -1938,37 +2065,95 @@ export function getScheduledTasksForWeekday(
 
   for (const order of state.activeOrders) {
     if (order.status !== 'active') continue;
+    const storedInWarehouse = getStoredPackagesForOrder(state, order.id);
 
     if (order.kind === 'long_term') {
-      if (
-        order.pickupWeekdays.includes(weekdayIndex) &&
-        targetGameDay >= order.acceptedAtGameDay &&
-        targetGameDay < order.endGameDay
-      ) {
+      const withinContract =
+        targetGameDay >= order.acceptedAtGameDay && targetGameDay < order.endGameDay;
+      if (!withinContract) continue;
+
+      if (order.pickupWeekdays.includes(weekdayIndex)) {
         const idxInPickups = order.pickupWeekdays.indexOf(weekdayIndex);
         const basePerDay = Math.floor(order.packagesPerWeek / order.pickupDaysPerWeek);
         const remainder = order.packagesPerWeek % order.pickupDaysPerWeek;
-        const packageCount = basePerDay + (idxInPickups < remainder ? 1 : 0);
+        const dayQuota = basePerDay + (idxInPickups < remainder ? 1 : 0);
 
+        if (isToday) {
+          const remainingPickupToday = getRemainingPickupPackagesForOrderToday(
+            state,
+            order,
+            weekdayIndex,
+            currentGameDay
+          );
+          if (remainingPickupToday > 0) {
+            unsorted.push({
+              taskId: makeWeeklyTaskId(order.id, 'pickup'),
+              taskType: 'pickup',
+              order,
+              taskLabel: 'Odbiór',
+              packageCount: remainingPickupToday,
+            });
+          }
+          const deliveryCountToday = storedInWarehouse + remainingPickupToday;
+          if (deliveryCountToday > 0) {
+            unsorted.push({
+              taskId: makeWeeklyTaskId(order.id, 'delivery'),
+              taskType: 'delivery',
+              order,
+              taskLabel: 'Rozwózka',
+              packageCount: deliveryCountToday,
+            });
+          }
+        } else if (dayQuota > 0) {
+          unsorted.push({
+            taskId: makeWeeklyTaskId(order.id, 'pickup'),
+            taskType: 'pickup',
+            order,
+            taskLabel: 'Odbiór',
+            packageCount: dayQuota,
+          });
+          unsorted.push({
+            taskId: makeWeeklyTaskId(order.id, 'delivery'),
+            taskType: 'delivery',
+            order,
+            taskLabel: 'Rozwózka',
+            packageCount: dayQuota,
+          });
+        }
+      } else if (isToday && storedInWarehouse > 0) {
+        // Packages left over in Base warehouse from an earlier pickup day
         unsorted.push({
+          taskId: makeWeeklyTaskId(order.id, 'delivery'),
+          taskType: 'delivery',
           order,
-          taskLabel: 'Odbiór i rozwózka',
-          packageCount,
+          taskLabel: 'Rozwózka',
+          packageCount: storedInWarehouse,
         });
       }
     } else {
       const lastActiveDay = Math.max(order.acceptedAtGameDay, order.endGameDay - 1);
       if (targetGameDay >= order.acceptedAtGameDay && targetGameDay <= lastActiveDay) {
-        const remainingPackages = Math.max(0, order.totalPackages - order.deliveredPackagesTotal);
-        const isFirstDay =
-          targetGameDay === order.acceptedAtGameDay ||
-          (order.acceptedAtGameDay < weekMondayGameDay && weekdayIndex === 0);
+        const remainingToDeliver = Math.max(0, order.totalPackages - order.deliveredPackagesTotal);
+        const remainingToPickup = Math.max(0, remainingToDeliver - storedInWarehouse);
 
-        unsorted.push({
-          order,
-          taskLabel: isFirstDay ? 'Odbiór i rozwózka' : 'Rozwózka (w terminie)',
-          packageCount: remainingPackages > 0 ? remainingPackages : order.totalPackages,
-        });
+        if (remainingToPickup > 0) {
+          unsorted.push({
+            taskId: makeWeeklyTaskId(order.id, 'pickup'),
+            taskType: 'pickup',
+            order,
+            taskLabel: 'Odbiór',
+            packageCount: remainingToPickup,
+          });
+        }
+        if (remainingToDeliver > 0) {
+          unsorted.push({
+            taskId: makeWeeklyTaskId(order.id, 'delivery'),
+            taskType: 'delivery',
+            order,
+            taskLabel: 'Rozwózka',
+            packageCount: remainingToDeliver,
+          });
+        }
       }
     }
   }
@@ -1977,14 +2162,30 @@ export function getScheduledTasksForWeekday(
   const rankLookup = new Map<string, number>();
   savedOrder.forEach((id, idx) => rankLookup.set(id, idx));
 
+  const getRank = (item: { taskId: string; order: ActiveOrder }): number => {
+    const exact = rankLookup.get(item.taskId);
+    if (exact !== undefined) return exact;
+    const legacy = rankLookup.get(item.order.id);
+    if (legacy !== undefined) return legacy;
+    return Number.MAX_SAFE_INTEGER;
+  };
+
   unsorted.sort((a, b) => {
-    const rankA = rankLookup.get(a.order.id) ?? Number.MAX_SAFE_INTEGER;
-    const rankB = rankLookup.get(b.order.id) ?? Number.MAX_SAFE_INTEGER;
+    const rankA = getRank(a);
+    const rankB = getRank(b);
     if (rankA !== rankB) return rankA - rankB;
-    return a.order.acceptedAtMinutes - b.order.acceptedAtMinutes;
+    if (a.order.acceptedAtMinutes !== b.order.acceptedAtMinutes) {
+      return a.order.acceptedAtMinutes - b.order.acceptedAtMinutes;
+    }
+    if (a.taskType !== b.taskType) {
+      return a.taskType === 'pickup' ? -1 : 1;
+    }
+    return 0;
   });
 
   return unsorted.map((item, idx) => ({
+    taskId: item.taskId,
+    taskType: item.taskType,
     orderId: item.order.id,
     weekdayIndex,
     kind: item.order.kind,
@@ -1998,24 +2199,25 @@ export function getScheduledTasksForWeekday(
 }
 
 /**
- * Moves an active order up or down in priority within a specific weekday (0 = Pon .. 6 = Nd)
- * and persists the updated sequence in `state.weeklyPriorityOrder` for courier dispatch.
+ * Moves an individual scheduled task (`Odbiór` or `Rozwózka`) up or down in priority
+ * within a specific weekday (0 = Pon .. 6 = Nd) and persists the updated sequence in
+ * `state.weeklyPriorityOrder` for courier dispatch.
  */
 export function moveWeeklyTaskPriority(
   state: OrderEconomyState,
   weekdayIndex: number,
-  orderId: string,
+  taskId: string,
   direction: 'up' | 'down',
   currentGameDay: number
 ): OrderEconomyState {
   const visibleTasks = getScheduledTasksForWeekday(state, weekdayIndex, currentGameDay);
-  const currentIdx = visibleTasks.findIndex((t) => t.orderId === orderId);
+  const currentIdx = visibleTasks.findIndex((t) => t.taskId === taskId);
   if (currentIdx === -1) return state;
 
   const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
   if (swapIdx < 0 || swapIdx >= visibleTasks.length) return state;
 
-  const reorderedVisibleIds = visibleTasks.map((t) => t.orderId);
+  const reorderedVisibleIds = visibleTasks.map((t) => t.taskId);
   const tmp = reorderedVisibleIds[currentIdx];
   reorderedVisibleIds[currentIdx] = reorderedVisibleIds[swapIdx];
   reorderedVisibleIds[swapIdx] = tmp;
@@ -2032,6 +2234,120 @@ export function moveWeeklyTaskPriority(
       [weekdayIndex]: [...reorderedVisibleIds, ...trailingHiddenIds],
     },
   };
+}
+
+/**
+ * Returns how many packages still remain to be picked up from the sender today for an active order.
+ * - Short-term orders: remaining packages not yet delivered and not already stored in Base warehouse.
+ * - Long-term contracts: remaining portion of today's scheduled pickup quota (capped by weekly quota).
+ */
+export function getRemainingPickupPackagesForOrderToday(
+  state: OrderEconomyState,
+  order: ActiveOrder,
+  weekdayIndex: number,
+  currentGameDay: number
+): number {
+  if (order.status !== 'active') return 0;
+
+  if (order.kind === 'short_term') {
+    const lastActiveDay = Math.max(order.acceptedAtGameDay, order.endGameDay - 1);
+    if (currentGameDay < order.acceptedAtGameDay || currentGameDay > lastActiveDay) {
+      return 0;
+    }
+    const storedInWarehouse = getStoredPackagesForOrder(state, order.id);
+    return Math.max(0, order.totalPackages - order.deliveredPackagesTotal - storedInWarehouse);
+  }
+
+  if (
+    !order.pickupWeekdays.includes(weekdayIndex) ||
+    currentGameDay < order.acceptedAtGameDay ||
+    currentGameDay >= order.endGameDay
+  ) {
+    return 0;
+  }
+
+  const idxInPickups = order.pickupWeekdays.indexOf(weekdayIndex);
+  const basePerDay = Math.floor(order.packagesPerWeek / order.pickupDaysPerWeek);
+  const remainder = order.packagesPerWeek % order.pickupDaysPerWeek;
+  const todayQuota = basePerDay + (idxInPickups < remainder ? 1 : 0);
+
+  const pickedUpToday =
+    order.weekly.lastPickupGameDay === currentGameDay
+      ? (order.weekly.pickedUpOnLastPickupDay ?? 0)
+      : 0;
+  const remainingToday = Math.max(0, todayQuota - pickedUpToday);
+  const remainingWeekly = Math.max(
+    0,
+    order.weekly.expectedPackagesThisWeek - order.weekly.pickedUpPackagesThisWeek
+  );
+
+  return Math.min(remainingToday, remainingWeekly);
+}
+
+export interface CourierPickupSelection {
+  order: ActiveOrder;
+  pickupCount: number;
+}
+
+/**
+ * Selects the highest-priority scheduled pickup task for the current day according to
+ * the player's `Plan tygodnia` order (`▲` / `▼`), respecting `BIKE_COURIER_CAPACITY` (5)
+ * and remaining Base warehouse free capacity.
+ */
+export function selectNextPickupTaskForCourier(
+  state: OrderEconomyState,
+  currentMinutes: number
+): CourierPickupSelection | null {
+  const freeWarehouseSpace = getFreeWarehouseCapacity(state);
+  if (freeWarehouseSpace <= 0) return null;
+
+  const clock = getGameClockDisplay(currentMinutes);
+  const scheduledTasks = getScheduledTasksForWeekday(state, clock.dayIndex, clock.gameDay);
+  if (scheduledTasks.length === 0) return null;
+
+  const activeById = new Map(state.activeOrders.map((o) => [o.id, o]));
+
+  for (const task of scheduledTasks) {
+    if (task.taskType !== 'pickup') continue;
+    const order = activeById.get(task.orderId);
+    if (!order || order.status !== 'active') continue;
+
+    const remainingToPickup = getRemainingPickupPackagesForOrderToday(
+      state,
+      order,
+      clock.dayIndex,
+      clock.gameDay
+    );
+    if (remainingToPickup <= 0) continue;
+
+    const pickupCount = Math.min(BIKE_COURIER_CAPACITY, remainingToPickup, freeWarehouseSpace);
+    if (pickupCount > 0) {
+      return { order, pickupCount };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Picks a random deliverable city building as a package recipient, strictly excluding
+ * Base and the order's sender building.
+ */
+export function pickRandomRecipientBuildingForPackage(
+  buildings: readonly Building[],
+  senderBuildingId: string | null
+): Building | null {
+  const eligible = buildings.filter(
+    (b) =>
+      b.typ !== 'baza' &&
+      b.dostepnyDlaDostaw !== false &&
+      b.deliveryStopPoint !== undefined &&
+      b.roadApproachPoint !== undefined &&
+      b.id !== senderBuildingId
+  );
+  if (eligible.length === 0) return null;
+  const idx = Math.floor(Math.random() * eligible.length);
+  return eligible[idx] ?? eligible[0];
 }
 
 /**
@@ -2166,6 +2482,16 @@ export function findNextScheduledOrderDayMinutes(
 
   const currentElapsedDay = Math.floor(Math.max(0, currentMinutes) / MINUTES_PER_DAY);
   const currentGameDay = currentElapsedDay + 1;
+
+  // If active orders already have packages waiting in Base warehouse, tomorrow 08:00 has immediate delivery work
+  const hasWaitingWarehouseWork =
+    state.warehousePackages > 0 &&
+    state.activeOrders.some(
+      (o) => o.status === 'active' && (state.warehouseInventory[o.id] ?? 0) > 0
+    );
+  if (hasWaitingWarehouseWork) {
+    return (currentElapsedDay + 1) * MINUTES_PER_DAY + WORKDAY_START_MINUTES;
+  }
 
   // Search up to 365 days ahead (covers all 12-month contracts & weekly schedules)
   const maxEndGameDay = state.activeOrders.reduce(

@@ -32,6 +32,89 @@ export interface HouseYardFence {
   deliveryStop: { u: number; v: number; x: number; y: number };
 }
 
+export interface FenceSpriteAnchorBounds {
+  /** World-space anchor X of the fence element (footprint center) */
+  anchorX: number;
+  /** World-space anchor Y of the fence element (footprint center) */
+  anchorY: number;
+  /** World-space top-left X of the padded sprite canvas */
+  minX: number;
+  /** World-space top-left Y of the padded sprite canvas */
+  minY: number;
+  /** World-space width of the sprite canvas */
+  worldWidth: number;
+  /** World-space height of the sprite canvas */
+  worldHeight: number;
+  /** Anchor offset X relative to object anchor (drawX = anchorX + offsetX) */
+  offsetX: number;
+  /** Anchor offset Y relative to object anchor (drawY = anchorY + offsetY) */
+  offsetY: number;
+}
+
+export interface FencePrismBoxLike {
+  bBack: { x: number; y: number };
+  bLeft: { x: number; y: number };
+  bRight: { x: number; y: number };
+  bFront: { x: number; y: number };
+  tBack: { x: number; y: number };
+}
+
+/**
+ * Computes the compact world-space sprite bounding box and anchor offset `(offsetX, offsetY)`
+ * for an individual 3D yard fence segment relative to its footprint center `(anchorX, anchorY)`.
+ */
+export function computeFenceSpriteAnchorBounds(
+  prism: FencePrismBoxLike,
+  pad = 3
+): FenceSpriteAnchorBounds {
+  const anchorX = (prism.bLeft.x + prism.bRight.x) * 0.5;
+  const anchorY = (prism.bBack.y + prism.bFront.y) * 0.5;
+  const minX = Math.floor(prism.bLeft.x - pad);
+  const maxX = Math.ceil(prism.bRight.x + pad);
+  const minY = Math.floor(prism.tBack.y - pad);
+  const maxY = Math.ceil(prism.bFront.y + pad);
+  const worldWidth = Math.max(1, maxX - minX);
+  const worldHeight = Math.max(1, maxY - minY);
+  return {
+    anchorX,
+    anchorY,
+    minX,
+    minY,
+    worldWidth,
+    worldHeight,
+    offsetX: minX - anchorX,
+    offsetY: minY - anchorY,
+  };
+}
+
+/**
+ * Computes translation-invariant local sprite bounds centered on a fence post's footprint
+ * anchor `(anchorX, anchorY)` so identical corner/gate posts can share a single sprite buffer.
+ */
+export function computeCenteredFenceSpriteBounds(
+  prism: FencePrismBoxLike,
+  pad = 3
+): FenceSpriteAnchorBounds {
+  const anchorX = (prism.bLeft.x + prism.bRight.x) * 0.5;
+  const anchorY = (prism.bBack.y + prism.bFront.y) * 0.5;
+  const halfW = Math.max(
+    1,
+    Math.ceil(Math.max(anchorX - prism.bLeft.x, prism.bRight.x - anchorX) + pad)
+  );
+  const topH = Math.max(1, Math.ceil(anchorY - prism.tBack.y + pad));
+  const botH = Math.max(1, Math.ceil(prism.bFront.y - anchorY + pad));
+  return {
+    anchorX,
+    anchorY,
+    minX: anchorX - halfW,
+    minY: anchorY - topH,
+    worldWidth: halfW * 2,
+    worldHeight: topH + botH,
+    offsetX: -halfW,
+    offsetY: -topH,
+  };
+}
+
 export interface OrganicHouseSlot {
   alongMin: number;
   alongMax: number;

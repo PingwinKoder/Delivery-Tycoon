@@ -661,9 +661,50 @@ export interface FencePost3D {
   maxY: number;
 }
 
+export interface BuildingSpriteBounds {
+  /** World-space top-left X of the padded sprite canvas */
+  minX: number;
+  /** World-space top-left Y of the padded sprite canvas */
+  minY: number;
+  /** World-space width of the sprite canvas */
+  worldWidth: number;
+  /** World-space height of the sprite canvas */
+  worldHeight: number;
+  /** Anchor offset X relative to building anchor (drawX = anchorX + offsetX) */
+  offsetX: number;
+  /** Anchor offset Y relative to building anchor (drawY = anchorY + offsetY) */
+  offsetY: number;
+}
+
+export function getBuildingSpriteBounds(
+  prism: BuildingPrismPoints,
+  anchorX: number,
+  anchorY: number,
+  pad = 4
+): BuildingSpriteBounds {
+  const minX = Math.floor(prism.bLeft.x - pad);
+  const maxX = Math.ceil(prism.bRight.x + pad);
+  const minY = Math.floor(prism.tBack.y - pad);
+  const maxY = Math.ceil(prism.bFront.y + pad);
+  const worldWidth = Math.max(1, maxX - minX);
+  const worldHeight = Math.max(1, maxY - minY);
+  return {
+    minX,
+    minY,
+    worldWidth,
+    worldHeight,
+    offsetX: minX - anchorX,
+    offsetY: minY - anchorY,
+  };
+}
+
 export interface PrecomputedBuilding3D {
   building: Building;
   prism: BuildingPrismPoints;
+  /** World-space anchor X of the building footprint center */
+  anchorX: number;
+  /** World-space anchor Y of the building footprint center */
+  anchorY: number;
   sx: number;
   sy: number;
   minX: number;
@@ -983,6 +1024,7 @@ export function buildStaticScene3DOrder(
 
   for (const b of buildings) {
     const prism = getBuildingPrismPoints(b);
+    const anchor = isoToCanvas((b.uMin + b.uMax) * 0.5, (b.vMin + b.vMax) * 0.5);
     const sx = Math.min(36, b.height * 0.23);
     const sy = Math.min(6, b.height * 0.035);
     const minX = prism.bLeft.x;
@@ -992,7 +1034,18 @@ export function buildStaticScene3DOrder(
     items.push({
       kind: 'building',
       id: b.id,
-      item: { building: b, prism, sx, sy, minX, maxX, minY, maxY },
+      item: {
+        building: b,
+        prism,
+        anchorX: anchor.x,
+        anchorY: anchor.y,
+        sx,
+        sy,
+        minX,
+        maxX,
+        minY,
+        maxY,
+      },
       uMin: b.uMin,
       uMax: b.uMax,
       vMin: b.vMin,

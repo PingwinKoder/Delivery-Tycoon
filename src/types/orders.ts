@@ -109,21 +109,31 @@ export interface ActiveOrderWeeklyTracking {
   latePickupsThisWeek: number;
   /** Last Sunday gameplay day that was already evaluated at 23:59 */
   lastSettledSundayGameDay: number | null;
+  /** 1-based gameplay day on which packages were last picked up from the sender */
+  lastPickupGameDay?: number;
+  /** Number of packages picked up from the sender on `lastPickupGameDay` */
+  pickedUpOnLastPickupDay?: number;
 }
 
+export type WeeklyTaskType = 'pickup' | 'delivery';
+
 export interface WeeklyScheduleTask {
+  /** Stable unique identifier for independent priority ordering (e.g. "ord-1:pickup", "ord-1:delivery") */
+  taskId: string;
+  /** Fulfillment stage: 'pickup' (sender -> Base warehouse) or 'delivery' (Base warehouse -> recipients) */
+  taskType: WeeklyTaskType;
   orderId: string;
   weekdayIndex: number;
   kind: OrderKind;
   clientName: string;
   pickupAddress: string;
-  /** Short Polish task summary (e.g. "Odbiór i rozwózka" or "Rozwózka") */
+  /** Short Polish stage label ("Odbiór" or "Rozwózka") */
   taskLabel: string;
-  /** Number of packages scheduled / remaining for this day's task */
+  /** Number of packages scheduled / remaining for this stage */
   packageCount: number;
   /** Order's current satisfaction % for quick dispatch awareness */
   satisfaction: number;
-  /** 1-based priority rank within this weekday column */
+  /** 1-based priority rank within this weekday */
   priorityRank: number;
 }
 

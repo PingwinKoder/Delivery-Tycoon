@@ -234,3 +234,195 @@ export function zoomCameraByWheel(
     mapSize
   );
 }
+
+export const CAMERA_MAX_DT = 0.05;
+export const CAMERA_POS_LAMBDA = 18;
+export const CAMERA_ZOOM_LAMBDA = 16;
+export const CAMERA_POS_SNAP_EPSILON = 0.05;
+export const CAMERA_ZOOM_SNAP_EPSILON = 0.0005;
+
+export const ARROW_PAN_MAX_SCREEN_SPEED = 580; // screen px/s
+export const ARROW_PAN_ACCEL_LAMBDA = 13;
+export const ARROW_PAN_DECEL_LAMBDA = 11;
+export const ARROW_VELOCITY_SNAP_EPSILON = 0.5; // screen px/s
+
+export interface CameraVelocity {
+  /** Horizontal pan velocity in screen pixels per second */
+  vx: number;
+  /** Vertical pan velocity in screen pixels per second */
+  vy: number;
+}
+
+export interface ArrowInputVector {
+  x: number;
+  y: number;
+}
+
+export interface CameraStepResult {
+  camera: CameraState;
+  target: CameraState;
+  velocity: CameraVelocity;
+  animating: boolean;
+}
+
+export function clampCameraDt(rawDt: number): number {
+  if (!Number.isFinite(rawDt) || rawDt <= 0) return 0;
+  return Math.min(rawDt, CAMERA_MAX_DT);
+}
+
+export function expSmoothingFactor(lambda: number, dt: number): number {
+  const safeDt = clampCameraDt(dt);
+  if (safeDt <= 0) return 0;
+  return 1 - Math.exp(-lambda * safeDt);
+}
+
+/**
+ * Advances camera position, zoom, and keyboard-pan velocity using frame-rate-independent
+ * exponential smoothing (`1 - Math.exp(-lambda * dt)`, clamped to `dt <= 0.05s`):
+ * - Arrow keys drive a smooth velocity vector with exponential acceleration & deceleration
+ *   integrated directly into the camera (avoiding target-chasing jitter).
+ * - Mouse/touch pan, wheel zoom, and programmatic recenter smoothly converge toward `target`.
+ * - Hard-snaps to exact target values once remaining delta drops below 0.05 px (position)
+ *   or 0.0005 (zoom) to eliminate sub-pixel shimmer on thin lines.
+ */
+export function stepCameraPhysics(
+  camera: CameraState,
+  target: CameraState,
+  velocity: CameraVelocity,
+  arrowInput: ArrowInputVector,
+  rawDt: number,
+  viewport: Size,
+  mapSize: Size
+): CameraStepResult {
+  const dt = clampCameraDt(rawDt);
+
+  const inputLen = Math.hypot(arrowInput.x, arrowInput.y);
+  const hasArrowInput = inputLen > 0;
+  const desiredVx = hasArrowInput
+    ? (arrowInput.x / inputLen) * ARROW_PAN_MAX_SCREEN_SPEED
+    : 0;
+  const desiredVy = hasArrowInput
+    ? (arrowInput.y / inputLen) * ARROW_PAN_MAX_SCREEN_SPEED
+    : 0;
+
+  let nextVx = velocity.vx;
+  let nextVy = velocity.vy;
+
+  if (dt > 0) {
+    const velLambda = hasArrowInput ? ARROW_PAN_ACCEL_LAMBDA : ARROW_PAN_DECEL_LAMBDA;
+    const velAlpha = expSmoothingFactor(velLambda, dt);
+    nextVx += (desiredVx - nextVx) * velAlpha;
+    nextVy += (desiredVy - nextVy) * velAlpha;
+
+    if (!hasArrowInput && Math.hypot(nextVx, nextVy) < ARROW_VELOCITY_SNAP_EPSILON) {
+      nextVx = 0;
+      nextVy = 0;
+    }
+  }
+
+  let curCam = clampCamera(camera, viewport, mapSize);
+  let nextTarget = clampCamera(target, viewport, mapSize);
+
+  // Integrate arrow-key velocity directly into camera position (with wall clamping)
+  if ((nextVx !== 0 || nextVy !== 0) && dt > 0) {
+    const effectiveZoom = getEffectiveZoom(curCam.zoom, viewport, mapSize);
+    const worldStepX = (nextVx * dt) / effectiveZoom;
+    const worldStepY = (nextVy * dt) / effectiveZoom;
+
+    if (
+      !hasArrowInput &&
+      Math.abs(worldStepX) < CAMERA_POS_SNAP_EPSILON &&
+      Math.abs(worldStepY) < CAMERA_POS_SNAP_EPSILON
+    ) {
+      nextVx = 0;
+      nextVy = 0;
+    } else {
+      const unclampedX = curCam.x + worldStepX;
+      const unclampedY = curCam.y + worldStepY;
+      const movedCam = clampCamera(
+        { x: unclampedX, y: unclampedY, zoom: curCam.zoom },
+        viewport,
+        mapSize
+      );
+
+      // Stop velocity component pushing into a map boundary for crisp reversal
+      if (Math.abs(movedCam.x - unclampedX) > 1e-4) {
+        nextVx = 0;
+      }
+      if (Math.abs(movedCam.y - unclampedY) > 1e-4) {
+        nextVy = 0;
+      }
+
+      const appliedDx = movedCam.x - curCam.x;
+      const appliedDy = movedCam.y - curCam.y;
+      curCam = movedCam;
+
+      nextTarget = clampCamera(
+        {
+          x: hasArrowInput ? curCam.x : nextTarget.x + appliedDx,
+          y: hasArrowInput ? curCam.y : nextTarget.y + appliedDy,
+          zoom: nextTarget.zoom,
+        },
+        viewport,
+        mapSize
+      );
+    }
+  }
+
+  // Exponential convergence toward target camera (position & zoom)
+  let nextX = curCam.x;
+  let nextY = curCam.y;
+  let nextZoom = curCam.zoom;
+
+  if (dt > 0) {
+    const posAlpha = expSmoothingFactor(CAMERA_POS_LAMBDA, dt);
+    const zoomAlpha = expSmoothingFactor(CAMERA_ZOOM_LAMBDA, dt);
+
+    nextX = curCam.x + (nextTarget.x - curCam.x) * posAlpha;
+    nextY = curCam.y + (nextTarget.y - curCam.y) * posAlpha;
+    nextZoom = curCam.zoom + (nextTarget.zoom - curCam.zoom) * zoomAlpha;
+  }
+
+  // Hard snap once within threshold to eliminate micro-shimmer on thin lines
+  if (Math.abs(nextTarget.x - nextX) < CAMERA_POS_SNAP_EPSILON) {
+    nextX = nextTarget.x;
+  }
+  if (Math.abs(nextTarget.y - nextY) < CAMERA_POS_SNAP_EPSILON) {
+    nextY = nextTarget.y;
+  }
+  if (Math.abs(nextTarget.zoom - nextZoom) < CAMERA_ZOOM_SNAP_EPSILON) {
+    nextZoom = nextTarget.zoom;
+  }
+
+  let finalCam = clampCamera(
+    { x: nextX, y: nextY, zoom: nextZoom },
+    viewport,
+    mapSize
+  );
+
+  if (Math.abs(nextTarget.x - finalCam.x) < CAMERA_POS_SNAP_EPSILON) {
+    finalCam = { ...finalCam, x: nextTarget.x };
+  }
+  if (Math.abs(nextTarget.y - finalCam.y) < CAMERA_POS_SNAP_EPSILON) {
+    finalCam = { ...finalCam, y: nextTarget.y };
+  }
+  if (Math.abs(nextTarget.zoom - finalCam.zoom) < CAMERA_ZOOM_SNAP_EPSILON) {
+    finalCam = { ...finalCam, zoom: nextTarget.zoom };
+  }
+
+  const animating =
+    hasArrowInput ||
+    nextVx !== 0 ||
+    nextVy !== 0 ||
+    finalCam.x !== nextTarget.x ||
+    finalCam.y !== nextTarget.y ||
+    finalCam.zoom !== nextTarget.zoom;
+
+  return {
+    camera: finalCam,
+    target: nextTarget,
+    velocity: { vx: nextVx, vy: nextVy },
+    animating,
+  };
+}
+

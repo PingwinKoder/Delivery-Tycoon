@@ -153,6 +153,29 @@ export interface BaseBikeRackSpec {
   exitWaypoints: Point[];
 }
 
+export interface BaseLoadingZoneSpec {
+  id: string;
+  /** Isometric bounds of the package loading/unloading zone directly opposite the Base driveway entrance */
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  /** Exact isometric stop point in front of the Base entrance */
+  stopU: number;
+  stopV: number;
+  /** Exact canvas pixel coordinates where the courier halts to load/unload packages */
+  stopX: number;
+  stopY: number;
+  /** Canvas heading angle facing the Base building front door (+u direction) */
+  stopAngle: number;
+  /** Straight concrete-yard exit waypoints from the loading zone out to the BAZA driveway node */
+  exitWaypoints: Point[];
+  /** Concrete-yard waypoints from the bike rack around the NW garage corner to the loading zone */
+  fromBikeRackWaypoints: Point[];
+  /** Concrete-yard waypoints from the loading zone back to the bike rack */
+  toBikeRackWaypoints: Point[];
+}
+
 export interface BaseDepotSpec {
   u: number;
   v: number;
@@ -168,6 +191,7 @@ export interface BaseDepotSpec {
   buildingBounds: BaseBuildingSpec;
   parking: BaseParkingSpec;
   bikeRack: BaseBikeRackSpec;
+  loadingZone: BaseLoadingZoneSpec;
 }
 
 export interface BusBaySpot {
@@ -551,6 +575,57 @@ export function buildBaseBikeRackSpec(warehouseTier: WarehouseTier = 1): BaseBik
 }
 
 /**
+ * Generates the dedicated package loading/unloading zone on the Base concrete yard
+ * directly opposite the street driveway entrance (along v = BASE_DEPOT_ANCHOR_V),
+ * right in front of the Base building's front wall and separate from the bike rack.
+ */
+export function buildBaseLoadingZoneSpec(
+  warehouseTier: WarehouseTier = 1,
+  bikeRack: BaseBikeRackSpec = buildBaseBikeRackSpec(warehouseTier)
+): BaseLoadingZoneSpec {
+  const b = getBaseBuildingSpec(warehouseTier);
+  const uMax = b.uMin - 2;
+  const uMin = uMax - 18;
+  const vMin = BASE_DEPOT_ANCHOR_V - 18;
+  const vMax = BASE_DEPOT_ANCHOR_V + 18;
+
+  const stopU = uMax - 7;
+  const stopV = BASE_DEPOT_ANCHOR_V;
+  const stopPt = isoToCanvas(stopU, stopV);
+  const drivewayPt = isoToCanvas(BASE_DEPOT_ANCHOR_U, BASE_DEPOT_ANCHOR_V);
+
+  // Facing +u (+1, +0.5) toward the Base front entrance
+  const stopAngle = Math.atan2(0.5, 1);
+
+  const exitWaypoints: Point[] = [stopPt, drivewayPt];
+
+  const cornerU = b.uMin - 18;
+  const fromBikeRackWaypoints: Point[] = [
+    { x: bikeRack.parkedX, y: bikeRack.parkedY },
+    isoToCanvas(cornerU, bikeRack.parkedV),
+    isoToCanvas(cornerU, stopV),
+    stopPt,
+  ];
+  const toBikeRackWaypoints: Point[] = [...fromBikeRackWaypoints].reverse();
+
+  return {
+    id: 'base_loading_zone',
+    uMin,
+    uMax,
+    vMin,
+    vMax,
+    stopU,
+    stopV,
+    stopX: Math.round(stopPt.x * 10) / 10,
+    stopY: Math.round(stopPt.y * 10) / 10,
+    stopAngle,
+    exitWaypoints,
+    fromBikeRackWaypoints,
+    toBikeRackWaypoints,
+  };
+}
+
+/**
  * Builds the full Base depot geometry spec for a given warehouse tier (1–4)
  * and unlocked car parking spot count (1–8).
  */
@@ -558,6 +633,8 @@ export function buildBaseDepotSpec(
   warehouseTier: WarehouseTier = 1,
   parkingSpots = 1
 ): BaseDepotSpec {
+  const bikeRack = buildBaseBikeRackSpec(warehouseTier);
+  const loadingZone = buildBaseLoadingZoneSpec(warehouseTier, bikeRack);
   return {
     u: BASE_DEPOT_ANCHOR_U,
     v: BASE_DEPOT_ANCHOR_V, // canvas (820, 1545) — lower-left concrete yard
@@ -572,7 +649,8 @@ export function buildBaseDepotSpec(
     warehouseTier,
     buildingBounds: getBaseBuildingSpec(warehouseTier),
     parking: buildBaseParkingSpec(parkingSpots),
-    bikeRack: buildBaseBikeRackSpec(warehouseTier),
+    bikeRack,
+    loadingZone,
   };
 }
 

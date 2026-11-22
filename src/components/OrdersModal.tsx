@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ClipboardList, Files, X } from 'lucide-react';
 import type { ActiveOrder, OrderEconomyState, OrderOffer } from '../types/orders';
 import {
@@ -31,7 +31,7 @@ interface OrdersModalProps {
   onRejectOffer: (offerId: string) => void;
   onMoveWeeklyTaskPriority: (
     weekdayIndex: number,
-    orderId: string,
+    taskId: string,
     direction: 'up' | 'down'
   ) => void;
 }
@@ -48,6 +48,17 @@ function formatPolishPackages(count: number): string {
   const mod10 = abs % 10;
   const mod100 = abs % 100;
   if (abs === 1) return `${count} paczkę`;
+  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) {
+    return `${count} paczki`;
+  }
+  return `${count} paczek`;
+}
+
+function formatPolishPackagesNominative(count: number): string {
+  const abs = Math.abs(count);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (abs === 1) return `${count} paczka`;
   if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) {
     return `${count} paczki`;
   }
@@ -127,7 +138,18 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   const [activeTab, setActiveTab] = useState<OrdersTabId>('offers');
 
   const clock = useMemo(() => getGameClockDisplay(gameMinutes), [gameMinutes]);
+  const [selectedWeekday, setSelectedWeekday] = useState<number>(clock.dayIndex);
+  const latestDayIndexRef = useRef<number>(clock.dayIndex);
+  latestDayIndexRef.current = clock.dayIndex;
+
   const unreadOffersCount = useMemo(() => countUnreadOffers(economyState), [economyState]);
+
+  // Default Plan tygodnia selector to today whenever the modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedWeekday(latestDayIndexRef.current);
+    }
+  }, [isOpen]);
 
   // Mark all currently listed pending offers as seen immediately when the "Nowe oferty" tab is open
   useEffect(() => {
@@ -190,6 +212,8 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       };
     });
   }, [economyState, clock.gameDay, clock.dayIndex]);
+
+  const selectedDay = weeklyColumns[selectedWeekday] ?? weeklyColumns[clock.dayIndex] ?? weeklyColumns[0];
 
   if (!isOpen) return null;
 
@@ -405,6 +429,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       key={order.id}
                       order={order}
                       gameMinutes={gameMinutes}
+                      storedInWarehouse={economyState.warehouseInventory[order.id] ?? 0}
                     />
                   ))}
                 </div>
@@ -412,144 +437,196 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: PLAN TYGODNIA — unified 7-column grid with no horizontal scrolling */}
-          {activeTab === 'schedule' && (
-            <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule">
-              <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 px-0.5">
+          {/* TAB 3: PLAN TYGODNIA — two-tier layout: 7 day-selector tiles on top + full-width task list below */}
+          {activeTab === 'schedule' && selectedDay && (
+            <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 px-0.5">
                 <span>
-                  Zadania z aktywnych umów trafiają tu automatycznie. Kolejność w kolumnie dnia ustala priorytet dla kuriera.
+                  Wybierz dzień tygodnia i ustaw priorytet osobnych zadań „Odbiór” oraz „Rozwózka” dla kuriera.
                 </span>
                 <span className="font-mono-nums text-slate-300">
                   Dziś: {clock.weekday} | {clock.dayOfMonth} {clock.monthName}
                 </span>
               </div>
 
-              <div className="grid grid-cols-7 gap-1 sm:gap-2 items-start">
-                {weeklyColumns.map((day) => (
-                  <section
-                    key={day.weekdayIndex}
-                    aria-label={`${day.weekdayName}, ${day.dateLabel}`}
-                    className={`min-w-0 rounded-xl border p-1 sm:p-2 flex flex-col gap-1.5 sm:gap-2 ${
-                      day.isToday
-                        ? 'bg-[#1a2438] border-amber-400/80'
-                        : 'bg-[#172030] border-slate-800'
-                    }`}
-                  >
-                    {/* Compact Day Column Header (Pon – Nd) */}
-                    <div className="pb-1.5 border-b border-slate-800/90 text-center sm:text-left">
-                      <div className="flex items-center justify-center sm:justify-between gap-1 min-w-0">
-                        <h3
-                          className={`text-[11px] sm:text-xs font-bold truncate ${
-                            day.isToday ? 'text-amber-300' : 'text-slate-100'
+              {/* Tier 1: 7 Day-Selector Tiles (Pon – Nd) */}
+              <div
+                className="grid grid-cols-7 gap-1.5 sm:gap-2"
+                role="group"
+                aria-label="Wybór dnia tygodnia"
+              >
+                {weeklyColumns.map((day) => {
+                  const isSelected = day.weekdayIndex === selectedDay.weekdayIndex;
+                  return (
+                    <button
+                      key={day.weekdayIndex}
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => setSelectedWeekday(day.weekdayIndex)}
+                      className={`min-w-0 min-h-[64px] sm:min-h-[72px] rounded-xl border px-1.5 sm:px-3 py-2 text-left flex flex-col justify-between gap-1 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                        isSelected
+                          ? 'bg-amber-500/15 border-amber-400 shadow-sm'
+                          : day.isToday
+                            ? 'bg-[#1a2438] border-amber-400/50 hover:border-amber-400/80'
+                            : 'bg-[#172030] border-slate-800 hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 min-w-0">
+                        <span
+                          className={`text-xs sm:text-sm font-bold truncate ${
+                            isSelected || day.isToday ? 'text-amber-300' : 'text-slate-100'
                           }`}
                         >
                           {day.weekdayShort}
-                        </h3>
+                        </span>
                         {day.isToday && (
-                          <span className="hidden sm:inline text-[10px] font-bold text-amber-300 shrink-0">
+                          <span className="hidden sm:inline px-1.5 py-0.5 rounded bg-amber-400/20 text-[10px] font-bold text-amber-300 shrink-0 leading-none">
                             Dziś
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 flex items-center justify-center sm:justify-between gap-1 text-[10px] text-slate-400 font-mono-nums">
-                        <span className="truncate">{day.dateLabel}</span>
-                        <span className="hidden md:inline shrink-0">{day.tasks.length}</span>
+
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-1 gap-y-0.5 text-[10px] sm:text-xs font-mono-nums">
+                        <span className={isSelected ? 'text-slate-200' : 'text-slate-400'}>
+                          {day.dateLabel}
+                        </span>
+                        <span
+                          className={`font-semibold shrink-0 ${
+                            day.tasks.length > 0
+                              ? isSelected
+                                ? 'text-amber-200'
+                                : 'text-slate-200'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          <span className="sm:hidden">{day.tasks.length}</span>
+                          <span className="hidden sm:inline">{day.tasks.length} zad.</span>
+                        </span>
                       </div>
-                    </div>
-
-                    {/* Scheduled Tasks List */}
-                    {day.tasks.length === 0 ? (
-                      <p className="py-3 text-center text-[10px] sm:text-xs text-slate-500 leading-tight">
-                        <span className="sm:hidden">—</span>
-                        <span className="hidden sm:inline">Brak zadań</span>
-                      </p>
-                    ) : (
-                      <ol className="flex flex-col gap-1.5">
-                        {day.tasks.map((task, idx) => {
-                          const isFirst = idx === 0;
-                          const isLast = idx === day.tasks.length - 1;
-                          return (
-                            <li
-                              key={`${day.weekdayIndex}-${task.orderId}`}
-                              className="min-w-0 rounded-lg bg-slate-900/75 border border-slate-800/90 p-1 sm:p-2 flex flex-col gap-1"
-                            >
-                              <div className="min-w-0">
-                                <div className="flex items-baseline gap-1 min-w-0">
-                                  <span className="font-mono-nums text-[10px] sm:text-xs font-bold text-amber-400 shrink-0">
-                                    #{task.priorityRank}
-                                  </span>
-                                  <span
-                                    title={task.clientName}
-                                    className="text-[10px] sm:text-xs font-semibold text-slate-100 truncate"
-                                  >
-                                    {task.clientName}
-                                  </span>
-                                </div>
-                                <p
-                                  title={task.pickupAddress}
-                                  className="hidden sm:block mt-0.5 text-[11px] text-slate-400 truncate"
-                                >
-                                  {task.pickupAddress}
-                                </p>
-                                <p className="mt-0.5 text-[10px] sm:text-[11px] text-slate-300 font-mono-nums truncate">
-                                  <span className="md:hidden">{task.packageCount} szt.</span>
-                                  <span className="hidden md:inline">
-                                    {task.taskLabel} | {formatPolishPackages(task.packageCount)}
-                                  </span>
-                                </p>
-                              </div>
-
-                              {/* Priority Reorder Controls (min 40px touch height, fits inside 7-col grid) */}
-                              <div className="flex flex-col sm:grid sm:grid-cols-2 gap-1 pt-0.5">
-                                <button
-                                  type="button"
-                                  disabled={isFirst}
-                                  onClick={() =>
-                                    onMoveWeeklyTaskPriority(
-                                      day.weekdayIndex,
-                                      task.orderId,
-                                      'up'
-                                    )
-                                  }
-                                  aria-label={`Zwiększ priorytet w ${day.weekdayName}: ${task.clientName}`}
-                                  title="Wyżej w kolejności"
-                                  className={`min-h-[40px] w-full rounded-md text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                                    isFirst
-                                      ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
-                                  }`}
-                                >
-                                  ▲
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={isLast}
-                                  onClick={() =>
-                                    onMoveWeeklyTaskPriority(
-                                      day.weekdayIndex,
-                                      task.orderId,
-                                      'down'
-                                    )
-                                  }
-                                  aria-label={`Zmniejsz priorytet w ${day.weekdayName}: ${task.clientName}`}
-                                  title="Niżej w kolejności"
-                                  className={`min-h-[40px] w-full rounded-md text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                                    isLast
-                                      ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                                      : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
-                                  }`}
-                                >
-                                  ▼
-                                </button>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ol>
-                    )}
-                  </section>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
+
+              {/* Tier 2: Full-Width Horizontal Task List for the Selected Day */}
+              <section
+                aria-label={`Zadania na ${selectedDay.weekdayName}, ${selectedDay.dateLabel}`}
+                className="rounded-xl bg-[#151d2c] border border-slate-800/90 p-3 sm:p-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-100">
+                      {selectedDay.weekdayName}, {selectedDay.dateLabel}
+                    </h3>
+                    {selectedDay.isToday && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/40 text-[11px] font-bold text-amber-300">
+                        Dziś
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs sm:text-sm text-slate-400 font-mono-nums">
+                    Liczba zadań: <strong className="text-slate-200">{selectedDay.tasks.length}</strong>
+                  </span>
+                </div>
+
+                {selectedDay.tasks.length === 0 ? (
+                  <div className="py-10 px-4 text-center rounded-lg bg-slate-900/45 border border-slate-800/80">
+                    <p className="text-sm font-semibold text-slate-300">
+                      Brak zaplanowanych zadań na ten dzień
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Przyjmij nowe oferty w zakładce „Nowe oferty” lub wybierz inny dzień powyżej.
+                    </p>
+                  </div>
+                ) : (
+                  <ol className="flex flex-col gap-2">
+                    {selectedDay.tasks.map((task, idx) => {
+                      const isFirst = idx === 0;
+                      const isLast = idx === selectedDay.tasks.length - 1;
+                      const isPickup = task.taskType === 'pickup';
+                      return (
+                        <li
+                          key={`${selectedDay.weekdayIndex}-${task.taskId}`}
+                          className="rounded-xl bg-[#182030] border border-slate-700/85 px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4"
+                        >
+                          {/* Left: Priority Rank, Distinct Stage Badge (ODBIÓR / ROZWÓZKA) & Package Count */}
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 shrink-0">
+                            <span className="font-mono-nums text-sm font-bold text-amber-400 min-w-[28px]">
+                              #{task.priorityRank}
+                            </span>
+                            <span
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wide uppercase border shrink-0 ${
+                                isPickup
+                                  ? 'bg-sky-500/15 text-sky-300 border-sky-400/40'
+                                  : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
+                              }`}
+                            >
+                              {isPickup ? 'ODBIÓR' : 'ROZWÓZKA'}
+                            </span>
+                            <span className="text-xs sm:text-sm font-semibold text-slate-200 font-mono-nums whitespace-nowrap min-w-[82px]">
+                              {formatPolishPackagesNominative(task.packageCount)}
+                            </span>
+                          </div>
+
+                          {/* Center: Full Client Name & Full Address (no truncation) */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm sm:text-base font-bold text-slate-100 leading-snug break-words">
+                              {task.clientName}
+                            </p>
+                            <p className="mt-0.5 text-xs sm:text-sm text-slate-400 leading-snug break-words">
+                              {task.pickupAddress}
+                            </p>
+                          </div>
+
+                          {/* Right: Side-by-side Priority Reorder Controls (min 40x40px touch targets) */}
+                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
+                            <button
+                              type="button"
+                              disabled={isFirst}
+                              onClick={() =>
+                                onMoveWeeklyTaskPriority(
+                                  selectedDay.weekdayIndex,
+                                  task.taskId,
+                                  'up'
+                                )
+                              }
+                              aria-label={`Zwiększ priorytet w ${selectedDay.weekdayName}: ${task.taskLabel} – ${task.clientName}`}
+                              title="Wyżej w kolejności"
+                              className={`min-h-[40px] min-w-[40px] rounded-lg text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                                isFirst
+                                  ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                              }`}
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isLast}
+                              onClick={() =>
+                                onMoveWeeklyTaskPriority(
+                                  selectedDay.weekdayIndex,
+                                  task.taskId,
+                                  'down'
+                                )
+                              }
+                              aria-label={`Zmniejsz priorytet w ${selectedDay.weekdayName}: ${task.taskLabel} – ${task.clientName}`}
+                              title="Niżej w kolejności"
+                              className={`min-h-[40px] min-w-[40px] rounded-lg text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                                isLast
+                                  ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                              }`}
+                            >
+                              ▼
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+              </section>
             </div>
           )}
         </div>
@@ -679,9 +756,14 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
 interface ActiveOrderCardProps {
   order: ActiveOrder;
   gameMinutes: number;
+  storedInWarehouse: number;
 }
 
-const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({ order, gameMinutes }) => {
+const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
+  order,
+  gameMinutes,
+  storedInWarehouse,
+}) => {
   const isLongTerm = order.kind === 'long_term';
   const remainingText = formatTimeRemaining(order.endMinutes, gameMinutes);
   const endDate = getCalendarDateFromGameDay(order.endGameDay);
@@ -691,22 +773,27 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({ order, gameMinutes })
   const pickedUpThisWeek = order.weekly.pickedUpPackagesThisWeek;
   const deliveredThisWeek = order.weekly.deliveredPackagesThisWeek;
 
+  const shortTermTotal = order.kind === 'short_term' ? order.totalPackages : weeklyTarget;
+  const shortTermPickedUp =
+    order.kind === 'short_term'
+      ? Math.min(
+          order.totalPackages,
+          Math.max(order.deliveredPackagesTotal + storedInWarehouse, pickedUpThisWeek)
+        )
+      : pickedUpThisWeek;
+
   return (
     <article className="flex flex-col justify-between rounded-xl bg-[#182030] border border-slate-700/85 p-4 gap-3.5">
       <div className="space-y-2.5">
-        {/* Top Metadata & Remaining Time */}
+        {/* Top Metadata (order type only, no per-package rate) & Remaining Time */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-1.5 font-medium">
-            <span className={isLongTerm ? 'text-sky-300' : 'text-amber-300'}>
-              {isLongTerm ? `Kontrakt ${order.durationMonths} mies.` : 'Zlecenie krótkoterminowe'}
-            </span>
-            <span className="text-slate-600" aria-hidden="true">|</span>
-            <span className="text-slate-300 font-mono-nums">
-              {formatCurrencyUsd(order.ratePerPackage)}
-            </span>
-          </div>
+          <span className={`font-medium ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
+            {isLongTerm ? 'Zlecenie długoterminowe' : 'Zlecenie krótkoterminowe'}
+          </span>
           <span className="text-slate-300 font-mono-nums">
-            Pozostało: {remainingText} | do {endDate.dayOfMonth} {endDate.monthShort}
+            {isLongTerm
+              ? `Pozostało: ${remainingText} | do ${endDate.dayOfMonth} ${endDate.monthShort}`
+              : `Pozostało: ${remainingText}`}
           </span>
         </div>
 
@@ -718,24 +805,18 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({ order, gameMinutes })
           </p>
         </div>
 
-        {/* Weekly Progress & Payout */}
+        {/* Progress & Payout */}
         <div className="pt-2.5 border-t border-slate-800 space-y-2 text-xs sm:text-sm">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <span className="text-slate-400">Postęp w tym tygodniu:</span>
+            <span className="text-slate-400">
+              {isLongTerm ? 'Postęp w tym tygodniu:' : 'Postęp:'}
+            </span>
             <span className="font-semibold text-slate-100 font-mono-nums">
-              Odebrano: {pickedUpThisWeek}/{weeklyTarget} | Dostarczono: {deliveredThisWeek}/
-              {weeklyTarget}
+              {isLongTerm
+                ? `Odebrano: ${pickedUpThisWeek}/${weeklyTarget} | Dostarczono: ${deliveredThisWeek}/${weeklyTarget}`
+                : `Odebrano: ${shortTermPickedUp}/${shortTermTotal} | Dostarczono: ${order.deliveredPackagesTotal}/${shortTermTotal}`}
             </span>
           </div>
-
-          {order.kind === 'short_term' && order.totalPackages !== weeklyTarget && (
-            <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
-              <span className="text-slate-400">Postęp całkowity zlecenia:</span>
-              <span className="text-slate-300 font-mono-nums">
-                Dostarczono: {order.deliveredPackagesTotal}/{order.totalPackages} paczek
-              </span>
-            </div>
-          )}
 
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <span className="text-slate-400">
@@ -791,8 +872,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({ order, gameMinutes })
             />
           </svg>
         </div>
-        <div className="flex items-center justify-between text-[11px] text-slate-400">
-          <span>Ocena tygodniowa: Nd 23:59</span>
+        <div className="flex items-center justify-end text-[11px] text-slate-400">
           <span>Zerwanie umowy: poniżej 20%</span>
         </div>
       </div>
