@@ -1,3 +1,4 @@
+import type { WarehouseTier } from '../types/orders';
 import type { Point, RoadEdge, RoadGraph, RoadNode } from '../types/roadGraph';
 
 export const MAP_WIDTH = 3200;
@@ -76,9 +77,27 @@ export interface IntersectionInfo {
   isRoundabout: boolean;
 }
 
+export interface BaseBuildingSpec {
+  tier: WarehouseTier;
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  height: number;
+}
+
 export interface BaseParkingSpot {
   id: string;
   index: number;
+  /** 0 = south row (spots 1–4, along vMax), 1 = north row (spots 5–8, along vMin) */
+  row: 0 | 1;
+  /** 0..3 column index within the row */
+  column: number;
+  /** Exact stall rectangle in isometric (u, v) units */
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
   /** Exact isometric stall center */
   u: number;
   v: number;
@@ -97,11 +116,19 @@ export interface BaseParkingSpec {
   vMin: number;
   vMax: number;
   stallAxis: 'u' | 'v';
-  /** Which side of the lot holds the parking stalls (opposite side is open driving aisle) */
+  /** Which side holds the primary row ('max' for 1–4 spots; 2nd row appears opposite at 'min' for 5–8 spots) */
   stallSide: 'min' | 'max';
+  /** Centerline v coordinate of the open driving aisle serving both rows */
+  aisleV: number;
+  /** Maximum supported car parking spots at Base (8) */
+  maxSpots: number;
+  /** Spots per row (up to 4 per row across 2 equal rows) */
+  spotsPerRow: number;
+  /** Active rows currently built (1 for 1–4 spots, 2 for 5–8 spots) */
+  rowCount: 1 | 2;
   /** Internal asphalt road segments directly connecting this parking lot to the BAZA courier driveway */
   connectorSegments: Array<{ uMin: number; uMax: number; vMin: number; vMax: number }>;
-  /** Individual fleet vehicle parking spots with exact coordinates */
+  /** Individual fleet vehicle parking spots with exact coordinates (length = unlocked parkingSpots) */
   spots: BaseParkingSpot[];
 }
 
@@ -137,6 +164,8 @@ export interface BaseDepotSpec {
   yardUMax: number;
   yardVMin: number;
   yardVMax: number;
+  warehouseTier: WarehouseTier;
+  buildingBounds: BaseBuildingSpec;
   parking: BaseParkingSpec;
   bikeRack: BaseBikeRackSpec;
 }
@@ -370,29 +399,84 @@ export const ROUNDABOUTS: RoundaboutSpec[] = [
   },
 ];
 
-function buildBaseParkingSpec(): BaseParkingSpec {
-  const uMin = 124;
-  const uMax = 284;
-  const vMin = -856;
-  const vMax = -794;
-  const padAlong = 5;
-  const padDepth = 4;
-  const stallDepth = 25;
-  const count = 10;
-  const startU = uMin + padAlong;
-  const endU = uMax - padAlong;
-  const step = (endU - startU) / count;
-  const spotV = vMax - padDepth - stallDepth / 2;
+const BASE_DEPOT_ANCHOR_U = 155;
+const BASE_DEPOT_ANCHOR_V = -935;
+const BASE_PARKING_MAX_SPOTS_LIMIT = 8;
+const BASE_PARKING_SPOTS_PER_ROW_LIMIT = 4;
 
+/**
+ * Base depot building footprint and 3D height for each warehouse expansion tier (1–4).
+ * - Tier 1 (start): 56 x 88 = 4928 u² (~59.5% of former 74 x 112 hall) and lower 16 px height,
+ *   looking like a compact starter company garage.
+ * - Tiers 2–4: scale up progressively inside the concrete Base yard while staying strictly clear
+ *   of the loading apron (u <= 203), yard boundaries, bike rack, and up-to-8-spot car parking lot.
+ */
+const BASE_BUILDING_SPECS: Readonly<Record<WarehouseTier, BaseBuildingSpec>> = {
+  1: { tier: 1, uMin: 212, uMax: 268, vMin: -982, vMax: -894, height: 16 },
+  2: { tier: 2, uMin: 210, uMax: 274, vMin: -992, vMax: -892, height: 20 },
+  3: { tier: 3, uMin: 208, uMax: 282, vMin: -1000, vMax: -888, height: 24 },
+  4: { tier: 4, uMin: 206, uMax: 294, vMin: -1012, vMax: -886, height: 30 },
+};
+
+export function getBaseBuildingSpec(warehouseTier: WarehouseTier = 1): BaseBuildingSpec {
+  return BASE_BUILDING_SPECS[warehouseTier] ?? BASE_BUILDING_SPECS[1];
+}
+
+/**
+ * Generates the sequential Base car parking lot for 1..8 unlocked spots.
+ * Spots are arranged in up to 2 equal rows of 4 spots each across a central driving aisle (v = -830):
+ * - Spots 1–4: south row along vMax (-817..-792), facing the open driving aisle
+ * - Spots 5–8: north row opposite across the aisle (-868..-843), staying strictly inside
+ *   the concrete yard (v = -1056..-776) and clear of all roads, sidewalks, and Base building tiers.
+ */
+export function buildBaseParkingSpec(parkingSpots = 1): BaseParkingSpec {
+  const count = Math.max(1, Math.min(BASE_PARKING_MAX_SPOTS_LIMIT, Math.floor(parkingSpots)));
+  const spotsPerRow = BASE_PARKING_SPOTS_PER_ROW_LIMIT;
+  const rowCount: 1 | 2 = count > spotsPerRow ? 2 : 1;
+  const cols = Math.min(spotsPerRow, count);
+
+  const uMin = 124;
+  const padAlong = 6;
+  const padDepth = 4;
+  const stallWidth = 24;
+  const stallDepth = 25;
+  const aisleV = -830;
+  const aisleHalfWidth = 13; // 26u wide central driving aisle (-843..-817)
+
+  const row0OpenV = aisleV + aisleHalfWidth; // -817
+  const row0BackV = row0OpenV + stallDepth; // -792
+  const row1OpenV = aisleV - aisleHalfWidth; // -843
+  const row1BackV = row1OpenV - stallDepth; // -868
+
+  const vMax = row0BackV + padDepth; // -788 (12u clear of yardVMax = -776)
+  const vMin = rowCount === 2 ? row1BackV - padDepth : aisleV - aisleHalfWidth - 2; // -872 or -845
+  const uMax = uMin + padAlong * 2 + cols * stallWidth; // 160 (1 spot) .. 232 (4–8 spots), clear of yardUMax = 316
+
+  const startU = uMin + padAlong;
   const spots: BaseParkingSpot[] = [];
+
   for (let i = 0; i < count; i++) {
-    const u = startU + (i + 0.5) * step;
-    const pt = isoToCanvas(u, spotV);
+    const row: 0 | 1 = i < spotsPerRow ? 0 : 1;
+    const column = i % spotsPerRow;
+    const spotUMin = startU + column * stallWidth;
+    const spotUMax = spotUMin + stallWidth;
+    const spotVMin = row === 0 ? row0OpenV : row1BackV;
+    const spotVMax = row === 0 ? row0BackV : row1OpenV;
+    const centerU = (spotUMin + spotUMax) * 0.5;
+    const centerV = (spotVMin + spotVMax) * 0.5;
+    const pt = isoToCanvas(centerU, centerV);
+
     spots.push({
       id: `base_spot_${i + 1}`,
       index: i + 1,
-      u: Math.round(u * 10) / 10,
-      v: Math.round(spotV * 10) / 10,
+      row,
+      column,
+      uMin: Math.round(spotUMin * 10) / 10,
+      uMax: Math.round(spotUMax * 10) / 10,
+      vMin: Math.round(spotVMin * 10) / 10,
+      vMax: Math.round(spotVMax * 10) / 10,
+      u: Math.round(centerU * 10) / 10,
+      v: Math.round(centerV * 10) / 10,
       x: Math.round(pt.x * 10) / 10,
       y: Math.round(pt.y * 10) / 10,
       headingAxis: 'v',
@@ -401,10 +485,10 @@ function buildBaseParkingSpec(): BaseParkingSpec {
   }
 
   // L-shaped internal asphalt connector linking the BAZA courier driveway (v = -935)
-  // straight into the open driving lane of the BAZA fleet parking lot (v = -854..-832)
+  // straight into the open driving aisle (centerline v = -830) of the BAZA fleet parking lot
   const connectorSegments = [
-    { uMin: 72, uMax: 92, vMin: -935, vMax: -832 },
-    { uMin: 72, uMax: 126, vMin: -854, vMax: -832 },
+    { uMin: 72, uMax: 92, vMin: BASE_DEPOT_ANCHOR_V, vMax: aisleV + 11 },
+    { uMin: 72, uMax: uMin + 2, vMin: aisleV - 11, vMax: aisleV + 11 },
   ];
 
   return {
@@ -415,31 +499,39 @@ function buildBaseParkingSpec(): BaseParkingSpec {
     vMax,
     stallAxis: 'u',
     stallSide: 'max',
+    aisleV,
+    maxSpots: BASE_PARKING_MAX_SPOTS_LIMIT,
+    spotsPerRow,
+    rowCount,
     connectorSegments,
     spots,
   };
 }
 
-function buildBaseBikeRackSpec(): BaseBikeRackSpec {
-  // Positioned flush against the camera-facing exterior SW wall (v = -992) of b_base_garage
-  // right near the yard/exit corner (u = 208), completely away from car parking (v = -856..-794)
-  const uMin = 213;
-  const uMax = 243;
-  const vMin = -1002;
-  const vMax = -993;
-  const hoopsU = [218, 224.5, 231, 237.5];
-  const parkedU = 224.5;
-  const parkedV = -997.5;
+/**
+ * Generates the exterior bike rack flush against the SW entrance wall of the Base building
+ * for the current warehouse tier. Remains completely independent of car parking spots.
+ */
+export function buildBaseBikeRackSpec(warehouseTier: WarehouseTier = 1): BaseBikeRackSpec {
+  const b = getBaseBuildingSpec(warehouseTier);
+  const rackWidth = 28;
+  const uMin = b.uMin + 4;
+  const uMax = uMin + rackWidth;
+  const vMax = b.vMin - 1;
+  const vMin = vMax - 9;
+  const hoopsU = [uMin + 5, uMin + 11, uMin + 17, uMin + 23];
+  const parkedU = hoopsU[1];
+  const parkedV = vMax - 4.5;
   const parkedPt = isoToCanvas(parkedU, parkedV);
 
   // Facing +v (+1, -0.5) so the front wheel tucks neatly into the metallic hoop against the garage wall
   const parkedAngle = Math.atan2(-0.5, 1);
 
-  // Clean concrete-yard lead-out around the NW corner of b_base_garage toward BASE_DEPOT (155, -935)
+  // Clean concrete-yard lead-out around the NW entrance corner of b_base_garage toward BASE_DEPOT (155, -935)
   const exitWaypoints: Point[] = [
     parkedPt,
-    isoToCanvas(186, -997.5),
-    isoToCanvas(180, -935),
+    isoToCanvas(b.uMin - 18, parkedV),
+    isoToCanvas(b.uMin - 24, BASE_DEPOT_ANCHOR_V),
   ];
 
   return {
@@ -459,24 +551,36 @@ function buildBaseBikeRackSpec(): BaseBikeRackSpec {
 }
 
 /**
- * Starting logistics depot (BAZA) located on a full concrete quarter in the lower-left quadrant,
- * connected via a short, straight asphalt exit directly onto Central Main Avenue (u = 0)
- * and equipped with an internal asphalt road to its dedicated fleet parking lot and exterior bike rack.
+ * Builds the full Base depot geometry spec for a given warehouse tier (1–4)
+ * and unlocked car parking spot count (1–8).
  */
-export const BASE_DEPOT: BaseDepotSpec = {
-  u: 155,
-  v: -935, // canvas (820, 1545) — lower-left concrete yard
-  exitU: 0,
-  exitV: -935, // canvas (665, 1467.5) — straight NW entry onto Central Main Avenue
-  drivewayAsphaltWidth: 26,
-  drivewaySidewalkWidth: 6,
-  yardUMin: 36, // flush to al. Główna sidewalk (0 + 26 + 10)
-  yardUMax: 316, // flush to ul. Słoneczna sidewalk (340 - 16 - 8)
-  yardVMin: -1056, // flush to ul. Spacerowa sidewalk (-1080 + 16 + 8)
-  yardVMax: -776, // flush to al. Zachodnia sidewalk (-740 - 26 - 10)
-  parking: buildBaseParkingSpec(),
-  bikeRack: buildBaseBikeRackSpec(),
-};
+export function buildBaseDepotSpec(
+  warehouseTier: WarehouseTier = 1,
+  parkingSpots = 1
+): BaseDepotSpec {
+  return {
+    u: BASE_DEPOT_ANCHOR_U,
+    v: BASE_DEPOT_ANCHOR_V, // canvas (820, 1545) — lower-left concrete yard
+    exitU: 0,
+    exitV: BASE_DEPOT_ANCHOR_V, // canvas (665, 1467.5) — straight NW entry onto Central Main Avenue
+    drivewayAsphaltWidth: 26,
+    drivewaySidewalkWidth: 6,
+    yardUMin: 36, // flush to al. Główna sidewalk (0 + 26 + 10)
+    yardUMax: 316, // flush to ul. Słoneczna sidewalk (340 - 16 - 8)
+    yardVMin: -1056, // flush to ul. Spacerowa sidewalk (-1080 + 16 + 8)
+    yardVMax: -776, // flush to al. Zachodnia sidewalk (-740 - 26 - 10)
+    warehouseTier,
+    buildingBounds: getBaseBuildingSpec(warehouseTier),
+    parking: buildBaseParkingSpec(parkingSpots),
+    bikeRack: buildBaseBikeRackSpec(warehouseTier),
+  };
+}
+
+/**
+ * Starting logistics depot (BAZA) at Warehouse Tier 1 (compact starter garage, flush bike rack)
+ * and 1 starter car parking spot on the lower-left concrete quarter.
+ */
+export const BASE_DEPOT: BaseDepotSpec = buildBaseDepotSpec(1, 1);
 
 function buildBusStationSpec(): BusStationSpec {
   // Quarter q_3_4 directly along al. Dworcowa (v = 0, sidewalk edge v = 36)

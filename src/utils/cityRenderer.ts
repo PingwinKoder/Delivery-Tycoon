@@ -31,6 +31,7 @@ import {
   ROUNDABOUTS,
   U_STREETS,
   V_STREETS,
+  type BaseDepotSpec,
   type BaseParkingSpec,
   type BusStationSpec,
   type ConcretePlot,
@@ -44,6 +45,7 @@ import {
   isoToCanvas,
   streetCoversValue,
 } from './cityMap';
+import { computeBaseParkingLayout } from './parkingLayout';
 
 export interface ProceduralTextures {
   grassPattern: CanvasPattern | null;
@@ -177,20 +179,20 @@ function drawConcretePlot(
   if (plot.isBaseYard) {
     // Subtle dark concrete apron around BAZA loading zone
     ctx.fillStyle = 'rgba(71, 85, 105, 0.14)';
-    ctx.fillRect(BASE_DEPOT.u - 44, BASE_DEPOT.v - 42, 92, 84);
+    ctx.fillRect(BASE_DEPOT.u - 42, BASE_DEPOT.v - 38, 86, 76);
 
     // Loading bay stripes in crisp logistics amber/white
     ctx.strokeStyle = 'rgba(245, 158, 11, 0.72)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(BASE_DEPOT.u - 44, BASE_DEPOT.v - 42, 92, 84);
+    ctx.strokeRect(BASE_DEPOT.u - 42, BASE_DEPOT.v - 38, 86, 76);
 
-    // Parking bay dividers
+    // Loading bay dividers
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    for (let offset = -24; offset <= 24; offset += 24) {
+    for (let offset = -22; offset <= 22; offset += 22) {
       ctx.moveTo(BASE_DEPOT.u + 24, BASE_DEPOT.v + offset);
-      ctx.lineTo(BASE_DEPOT.u + 44, BASE_DEPOT.v + offset);
+      ctx.lineTo(BASE_DEPOT.u + 42, BASE_DEPOT.v + offset);
     }
     ctx.stroke();
   }
@@ -307,12 +309,13 @@ function drawParkingLot(ctx: CanvasRenderingContext2D, lot: ParkingLot) {
 }
 
 /**
- * Draws the BAZA dedicated fleet parking lot directly from BASE_DEPOT.parking
- * so visual stalls align 1-to-1 with BASE_DEPOT.parking.spots coordinates.
+ * Draws the BAZA dedicated fleet parking lot directly from baseDepot.parking
+ * so visual stalls align 1-to-1 with unlocked car spots (1–8 across 1–2 rows).
  */
 function drawBaseParking(ctx: CanvasRenderingContext2D, parking: BaseParkingSpec) {
   const uW = parking.uMax - parking.uMin;
   const vW = parking.vMax - parking.vMin;
+  const layout = computeBaseParkingLayout(parking);
 
   ctx.save();
 
@@ -329,35 +332,41 @@ function drawBaseParking(ctx: CanvasRenderingContext2D, parking: BaseParkingSpec
   ctx.lineWidth = 1;
   ctx.strokeRect(parking.uMin + 1.5, parking.vMin + 1.5, uW - 3, vW - 3);
 
-  // Stalls along vMax (facing -v open driving aisle so vehicles turn directly in from internal road)
-  const padAlong = 5;
-  const padDepth = 4;
-  const stallDepth = 25;
-  const startU = parking.uMin + padAlong;
-  const endU = parking.uMax - padAlong;
-  const count = parking.spots.length;
-  const step = (endU - startU) / count;
-  const rEnd = parking.vMax - padDepth;
-  const rStart = rEnd - stallDepth;
-
+  // Crisp white stall lines for each active row (Row 0: spots 1–4; Row 1: spots 5–8)
   ctx.strokeStyle = 'rgba(241, 245, 249, 0.88)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(startU, rEnd);
-  ctx.lineTo(endU, rEnd);
-  for (let i = 0; i <= count; i++) {
-    const u = startU + i * step;
-    ctx.moveTo(u, rStart);
-    ctx.lineTo(u, rEnd);
+  for (const row of layout.rows) {
+    if (row.spots.length === 0) continue;
+    const rowStartU = row.spots[0].uMin;
+    const rowEndU = row.spots[row.spots.length - 1].uMax;
+
+    // Back curb line spanning the unlocked spots in this row
+    ctx.moveTo(rowStartU, row.backCoord);
+    ctx.lineTo(rowEndU, row.backCoord);
+
+    // Individual stall divider lines
+    for (const spot of row.spots) {
+      ctx.moveTo(spot.uMin, row.openCoord);
+      ctx.lineTo(spot.uMin, row.backCoord);
+    }
+    ctx.moveTo(rowEndU, row.openCoord);
+    ctx.lineTo(rowEndU, row.backCoord);
   }
   ctx.stroke();
 
-  // Subtle amber fleet bay stop line along the back edge of BAZA parking spots
+  // Subtle amber fleet bay stop line along the back edge of each active row
   ctx.strokeStyle = 'rgba(245, 158, 11, 0.65)';
   ctx.lineWidth = 1.3;
   ctx.beginPath();
-  ctx.moveTo(startU + 2, rEnd - 2);
-  ctx.lineTo(endU - 2, rEnd - 2);
+  for (const row of layout.rows) {
+    if (row.spots.length === 0) continue;
+    const rowStartU = row.spots[0].uMin;
+    const rowEndU = row.spots[row.spots.length - 1].uMax;
+    const stopOffset = row.row === 0 ? -2 : 2;
+    ctx.moveTo(rowStartU + 2, row.backCoord + stopOffset);
+    ctx.lineTo(rowEndU - 2, row.backCoord + stopOffset);
+  }
   ctx.stroke();
 
   ctx.restore();
@@ -1073,7 +1082,8 @@ function drawHouseYardWalkway(ctx: CanvasRenderingContext2D, yard: HouseYardFenc
  */
 export function renderProceduralCity(
   ctx: CanvasRenderingContext2D,
-  textures: ProceduralTextures
+  textures: ProceduralTextures,
+  baseDepot: BaseDepotSpec = BASE_DEPOT
 ) {
   const grassFill: CanvasPattern | string = textures.grassPattern ?? '#688244';
   const asphaltFill: CanvasPattern | string = textures.asphaltPattern ?? '#44484e';
@@ -1104,7 +1114,7 @@ export function renderProceduralCity(
   for (const lot of PROCEDURAL_PARKING_LOTS) {
     drawParkingLot(ctx, lot);
   }
-  drawBaseParking(ctx, BASE_DEPOT.parking);
+  drawBaseParking(ctx, baseDepot.parking);
   drawBusStationSurface(ctx, BUS_STATION);
   for (const dz of PROCEDURAL_DELIVERY_ZONES) {
     drawDeliveryZone(ctx, dz);
@@ -1210,10 +1220,10 @@ export function renderProceduralCity(
       ctx.fillRect(d.uMin - 1.5, d.vMin, d.uMax - d.uMin + 3, d.vMax - d.vMin);
     }
   }
-  // Lateral-only curb edges on BAZA internal parking connector (stopping cleanly before BASE_DEPOT.parking mouth)
-  for (const seg of BASE_DEPOT.parking.connectorSegments) {
-    const uMaxTrim = Math.min(seg.uMax, BASE_DEPOT.parking.uMin - 1.5);
-    const vMinTrim = Math.max(seg.vMin, BASE_DEPOT.v);
+  // Lateral-only curb edges on BAZA internal parking connector (stopping cleanly before baseDepot.parking mouth)
+  for (const seg of baseDepot.parking.connectorSegments) {
+    const uMaxTrim = Math.min(seg.uMax, baseDepot.parking.uMin - 1.5);
+    const vMinTrim = Math.max(seg.vMin, baseDepot.v);
     if (uMaxTrim > seg.uMin) {
       ctx.fillRect(seg.uMin - 1.5, vMinTrim - 1.5, uMaxTrim - seg.uMin + 3, seg.vMax - vMinTrim + 3);
     }
@@ -1290,20 +1300,20 @@ export function renderProceduralCity(
     ctx.stroke();
     ctx.restore();
   }
-  // BAZA internal asphalt road directly connecting BAZA courier driveway into BASE_DEPOT.parking (open entrance)
+  // BAZA internal asphalt road directly connecting BAZA courier driveway into baseDepot.parking (open entrance)
   ctx.fillStyle = asphaltFill;
-  for (const seg of BASE_DEPOT.parking.connectorSegments) {
-    const extU = seg.uMax >= BASE_DEPOT.parking.uMin - 1 ? 3 : 0;
+  for (const seg of baseDepot.parking.connectorSegments) {
+    const extU = seg.uMax >= baseDepot.parking.uMin - 1 ? 3 : 0;
     ctx.fillRect(seg.uMin, seg.vMin, seg.uMax - seg.uMin + extU, seg.vMax - seg.vMin);
   }
   // BAZA straight asphalt driveway connecting yard cleanly onto Central Main Avenue
   {
-    const dwHalf = BASE_DEPOT.drivewayAsphaltWidth / 2;
-    const dwEndU = BASE_DEPOT.u - 10;
+    const dwHalf = baseDepot.drivewayAsphaltWidth / 2;
+    const dwEndU = baseDepot.u - 10;
     ctx.fillRect(
-      BASE_DEPOT.exitU,
-      BASE_DEPOT.v - dwHalf,
-      dwEndU - BASE_DEPOT.exitU,
+      baseDepot.exitU,
+      baseDepot.v - dwHalf,
+      dwEndU - baseDepot.exitU,
       dwHalf * 2
     );
   }
@@ -1325,16 +1335,16 @@ export function renderProceduralCity(
   ctx.lineWidth = 1.6;
   ctx.setLineDash([7, 7]);
   ctx.beginPath();
-  ctx.moveTo(BASE_DEPOT.exitU + 28, BASE_DEPOT.v);
-  ctx.lineTo(BASE_DEPOT.u - 16, BASE_DEPOT.v);
-  // Branch line leading neatly from BAZA courier driveway into the fleet parking lot
-  ctx.moveTo(82, BASE_DEPOT.v);
-  ctx.lineTo(82, -843);
-  ctx.lineTo(128, -843);
+  ctx.moveTo(baseDepot.exitU + 28, baseDepot.v);
+  ctx.lineTo(baseDepot.u - 16, baseDepot.v);
+  // Branch line leading neatly from BAZA courier driveway into the fleet parking lot aisle
+  ctx.moveTo(82, baseDepot.v);
+  ctx.lineTo(82, baseDepot.parking.aisleV);
+  ctx.lineTo(baseDepot.parking.uMin + 4, baseDepot.parking.aisleV);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(241, 245, 249, 0.75)';
-  ctx.fillRect(BASE_DEPOT.exitU + 28, BASE_DEPOT.v - 10, 2, 20);
+  ctx.fillRect(baseDepot.exitU + 28, baseDepot.v - 10, 2, 20);
   ctx.restore();
 
   // 8. Crisp white zebra crosswalks & stop lines at every regular intersection

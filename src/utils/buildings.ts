@@ -5,6 +5,7 @@ import type {
   DeliveryStopPoint,
   RoadApproachPoint,
 } from '../types/building';
+import type { WarehouseTier } from '../types/orders';
 import type { Point, RoadGraph } from '../types/roadGraph';
 import {
   ALL_STREETS,
@@ -23,6 +24,7 @@ import {
   type StreetSpec,
   buildProceduralRoadGraph,
   canvasToIso,
+  getBaseBuildingSpec,
   isPointInsideMap,
   isoToCanvas,
   rectOverlapsActiveStreet,
@@ -333,7 +335,7 @@ export function getBuildingHeight(typ: BuildingType, pietra: number): number {
     case 'kiosk':
       return 18;
     case 'baza':
-      return 24;
+      return getBaseBuildingSpec(1).height;
     case 'sklep':
       return 26;
     case 'dworzec':
@@ -1274,9 +1276,10 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     candidate: Omit<RawBuildingCandidate, 'id' | 'height'> & {
       id?: string;
       allowBaseYard?: boolean;
+      heightOverride?: number;
     }
   ): RawBuildingCandidate | null => {
-    const height = getBuildingHeight(candidate.typ, candidate.pietra);
+    const height = candidate.heightOverride ?? getBuildingHeight(candidate.typ, candidate.pietra);
     if (candidate.uMax - candidate.uMin < 18 || candidate.vMax - candidate.vMin < 18) return null;
     if (!isBuildingVisibleInMap(candidate.uMin, candidate.uMax, candidate.vMin, candidate.vMax, height)) {
       return null;
@@ -1389,17 +1392,19 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     pendingParking.push({ quarter, uMin, uMax, vMin, vMax, kind, preferredAxis });
   };
 
-  // 1. BAZA depot garage hall on flush concrete yard (its fleet parking lot + internal asphalt road
-  //    live directly on BASE_DEPOT.parking)
+  // 1. BAZA depot garage hall on flush concrete yard — starts at Warehouse Tier 1
+  //    (compact starter garage, ~60% footprint & lower height; scales with warehouseTier 1–4)
+  const starterBaseSpec = getBaseBuildingSpec(1);
   tryPush({
     id: 'b_base_garage',
     typ: 'baza',
     pietra: 1,
     mieszkania: 0,
-    uMin: 208,
-    uMax: 282,
-    vMin: -992,
-    vMax: -880,
+    uMin: starterBaseSpec.uMin,
+    uMax: starterBaseSpec.uMax,
+    vMin: starterBaseSpec.vMin,
+    vMax: starterBaseSpec.vMax,
+    heightOverride: starterBaseSpec.height,
     colorVariant: 0,
     forcedStreetId: 'u_4', // al. Główna
     allowBaseYard: true,
@@ -2668,6 +2673,41 @@ export function getStaticScene3DOrder(buildings: Building[]): StaticScene3DItem[
 
 export function buildProceduralBuildings(): Building[] {
   return PROCEDURAL_BUILDINGS;
+}
+
+/**
+ * Returns a buildings list where the Base depot garage (`b_base_garage`) matches the
+ * footprint and 3D height of the active `warehouseTier` (1–4).
+ */
+export function applyWarehouseTierToBuildings(
+  buildings: Building[],
+  warehouseTier: WarehouseTier
+): Building[] {
+  const spec = getBaseBuildingSpec(warehouseTier);
+  const idx = buildings.findIndex((b) => b.id === 'b_base_garage');
+  if (idx === -1) return buildings;
+
+  const existing = buildings[idx];
+  if (
+    existing.uMin === spec.uMin &&
+    existing.uMax === spec.uMax &&
+    existing.vMin === spec.vMin &&
+    existing.vMax === spec.vMax &&
+    existing.height === spec.height
+  ) {
+    return buildings;
+  }
+
+  const next = [...buildings];
+  next[idx] = {
+    ...existing,
+    uMin: spec.uMin,
+    uMax: spec.uMax,
+    vMin: spec.vMin,
+    vMax: spec.vMax,
+    height: spec.height,
+  };
+  return next;
 }
 
 function pointInConvexPolygon(pt: Point, poly: Point[]): boolean {

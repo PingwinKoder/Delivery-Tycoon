@@ -1,9 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { MAP_HEIGHT, MAP_WIDTH } from '../data/initialRoadGraph';
 import { type Building, formatBuildingAddress } from '../types/building';
 import type { Point, RoadGraph } from '../types/roadGraph';
 import type { DepthSortedEntity } from '../utils/buildings';
-import { BASE_DEPOT, canvasToIso } from '../utils/cityMap';
+import { BASE_DEPOT, type BaseDepotSpec, canvasToIso } from '../utils/cityMap';
 import {
   type ProceduralTextures,
   createProceduralTextures,
@@ -42,7 +42,10 @@ import {
   findShortestPathFromEdgePoint,
   findShortestPathToEdgePoint,
 } from '../utils/pathfinding';
-import { ALL_PARKING_NAV_NETWORKS } from '../utils/parkingNavigation';
+import {
+  ALL_PARKING_NAV_NETWORKS,
+  buildBaseParkingNavNetwork,
+} from '../utils/parkingNavigation';
 import { applyRightHandLaneOffsets } from '../utils/trafficLanes';
 
 export interface MapCanvasController {
@@ -53,6 +56,7 @@ export interface MapCanvasController {
 interface MapCanvasProps {
   graph: RoadGraph;
   buildings: Building[];
+  baseDepot?: BaseDepotSpec;
   showGrid: boolean;
   footprintOnly: boolean;
   showStreetNames: boolean;
@@ -66,6 +70,7 @@ const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 export const MapCanvas: React.FC<MapCanvasProps> = ({
   graph,
   buildings,
+  baseDepot = BASE_DEPOT,
   showGrid,
   footprintOnly,
   showStreetNames,
@@ -88,10 +93,20 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   const activeRouteRef = useRef<Point[]>([]);
   const targetMarkerRef = useRef<Point | null>(null);
 
+  const parkingNavNetworks = useMemo(() => {
+    if (baseDepot === BASE_DEPOT) return ALL_PARKING_NAV_NETWORKS;
+    const dynamicBaseNav = buildBaseParkingNavNetwork(baseDepot, graph);
+    return ALL_PARKING_NAV_NETWORKS.map((net) =>
+      net.kind === 'base_fleet' ? dynamicBaseNav : net
+    );
+  }, [baseDepot, graph]);
+
   // Sync latest React props into refs for rAF & event handlers
   const propsRef = useRef({
     graph,
     buildings,
+    baseDepot,
+    parkingNavNetworks,
     showGrid,
     footprintOnly,
     showStreetNames,
@@ -101,6 +116,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   propsRef.current = {
     graph,
     buildings,
+    baseDepot,
+    parkingNavNetworks,
     showGrid,
     footprintOnly,
     showStreetNames,
@@ -111,7 +128,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
   // Trigger a redraw/resume simulation whenever React props or gameSpeed change
   useEffect(() => {
     scheduleRenderRef.current();
-  }, [graph, buildings, showGrid, footprintOnly, showStreetNames, gameSpeed]);
+  }, [graph, buildings, baseDepot, showGrid, footprintOnly, showStreetNames, gameSpeed]);
 
   // Expose camera & courier dispatch controls for upcoming order mechanics
   useEffect(() => {
@@ -164,7 +181,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
         const stopPoint: Point = { x: stop.x, y: stop.y };
         const approachExtras = stop.approachWaypoints ?? [];
         const returnExtras = [...approachExtras].reverse();
-        const rackExit = BASE_DEPOT.bikeRack.exitWaypoints;
+        const rackExit = propsRef.current.baseDepot.bikeRack.exitWaypoints;
         const rackReturn = [...rackExit].reverse();
 
         const fullOutbound = stitchWaypoints(rackExit, outboundLanePts, approachExtras, [stopPoint]);
@@ -440,6 +457,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       const {
         graph: curGraph,
         buildings: curBuildings,
+        baseDepot: curBaseDepot,
+        parkingNavNetworks: curParkingNavNetworks,
         showGrid: gridVisible,
         footprintOnly: isFootprintOnly,
         showStreetNames: streetNamesVisible,
@@ -449,7 +468,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Render static procedural city into camera-keyed offscreen cache for 60 FPS blitting
-      const cacheKey = `${canvas.width}x${canvas.height}:${cam.x.toFixed(2)},${cam.y.toFixed(2)},${effectiveZoom.toFixed(4)}`;
+      const cacheKey = `${canvas.width}x${canvas.height}:${cam.x.toFixed(2)},${cam.y.toFixed(2)},${effectiveZoom.toFixed(4)}:b${curBaseDepot.warehouseTier}p${curBaseDepot.parking.spots.length}`;
       if (texturesRef.current) {
         if (!bgCacheCanvasRef.current) {
           bgCacheCanvasRef.current = document.createElement('canvas');
@@ -470,7 +489,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
             bgCtx.translate(vw / 2, vh / 2);
             bgCtx.scale(effectiveZoom, effectiveZoom);
             bgCtx.translate(-cam.x, -cam.y);
-            renderProceduralCity(bgCtx, texturesRef.current);
+            renderProceduralCity(bgCtx, texturesRef.current, curBaseDepot);
             bgCtx.restore();
             bgCacheKeyRef.current = cacheKey;
           }
@@ -580,7 +599,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
           ctx.lineWidth = 1.9 * invScale;
           ctx.setLineDash([5 * invScale, 4 * invScale]);
           ctx.beginPath();
-          for (const net of ALL_PARKING_NAV_NETWORKS) {
+          for (const net of curParkingNavNetworks) {
             const pNodeMap = new Map(net.nodes.map((n) => [n.id, n]));
             for (const edge of net.edges) {
               const a = pNodeMap.get(edge.from);
@@ -595,7 +614,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
 
           // Directional arrows on one-way internal parking lanes (e.g. Dworzec Autobusowy separate entry/exit)
           ctx.fillStyle = '#38bdf8';
-          for (const net of ALL_PARKING_NAV_NETWORKS) {
+          for (const net of curParkingNavNetworks) {
             const pNodeMap = new Map(net.nodes.map((n) => [n.id, n]));
             for (const edge of net.edges) {
               if (!edge.oneWay) continue;
@@ -711,7 +730,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = ({
 
       const courier = courierRef.current;
       const showParkedBikeAtRack = courier.phase === 'idle';
-      const rack = BASE_DEPOT.bikeRack;
+      const rack = curBaseDepot.bikeRack;
 
       // Build depth-sorted isometric entities (BAZA bike rack + active courier on bicycle)
       const bikeRackEntity: DepthSortedEntity = {

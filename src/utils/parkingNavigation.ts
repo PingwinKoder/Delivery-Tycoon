@@ -703,9 +703,9 @@ export function buildBusStationNavNetwork(
 }
 
 /**
- * Builds the internal fleet parking navigation graph for BAZA (BASE_DEPOT.parking),
+ * Builds the internal fleet parking navigation graph for BAZA (depot.parking),
  * branching cleanly from the BAZA exit driveway along the L-shaped internal asphalt connector
- * into the open fleet aisle serving all 10 fleet parking spots.
+ * into the open fleet aisle serving all unlocked fleet parking spots (1–8 across 1–2 rows).
  */
 export function buildBaseParkingNavNetwork(
   depot: BaseDepotSpec,
@@ -720,7 +720,7 @@ export function buildBaseParkingNavNetwork(
   );
 
   const branchU = 82;
-  const aisleV = -843; // centerline of connectorSegments[1] (-854..-832) and open aisle (-856..-823)
+  const aisleV = p.aisleV;
   const proj = projectToRoadGraphEdge(
     branchU,
     depot.v,
@@ -728,14 +728,18 @@ export function buildBaseParkingNavNetwork(
     baseDrivewayEdges.length > 0 ? baseDrivewayEdges : roadEdges
   );
 
-  const firstSpotU = p.spots[0]?.u ?? p.uMin + 12;
-  const lastSpotU = p.spots[p.spots.length - 1]?.u ?? p.uMax - 12;
+  let minSpotU = p.uMin + 12;
+  let maxSpotU = p.uMax - 12;
+  if (p.spots.length > 0) {
+    minSpotU = p.spots.reduce((acc, s) => Math.min(acc, s.u), Infinity);
+    maxSpotU = p.spots.reduce((acc, s) => Math.max(acc, s.u), -Infinity);
+  }
 
   const nodes: ParkingNavNode[] = [
     makeNavNode('base_parking_road', 'road_entry', proj.u, proj.v, proj.roadConnection),
     makeNavNode('base_parking_corner', 'driveway_mouth', branchU, aisleV),
-    makeNavNode('base_parking_aisle_w', 'aisle', Math.min(p.uMin, firstSpotU), aisleV),
-    makeNavNode('base_parking_aisle_e', 'aisle', Math.max(p.uMax - 5, lastSpotU), aisleV),
+    makeNavNode('base_parking_aisle_w', 'aisle', Math.min(p.uMin, minSpotU), aisleV),
+    makeNavNode('base_parking_aisle_e', 'aisle', Math.max(p.uMax - 5, maxSpotU), aisleV),
   ];
 
   const edges: ParkingNavEdge[] = [
@@ -744,25 +748,17 @@ export function buildBaseParkingNavNetwork(
     { from: 'base_parking_aisle_w', to: 'base_parking_aisle_e', oneWay: false, kind: 'aisle' },
   ];
 
-  const padAlong = 5;
-  const padDepth = 4;
-  const stallDepth = 25;
-  const startU = p.uMin + padAlong;
-  const endU = p.uMax - padAlong;
-  const step = (endU - startU) / Math.max(1, p.spots.length);
-  const rEnd = p.vMax - padDepth;
-  const rStart = rEnd - stallDepth;
-
-  const spots: ParkingSpotNav[] = p.spots.map((spot, idx) => {
+  const spots: ParkingSpotNav[] = p.spots.map((spot) => {
     const accessCanvas = isoToCanvas(spot.u, aisleV);
+    const entryDirV = spot.row === 0 ? 1 : -1;
     return {
       id: spot.id,
-      row: 'fleet_row',
+      row: spot.row === 0 ? 'fleet_row_south' : 'fleet_row_north',
       rect: {
-        uMin: round1(startU + idx * step),
-        uMax: round1(startU + (idx + 1) * step),
-        vMin: round1(rStart),
-        vMax: round1(rEnd),
+        uMin: spot.uMin,
+        uMax: spot.uMax,
+        vMin: spot.vMin,
+        vMax: spot.vMax,
       },
       parkPoint: {
         u: spot.u,
@@ -777,8 +773,8 @@ export function buildBaseParkingNavNetwork(
         y: round1(accessCanvas.y),
       },
       aisleEdge: ['base_parking_aisle_w', 'base_parking_aisle_e'],
-      entryDirIso: { u: 0, v: 1 },
-      exitDirIso: { u: 0, v: -1 },
+      entryDirIso: { u: 0, v: entryDirV },
+      exitDirIso: { u: 0, v: -entryDirV },
     };
   });
 

@@ -3,6 +3,8 @@ import {
   ROUNDABOUTS,
   U_STREETS,
   V_STREETS,
+  type BaseParkingSpec,
+  type BaseParkingSpot,
   type CityQuarter,
   type StreetAxis,
   type StreetSpec,
@@ -690,4 +692,61 @@ export function tryPushParking({
     if (validate(ru0, ru1, rv0, rv1)) return true;
   }
   return false;
+}
+
+export const BASE_PARKING_MAX_SPOTS = 8;
+export const BASE_PARKING_SPOTS_PER_ROW = 4;
+
+export interface BaseParkingRowLayout {
+  row: 0 | 1;
+  /** v coordinate along the back curb edge of the row */
+  backCoord: number;
+  /** v coordinate along the open driving-aisle edge of the row */
+  openCoord: number;
+  /** Direction vector along v when pulling nose-first into a stall in this row (+1 or -1) */
+  entryDirV: 1 | -1;
+  spots: BaseParkingSpot[];
+}
+
+export interface BaseParkingLayout {
+  aisleV: number;
+  totalSpots: number;
+  rows: BaseParkingRowLayout[];
+}
+
+/**
+ * Computes structured row-by-row stall layout for the dynamic Base car parking lot (1–8 spots).
+ * - Spots 1–4 occupy Row 0 (south edge along vMax, entering +v).
+ * - Spots 5–8 occupy Row 1 (north edge along vMin, entering -v), across the central driving aisle.
+ */
+export function computeBaseParkingLayout(parking: BaseParkingSpec): BaseParkingLayout {
+  const row0Spots = parking.spots.filter((s) => s.row === 0);
+  const row1Spots = parking.spots.filter((s) => s.row === 1);
+  const rows: BaseParkingRowLayout[] = [];
+
+  if (row0Spots.length > 0) {
+    rows.push({
+      row: 0,
+      backCoord: row0Spots[0].vMax,
+      openCoord: row0Spots[0].vMin,
+      entryDirV: 1,
+      spots: row0Spots,
+    });
+  }
+
+  if (row1Spots.length > 0) {
+    rows.push({
+      row: 1,
+      backCoord: row1Spots[0].vMin,
+      openCoord: row1Spots[0].vMax,
+      entryDirV: -1,
+      spots: row1Spots,
+    });
+  }
+
+  return {
+    aisleV: parking.aisleV,
+    totalSpots: parking.spots.length,
+    rows,
+  };
 }
