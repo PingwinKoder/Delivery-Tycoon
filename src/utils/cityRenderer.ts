@@ -64,6 +64,7 @@ import {
   rectOverlapsRoundabout,
   streetCoversValue,
 } from './cityMap';
+import { drawIsometricDeliveryVan } from './courierRenderer';
 import {
   PARKING_GROUND_STYLE,
   type ParkingContourSegment,
@@ -71,6 +72,7 @@ import {
   computeBaseParkingPerimeterSegments,
   computeParkingLotPerimeterSegments,
   computeRectPerimeterWithGaps,
+  getBaseParkedVanSlots,
   groupContiguousStallRuns,
 } from './parkingLayout';
 
@@ -784,6 +786,16 @@ function drawBaseParking(
     ctx.strokeStyle = PARKING_GROUND_STYLE.inkOutline;
     ctx.lineWidth = 0.95;
     ctx.strokeRect(rowStartU + 1.5, stripV, rowEndU - rowStartU - 3, stripH);
+  }
+
+  // 6. Subtle painted P1–P8 stall markings near the open aisle edge (baked once into static ground buffer)
+  ctx.font = '700 6.5px "Plus Jakarta Sans", ui-monospace, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(248, 250, 252, 0.42)';
+  for (const spot of parking.spots) {
+    const labelV = spot.row === 0 ? spot.vMin + 5.2 : spot.vMax - 5.2;
+    ctx.fillText(`P${spot.index}`, spot.u, labelV);
   }
 
   ctx.restore();
@@ -3938,9 +3950,36 @@ export function buildFenceSpriteCache(
 }
 
 /**
+ * Creates Z-sorted dynamic isometric entities for all company delivery vans currently parked
+ * on Base fleet parking stalls (`P1–P8`), skipping `activeOutVanIndex` while that van is
+ * out on a route. Keeps static ground caching (`viewportGroundCanvas`) completely untouched.
+ */
+export function createBaseParkedVanEntities(
+  baseDepot: BaseDepotSpec,
+  vansCount: number,
+  activeOutVanIndex: number | null
+): DepthSortedEntity[] {
+  const slots = getBaseParkedVanSlots(baseDepot.parking, vansCount, activeOutVanIndex);
+  return slots.map((slot) => ({
+    id: `base_parked_van_${slot.vanIndex}`,
+    uMin: slot.spot.u - 5.0,
+    uMax: slot.spot.u + 5.0,
+    vMin: slot.spot.v - 9.6,
+    vMax: slot.spot.v + 9.6,
+    draw: (drawCtx) =>
+      drawIsometricDeliveryVan(drawCtx, {
+        x: slot.spot.x,
+        y: slot.spot.y,
+        angle: slot.parkedAngle,
+        wheelPhase: 0,
+      }),
+  }));
+}
+
+/**
  * Draws all buildings and 3D wooden yard fences in exact Painter's Algorithm back-to-front
  * order using the pre-sorted static scene cache and per-building / per-fence cached sprites,
- * dynamically interleaving only moving/interactive entities (bike rack, courier) per frame.
+ * dynamically interleaving only moving/interactive entities (bike rack, parked vans, courier) per frame.
  */
 export function renderBuildings3D(
   ctx: CanvasRenderingContext2D,

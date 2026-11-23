@@ -192,7 +192,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
     }
     if (monthlyCosts.vanInsuranceCost > 0) {
       parts.push(
-        `Ubezpieczenie kierowców i aut: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`
+        `Ubezpieczenie busów: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`
       );
     }
     return parts.join(' | ');

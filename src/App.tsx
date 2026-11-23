@@ -11,7 +11,11 @@ import {
   applyWarehouseTierToBuildings,
 } from './utils/buildings';
 import { buildBaseDepotSpec } from './utils/cityMap';
-import type { OrderEconomyState, WarehouseLoadedBatch } from './types/orders';
+import type {
+  ActiveVehicleSelection,
+  OrderEconomyState,
+  WarehouseLoadedBatch,
+} from './types/orders';
 import {
   type GameSpeed,
   INITIAL_GAME_MINUTES,
@@ -22,7 +26,6 @@ import {
   getGameMinutesPerRealSecond,
 } from './utils/gameClock';
 import {
-  BIKE_COURIER_CAPACITY,
   acceptOrderOffer,
   advanceOrderEconomy,
   countUnreadOffers,
@@ -31,6 +34,7 @@ import {
   getFreeWarehouseCapacity,
   getNextDayMorningMinutes,
   getRemainingPickupPackagesForOrderToday,
+  getVehicleCourierCapacity,
   hasEconomyBoundaryBetween,
   isNightHoursForTime,
   loadPackagesFromWarehouseForBike,
@@ -38,11 +42,13 @@ import {
   moveWeeklyTaskPriority,
   purchaseBicycle,
   purchaseParkingSpot,
+  purchaseUsedVan,
   purchaseWarehouseUpgrade,
   recordPackageDelivery,
   recordPackagePickup,
   rejectOrderOffer,
   returnPackagesToWarehouse,
+  setOwnerActiveVehicle,
 } from './utils/orderEconomy';
 
 const MAX_CLOCK_REAL_DT = 0.1;
@@ -186,13 +192,19 @@ export function App() {
   }, []);
 
   const handleLoadFromWarehouse = useCallback(
-    (orderId?: string, priorityOrderIds?: readonly string[]): WarehouseLoadedBatch[] => {
+    (
+      orderId?: string,
+      priorityOrderIds?: readonly string[],
+      capacityOverride?: number
+    ): WarehouseLoadedBatch[] => {
       let loaded: WarehouseLoadedBatch[] = [];
       applyEconomyUpdate((prev) => {
+        const vehicleCapacity =
+          capacityOverride ?? getVehicleCourierCapacity(prev.activeVehicle?.type ?? 'bike');
         const res = loadPackagesFromWarehouseForBike(
           prev,
           orderId,
-          BIKE_COURIER_CAPACITY,
+          vehicleCapacity,
           priorityOrderIds
         );
         loaded = res.loadedPackages;
@@ -204,7 +216,12 @@ export function App() {
   );
 
   const handlePickupPackagesLoaded = useCallback(
-    (orderId: string, requestedCount: number, currentGameDay: number): number => {
+    (
+      orderId: string,
+      requestedCount: number,
+      currentGameDay: number,
+      capacityOverride?: number
+    ): number => {
       let actualCount = 0;
       applyEconomyUpdate((prev) => {
         const order = prev.activeOrders.find((o) => o.id === orderId && o.status === 'active');
@@ -217,9 +234,11 @@ export function App() {
           currentGameDay
         );
         const freeSpace = getFreeWarehouseCapacity(prev);
+        const vehicleCapacity =
+          capacityOverride ?? getVehicleCourierCapacity(prev.activeVehicle?.type ?? 'bike');
         actualCount = Math.min(
           Math.max(0, requestedCount),
-          BIKE_COURIER_CAPACITY,
+          vehicleCapacity,
           remainingToday,
           freeSpace
         );
@@ -334,6 +353,18 @@ export function App() {
     applyEconomyUpdate((prev) => purchaseBicycle(prev).state);
   }, [applyEconomyUpdate]);
 
+  const handleBuyUsedVan = useCallback(() => {
+    applyEconomyUpdate((prev) => purchaseUsedVan(prev).state);
+  }, [applyEconomyUpdate]);
+
+  const handleSelectActiveVehicle = useCallback(
+    (vehicle: ActiveVehicleSelection) => {
+      if (!allCouriersAtBaseRef.current) return;
+      applyEconomyUpdate((prev) => setOwnerActiveVehicle(prev, vehicle));
+    },
+    [applyEconomyUpdate]
+  );
+
   const unreadOffersCount = countUnreadOffers(economyState);
   const isNightMode = allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
@@ -348,6 +379,9 @@ export function App() {
   );
 
   const activeWarehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
+  const activeBikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
+  const activeVansCount = economyState.vansCount ?? economyState.deliveryVansCount ?? 0;
+  const ownerActiveVehicle = economyState.activeVehicle ?? { type: 'bike' as const, index: 1 };
 
   const baseDepot = useMemo(
     () => buildBaseDepotSpec(activeWarehouseLevel, economyState.parkingSpots),
@@ -365,6 +399,9 @@ export function App() {
         graph={INITIAL_ROAD_GRAPH}
         buildings={mapBuildings}
         baseDepot={baseDepot}
+        bikesCount={activeBikesCount}
+        vansCount={activeVansCount}
+        activeVehicle={ownerActiveVehicle}
         showGrid={showGrid}
         footprintOnly={footprintOnly}
         showStreetNames={showStreetNames}
@@ -436,10 +473,13 @@ export function App() {
       <CompanyModal
         isOpen={companyOpen}
         economyState={economyState}
+        isOwnerAtBase={allCouriersAtBase}
         onClose={handleCloseCompany}
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}
         onBuyBicycle={handleBuyBicycle}
+        onBuyUsedVan={handleBuyUsedVan}
+        onSelectActiveVehicle={handleSelectActiveVehicle}
       />
 
       <SkipTimeModal

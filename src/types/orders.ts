@@ -193,13 +193,21 @@ export interface CompanyEmployee {
   id: string;
   name: string;
   role: EmployeeRole;
-  /** True for the starter player-owner courier ($0/mies. salary, only $90/mies. courier insurance) */
+  /** True for the starter player-owner courier ($0/mies. salary, starter bicycle included in Base Lv.1 upkeep) */
   isOwner: boolean;
   /** Monthly salary in USD ($0 owner, $1 650 bike courier, $2 300 van driver) */
   monthlySalary: number;
-  /** Monthly insurance in USD ($90 courier insurance, $180 driver & van insurance) */
+  /** Monthly insurance in USD ($50 additional bike, $130 owned used van, $180 hired van driver) */
   monthlyInsurance: number;
   hiredAtGameDay: number;
+}
+
+export type ActiveVehicleType = 'bike' | 'van';
+
+export interface ActiveVehicleSelection {
+  type: ActiveVehicleType;
+  /** 1-based fleet index (e.g. Rower #1, Bus #1, Bus #2) */
+  index: number;
 }
 
 export interface MonthlyCostBreakdown {
@@ -207,9 +215,9 @@ export interface MonthlyCostBreakdown {
   baseUpkeepAndTaxCost: number;
   /** Total monthly salaries for all hired employees ($0 for owner) */
   salariesCost: number;
-  /** Total monthly insurance for additional bicycles ($90 each for 2nd and 3rd bike) */
+  /** Total monthly insurance for additional bicycles ($50 each for 2nd and 3rd bike) */
   courierInsuranceCost: number;
-  /** Total monthly driver & vehicle insurance for hired van drivers ($180 each) */
+  /** Total monthly insurance for owned delivery vans ($130 each) */
   vanInsuranceCost: number;
   /** Combined monthly insurance cost (courierInsuranceCost + vanInsuranceCost) */
   insuranceCost: number;
@@ -307,7 +315,7 @@ export interface UpgradePurchaseResult {
   state: OrderEconomyState;
   purchased: boolean;
   cost: number;
-  reason?: 'max_reached' | 'insufficient_funds';
+  reason?: 'max_reached' | 'insufficient_funds' | 'no_parking_spot';
 }
 
 export interface OrderEconomyState {
@@ -344,8 +352,12 @@ export interface OrderEconomyState {
   bikesCount: number;
   /** Alias for bikesCount kept strictly in sync */
   bicyclesCount: number;
-  /** Number of owned delivery vans (starts at 0, prepared for future vehicle fleet) */
+  /** Number of owned used delivery vans (20-package class, starts at 0, max = parkingSpots <= 8) */
+  vansCount: number;
+  /** Alias for vansCount kept strictly in sync */
   deliveryVansCount: number;
+  /** Vehicle currently assigned to the owner courier (Kurier #1) */
+  activeVehicle: ActiveVehicleSelection;
   /** Pending offers waiting to be accepted (max 7 at once, expire after 4 days) */
   pendingOffers: OrderOffer[];
   /** Currently signed & ongoing orders (no upper limit) */

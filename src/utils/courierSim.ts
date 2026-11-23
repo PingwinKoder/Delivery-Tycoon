@@ -1,16 +1,33 @@
 import { type Building, formatBuildingAddress } from '../types/building';
-import type { ActiveOrder, OrderEconomyState, WeeklyScheduleTask } from '../types/orders';
+import type {
+  ActiveOrder,
+  ActiveVehicleSelection,
+  ActiveVehicleType,
+  OrderEconomyState,
+  WeeklyScheduleTask,
+} from '../types/orders';
 import type { Point, RoadEdge, RoadGraph, RoadNode } from '../types/roadGraph';
 import { type BaseDepotSpec, canvasToIso } from './cityMap';
 import { BASE_GAME_MINUTES_PER_REAL_SECOND, getGameClockDisplay } from './gameClock';
 import {
   BIKE_COURIER_CAPACITY,
+  VAN_COURIER_CAPACITY,
   getFreeWarehouseCapacity,
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
   getStoredPackagesForOrder,
+  getVehicleCourierCapacity,
   hasEnoughWarehouseSpaceForPickup,
 } from './orderEconomy';
+import {
+  ALL_PARKING_NAV_NETWORKS,
+  type ParkingNavNetwork,
+  type VanBuildingStopPlan,
+  buildBaseParkingNavNetwork,
+  planBaseVanDepartureFromSpot,
+  planBaseVanReturnToSpot,
+  resolveVanStopForBuilding,
+} from './parkingNavigation';
 import {
   findClosestRoadTarget,
   findShortestPath,
@@ -116,11 +133,17 @@ export interface CourierState {
   wheelPhase: number;
   /** Active mission kind */
   missionKind: CourierMissionKind;
+  /** Vehicle currently driven on this mission ('bike' | 'van') */
+  vehicleType: ActiveVehicleType;
+  /** 1-based fleet index of the active vehicle (e.g. Rower #1, Bus #1..#8) */
+  vehicleIndex: number;
+  /** Package carrying capacity of the active vehicle (5 for bike, 20 for used van) */
+  cargoCapacity: number;
   /** Ordered stops for the current mission */
   stops: CourierMissionStop[];
   /** Index of the currently targeted stop within `stops` */
   currentStopIndex: number;
-  /** Packages currently carried on the bicycle (picked-up or undelivered) */
+  /** Packages currently carried on the vehicle (picked-up or undelivered) */
   cargo: CourierCargoItem[];
   /** True when the courier was recalled to Base due to end of seasonal workday */
   isForcedReturn: boolean;
@@ -130,16 +153,36 @@ export interface CourierState {
 const ORIGINAL_BIKE_COURIER_SPEED = 180;
 /** Base bicycle courier cruising speed reduced by 30% (180 * 0.7 = 126 world px/s) */
 export const DEFAULT_COURIER_SPEED = Math.round(ORIGINAL_BIKE_COURIER_SPEED * 0.7);
+/** Used delivery van speed multiplier (~1.65x bicycle speed) */
+export const VAN_SPEED_MULTIPLIER = 1.65;
+/** Delivery van cruising speed on city roads (~208 world px/s) */
+export const VAN_COURIER_SPEED = Math.round(DEFAULT_COURIER_SPEED * VAN_SPEED_MULTIPLIER);
 export const DELIVERY_PAUSE_SECONDS = 1.8;
 export const BASE_TRANSFER_PAUSE_SECONDS = 1.0;
 const WHEEL_RADIANS_PER_PIXEL = 0.25;
 
-// Smooth bicycle kinematics (accelerating from stop, slowing into corners, braking into stops)
+export function getCourierSpeedForVehicle(vehicleType: ActiveVehicleType): number {
+  return vehicleType === 'van' ? VAN_COURIER_SPEED : DEFAULT_COURIER_SPEED;
+}
+
+export function getCourierCapacityForVehicle(vehicleType: ActiveVehicleType): number {
+  return getVehicleCourierCapacity(vehicleType);
+}
+
+export function getCourierCargoCount(cargo: readonly CourierCargoItem[]): number {
+  let total = 0;
+  for (const item of cargo) {
+    if (item.count > 0) total += item.count;
+  }
+  return total;
+}
+
+// Smooth vehicle kinematics (accelerating from stop, slowing into corners, braking into stops)
 const COURIER_ACCELERATION = 145; // world px/s²
 const COURIER_DECELERATION = 200; // world px/s²
 const CORNER_LOOKAHEAD_DISTANCE = 44; // world px ahead to scan for turns
 const MIN_CORNER_SPEED_FACTOR = 0.48; // 48% of cruise speed on tight 90°+ turns
-const MIN_APPROACH_SPEED = 18; // world px/s floor so the bike completes arrival cleanly
+const MIN_APPROACH_SPEED = 18; // world px/s floor so the vehicle completes arrival cleanly
 
 export function computePolylineLength(points: Point[]): number {
   let sum = 0;
@@ -184,12 +227,16 @@ export function prependRackExitToPath(rackWaypoints: Point[], roadPath: Point[])
  */
 export function selectNextCourierTaskForDay(
   state: OrderEconomyState,
-  currentMinutes: number
+  currentMinutes: number,
+  vehicleTypeOverride?: ActiveVehicleType
 ): SelectedCourierTask | null {
   const clock = getGameClockDisplay(currentMinutes);
   const todayTasks = getScheduledTasksForWeekday(state, clock.dayIndex, clock.gameDay);
   const activeById = new Map(state.activeOrders.map((o) => [o.id, o]));
   const freeWarehouseSpace = getFreeWarehouseCapacity(state);
+  const activeType: ActiveVehicleType =
+    vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
+  const vehicleCapacity = getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
     const order = activeById.get(task.orderId);
@@ -207,7 +254,7 @@ export function selectNextCourierTaskForDay(
       // Hold ODBIÓR if the Base warehouse (30 / 70 / 140 / 250 capacity) does not have
       // enough free slots for this order's remaining pickup packages; proceed to ROZWÓZKA instead.
       if (!hasEnoughWarehouseSpaceForPickup(state, remainingToPickup)) continue;
-      const pickupCount = Math.min(BIKE_COURIER_CAPACITY, remainingToPickup, freeWarehouseSpace);
+      const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeWarehouseSpace);
       if (pickupCount > 0) {
         return { kind: 'pickup', order, pickupCount, task };
       }
@@ -233,7 +280,11 @@ export function selectNextCourierTaskForDay(
   return null;
 }
 
-export function createIdleCourier(): CourierState {
+export function createIdleCourier(
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 }
+): CourierState {
+  const vehicleType = vehicle.type;
+  const vehicleIndex = Math.max(1, Math.floor(vehicle.index || 1));
   return {
     phase: 'idle',
     active: false,
@@ -249,12 +300,15 @@ export function createIdleCourier(): CourierState {
     angle: 0,
     totalDistance: 0,
     traveledDistance: 0,
-    speed: DEFAULT_COURIER_SPEED,
+    speed: getCourierSpeedForVehicle(vehicleType),
     currentSpeed: 0,
     deliveryPauseRemaining: 0,
     deliveryPauseDuration: DELIVERY_PAUSE_SECONDS,
     wheelPhase: 0,
     missionKind: 'none',
+    vehicleType,
+    vehicleIndex,
+    cargoCapacity: getCourierCapacityForVehicle(vehicleType),
     stops: [],
     currentStopIndex: 0,
     cargo: [],
@@ -264,15 +318,17 @@ export function createIdleCourier(): CourierState {
 
 export function createCourierFromPath(
   outboundPoints: Point[],
-  speed = DEFAULT_COURIER_SPEED,
+  speed?: number,
   deliveryPauseDuration = DELIVERY_PAUSE_SECONDS,
   returnPoints?: Point[],
-  targetLabel?: string
+  targetLabel?: string,
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 }
 ): CourierState {
   if (outboundPoints.length < 2) {
-    return createIdleCourier();
+    return createIdleCourier(vehicle);
   }
 
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
   const outboundPath = outboundPoints.map((p) => ({ x: p.x, y: p.y }));
   const resolvedReturn =
     returnPoints && returnPoints.length >= 2
@@ -299,12 +355,15 @@ export function createCourierFromPath(
     angle,
     totalDistance: computePolylineLength(outboundPath),
     traveledDistance: 0,
-    speed,
+    speed: resolvedSpeed,
     currentSpeed: 0,
     deliveryPauseRemaining: 0,
     deliveryPauseDuration: Math.max(0, deliveryPauseDuration),
     wheelPhase: 0,
     missionKind: 'manual',
+    vehicleType: vehicle.type,
+    vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
+    cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
     stops: [],
     currentStopIndex: 0,
     cargo: [],
@@ -448,6 +507,166 @@ export function findShortestPathBetweenEdgePoints(
   return null;
 }
 
+function getBaseParkingNetwork(
+  parkingNavNetworks: readonly ParkingNavNetwork[],
+  baseDepot: BaseDepotSpec,
+  graph?: RoadGraph
+): ParkingNavNetwork | undefined {
+  const existing = parkingNavNetworks.find((n) => n.kind === 'base_fleet');
+  if (existing && existing.spots.length === baseDepot.parking.spots.length) {
+    return existing;
+  }
+  if (graph && baseDepot.parking.spots.length > 0) {
+    return buildBaseParkingNavNetwork(baseDepot, graph);
+  }
+  return existing;
+}
+
+function buildVanOutboundLegFromBaseToStop(
+  graph: RoadGraph,
+  baseDepot: BaseDepotSpec,
+  stopPlan: VanBuildingStopPlan,
+  startFrom: CourierStartPoint,
+  vehicleIndex: number,
+  parkingNavNetworks: readonly ParkingNavNetwork[]
+): Point[] | null {
+  if (startFrom === 'rack') {
+    const baseNet = getBaseParkingNetwork(parkingNavNetworks, baseDepot, graph);
+    const spotExit = planBaseVanDepartureFromSpot(baseNet, vehicleIndex);
+    const roadNode = baseNet?.nodes.find((n) => n.id === baseNet.entryRoadNodeId);
+    const hasExitNode = graph.nodes.some((n) => n.id === 'n_base_exit');
+
+    if (spotExit && spotExit.canvasPoints.length >= 2 && roadNode && hasExitNode) {
+      const outboundFromExit = findShortestPathToEdgePoint(
+        graph,
+        'n_base_exit',
+        stopPlan.entryEdge,
+        stopPlan.entryRoadPoint
+      );
+      if (outboundFromExit && outboundFromExit.points.length >= 2) {
+        const roadCenterline = stitchWaypoints(
+          [{ x: roadNode.x, y: roadNode.y }],
+          outboundFromExit.points
+        );
+        const roadLanePts = applyRightHandLaneOffsets(roadCenterline, {
+          laneIndex: 0,
+          vehicleClass: 'van',
+        });
+        const lotInternal = spotExit.canvasPoints.slice(0, -1);
+        const full = stitchWaypoints(lotInternal, roadLanePts, stopPlan.entryOffRoadPoints);
+        if (full.length >= 2) {
+          return full;
+        }
+      }
+    }
+  }
+
+  const outboundRes = findShortestPathToEdgePoint(
+    graph,
+    'base',
+    stopPlan.entryEdge,
+    stopPlan.entryRoadPoint
+  );
+  if (!outboundRes || outboundRes.points.length < 2) return null;
+
+  const outboundLanePts = applyRightHandLaneOffsets(outboundRes.points, {
+    laneIndex: 0,
+    vehicleClass: 'van',
+  });
+  const baseExit =
+    startFrom === 'loading_zone'
+      ? baseDepot.loadingZone.exitWaypoints
+      : baseDepot.loadingZone.exitWaypoints;
+
+  return stitchWaypoints(baseExit, outboundLanePts, stopPlan.entryOffRoadPoints);
+}
+
+function buildVanReturnLegFromStopToLoadingZone(
+  graph: RoadGraph,
+  baseDepot: BaseDepotSpec,
+  stopPlan: VanBuildingStopPlan
+): Point[] | null {
+  const returnRes = findShortestPathFromEdgePoint(
+    graph,
+    stopPlan.exitEdge,
+    stopPlan.exitRoadPoint,
+    'base'
+  );
+  if (!returnRes || returnRes.points.length < 2) return null;
+
+  const returnLanePts = applyRightHandLaneOffsets(returnRes.points, {
+    laneIndex: 0,
+    vehicleClass: 'van',
+  });
+  const loadingZoneReturn = [...baseDepot.loadingZone.exitWaypoints].reverse();
+
+  return stitchWaypoints(stopPlan.exitOffRoadPoints, returnLanePts, loadingZoneReturn);
+}
+
+function buildVanLegBetweenStops(
+  graph: RoadGraph,
+  fromPlan: VanBuildingStopPlan,
+  toPlan: VanBuildingStopPlan
+): Point[] | null {
+  const roadPts = findShortestPathBetweenEdgePoints(
+    graph,
+    fromPlan.exitEdge,
+    fromPlan.exitRoadPoint,
+    toPlan.entryEdge,
+    toPlan.entryRoadPoint
+  );
+  if (!roadPts || roadPts.length < 2) return null;
+
+  const lanePts = applyRightHandLaneOffsets(roadPts, {
+    laneIndex: 0,
+    vehicleClass: 'van',
+  });
+  const leg = stitchWaypoints(fromPlan.exitOffRoadPoints, lanePts, toPlan.entryOffRoadPoints);
+  if (leg.length >= 2) {
+    return leg;
+  }
+
+  // Defensive micro-step when two adjacent addresses resolve to the exact same curbside point
+  const anchor = lanePts[0] ?? fromPlan.stopPoint;
+  return [anchor, { x: anchor.x + 0.8, y: anchor.y + 0.4 }];
+}
+
+function buildVanSpotToLoadingZoneWaypoints(
+  baseDepot: BaseDepotSpec,
+  parkingNavNetworks: readonly ParkingNavNetwork[],
+  vehicleIndex: number,
+  graph?: RoadGraph
+): Point[] {
+  const baseNet = getBaseParkingNetwork(parkingNavNetworks, baseDepot, graph);
+  const spotExit = planBaseVanDepartureFromSpot(baseNet, vehicleIndex);
+  const lzPt: Point = { x: baseDepot.loadingZone.stopX, y: baseDepot.loadingZone.stopY };
+  if (spotExit && spotExit.canvasPoints.length >= 2) {
+    return stitchWaypoints(spotExit.canvasPoints, [lzPt]);
+  }
+  return baseDepot.loadingZone.fromBikeRackWaypoints;
+}
+
+function buildVanLoadingZoneToSpotWaypoints(
+  baseDepot: BaseDepotSpec,
+  parkingNavNetworks: readonly ParkingNavNetwork[],
+  vehicleIndex: number,
+  fromPoint?: Point,
+  graph?: RoadGraph
+): Point[] {
+  const baseNet = getBaseParkingNetwork(parkingNavNetworks, baseDepot, graph);
+  const spotEntry = planBaseVanReturnToSpot(baseNet, vehicleIndex);
+  const startPt: Point = fromPoint ?? {
+    x: baseDepot.loadingZone.stopX,
+    y: baseDepot.loadingZone.stopY,
+  };
+  if (spotEntry && spotEntry.canvasPoints.length >= 2) {
+    return stitchWaypoints([startPt], spotEntry.canvasPoints);
+  }
+  return fromPoint
+    ? stitchWaypoints([fromPoint], baseDepot.loadingZone.toBikeRackWaypoints)
+    : baseDepot.loadingZone.toBikeRackWaypoints.map((p) => ({ x: p.x, y: p.y }));
+}
+
 function buildReturnLegFromBuildingToLoadingZone(
   graph: RoadGraph,
   baseDepot: BaseDepotSpec,
@@ -549,14 +768,76 @@ function buildLegBetweenBuildings(
 
 /**
  * Builds a directed right-hand road return path from the courier's live position
- * back to either the Base loading zone (if carrying cargo) or the Base bike rack (if empty).
+ * back to either the Base loading zone (if carrying cargo) or the Base bike rack / van stall (if empty).
  */
 export function buildEmergencyReturnPathToBase(
   graph: RoadGraph,
   currentPos: Point,
   baseDepot: BaseDepotSpec,
-  destination: 'loading_zone' | 'rack' = 'rack'
+  destination: 'loading_zone' | 'rack' = 'rack',
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
 ): Point[] {
+  const isVan = vehicle.type === 'van';
+
+  if (isVan) {
+    const baseNet = getBaseParkingNetwork(parkingNavNetworks, baseDepot, graph);
+    const spotEntry =
+      destination === 'rack' ? planBaseVanReturnToSpot(baseNet, vehicle.index) : null;
+    const loadingZoneTarget = [...baseDepot.loadingZone.exitWaypoints].reverse();
+    const fallbackTarget: Point =
+      destination === 'loading_zone'
+        ? { x: baseDepot.loadingZone.stopX, y: baseDepot.loadingZone.stopY }
+        : spotEntry?.canvasPoints[spotEntry.canvasPoints.length - 1] ?? {
+            x: baseDepot.loadingZone.stopX,
+            y: baseDepot.loadingZone.stopY,
+          };
+
+    if (isPointInsideBaseYard(currentPos, baseDepot)) {
+      if (destination === 'rack' && spotEntry && spotEntry.canvasPoints.length >= 2) {
+        return stitchWaypoints([currentPos], spotEntry.canvasPoints);
+      }
+      return stitchWaypoints([currentPos], [fallbackTarget]);
+    }
+
+    if (destination === 'rack' && spotEntry && spotEntry.canvasPoints.length >= 2) {
+      const roadNode = baseNet?.nodes.find((n) => n.id === baseNet.entryRoadNodeId);
+      const hasExitNode = graph.nodes.some((n) => n.id === 'n_base_exit');
+      if (roadNode && hasExitNode) {
+        const toExit = findShortestPathFromRoadPoint(graph, currentPos, 'n_base_exit', 220);
+        if (toExit && toExit.points.length >= 2) {
+          const roadCenterline = stitchWaypoints(toExit.points, [{ x: roadNode.x, y: roadNode.y }]);
+          const lanePts = applyRightHandLaneOffsets(roadCenterline, {
+            laneIndex: 0,
+            vehicleClass: 'van',
+          });
+          const full = stitchWaypoints([currentPos], lanePts, spotEntry.canvasPoints.slice(1));
+          if (full.length >= 2) {
+            return full;
+          }
+        }
+      }
+    }
+
+    const roadRes = findShortestPathFromRoadPoint(graph, currentPos, 'base', 220);
+    if (roadRes && roadRes.points.length >= 2) {
+      const lanePts = applyRightHandLaneOffsets(roadRes.points, {
+        laneIndex: 0,
+        vehicleClass: 'van',
+      });
+      const tail =
+        destination === 'rack' && spotEntry && spotEntry.canvasPoints.length >= 2
+          ? spotEntry.canvasPoints
+          : loadingZoneTarget;
+      const full = stitchWaypoints([currentPos], lanePts, tail);
+      if (full.length >= 2) {
+        return full;
+      }
+    }
+
+    return stitchWaypoints([currentPos], [fallbackTarget]);
+  }
+
   const yardTargetWaypoints =
     destination === 'loading_zone'
       ? [...baseDepot.loadingZone.exitWaypoints].reverse()
@@ -601,13 +882,15 @@ function createMissionCourierFromStops(
   missionKind: Exclude<CourierMissionKind, 'none' | 'manual' | 'park_rack'>,
   stops: CourierMissionStop[],
   initialCargo: CourierCargoItem[],
-  speed = DEFAULT_COURIER_SPEED,
-  deliveryPauseDuration = DELIVERY_PAUSE_SECONDS
+  speed?: number,
+  deliveryPauseDuration = DELIVERY_PAUSE_SECONDS,
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 }
 ): CourierState {
   if (stops.length === 0 || stops[0].legPath.length < 2) {
-    return createIdleCourier();
+    return createIdleCourier(vehicle);
   }
 
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
   const firstStop = stops[0];
   const firstPath = firstStop.legPath.map((p) => ({ x: p.x, y: p.y }));
   const finalReturnPath = stops[stops.length - 1].returnToBasePath.map((p) => ({
@@ -634,12 +917,15 @@ function createMissionCourierFromStops(
     angle: Math.atan2(dy, dx),
     totalDistance: computePolylineLength(firstPath),
     traveledDistance: 0,
-    speed,
+    speed: resolvedSpeed,
     currentSpeed: 0,
     deliveryPauseRemaining: 0,
     deliveryPauseDuration: Math.max(0, deliveryPauseDuration),
     wheelPhase: 0,
     missionKind,
+    vehicleType: vehicle.type,
+    vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
+    cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
     stops,
     currentStopIndex: 0,
     cargo: initialCargo.map((item) => ({ ...item })),
@@ -649,7 +935,7 @@ function createMissionCourierFromStops(
 
 /**
  * Creates a Stage-1 Pickup Mission:
- * Base (bike rack or loading zone) -> sender building (`pickup`) -> Base loading zone (`base_unload`).
+ * Base (bike rack / Base parking spot P1–P8 / loading zone) -> sender building (`pickup`) -> Base loading zone (`base_unload`).
  */
 export function createPickupMissionCourier(
   graph: RoadGraph,
@@ -658,10 +944,88 @@ export function createPickupMissionCourier(
   orderId: string,
   plannedPickupCount: number,
   startFrom: CourierStartPoint = 'rack',
-  speed = DEFAULT_COURIER_SPEED
+  speed?: number,
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
 ): CourierState {
-  if (plannedPickupCount <= 0 || !senderBuilding.deliveryStopPoint) {
-    return createIdleCourier();
+  if (plannedPickupCount <= 0) {
+    return createIdleCourier(vehicle);
+  }
+
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
+  const lz = baseDepot.loadingZone;
+
+  if (vehicle.type === 'van') {
+    const stopPlan = resolveVanStopForBuilding(senderBuilding, parkingNavNetworks);
+    if (!stopPlan) {
+      return createIdleCourier(vehicle);
+    }
+
+    const outboundPath = buildVanOutboundLegFromBaseToStop(
+      graph,
+      baseDepot,
+      stopPlan,
+      startFrom,
+      vehicle.index,
+      parkingNavNetworks
+    );
+    const returnToLoadingZone = buildVanReturnLegFromStopToLoadingZone(
+      graph,
+      baseDepot,
+      stopPlan
+    );
+    if (
+      !outboundPath ||
+      outboundPath.length < 2 ||
+      !returnToLoadingZone ||
+      returnToLoadingZone.length < 2
+    ) {
+      return createIdleCourier(vehicle);
+    }
+
+    const actualStopPoint = outboundPath[outboundPath.length - 1];
+    const parkReturnWaypoints = buildVanLoadingZoneToSpotWaypoints(
+      baseDepot,
+      parkingNavNetworks,
+      vehicle.index,
+      undefined,
+      graph
+    );
+
+    const pickupStop: CourierMissionStop = {
+      kind: 'pickup',
+      buildingId: senderBuilding.id,
+      label: formatBuildingAddress(senderBuilding),
+      stopPoint: { x: actualStopPoint.x, y: actualStopPoint.y },
+      pauseDuration: DELIVERY_PAUSE_SECONDS,
+      orderId,
+      plannedPickupCount,
+      legPath: outboundPath,
+      returnToBasePath: returnToLoadingZone,
+    };
+
+    const baseUnloadStop: CourierMissionStop = {
+      kind: 'base_unload',
+      buildingId: 'base',
+      label: 'BAZA (rozładunek)',
+      stopPoint: { x: lz.stopX, y: lz.stopY },
+      pauseDuration: BASE_TRANSFER_PAUSE_SECONDS,
+      legPath: returnToLoadingZone,
+      returnToBasePath: parkReturnWaypoints,
+    };
+
+    return createMissionCourierFromStops(
+      'pickup',
+      [pickupStop, baseUnloadStop],
+      [],
+      resolvedSpeed,
+      DELIVERY_PAUSE_SECONDS,
+      vehicle
+    );
+  }
+
+  if (!senderBuilding.deliveryStopPoint) {
+    return createIdleCourier(vehicle);
   }
 
   const outboundPath = buildOutboundLegFromBaseToBuilding(
@@ -681,10 +1045,9 @@ export function createPickupMissionCourier(
     !returnToLoadingZone ||
     returnToLoadingZone.length < 2
   ) {
-    return createIdleCourier();
+    return createIdleCourier(vehicle);
   }
 
-  const lz = baseDepot.loadingZone;
   const pickupStop: CourierMissionStop = {
     kind: 'pickup',
     buildingId: senderBuilding.id,
@@ -710,7 +1073,14 @@ export function createPickupMissionCourier(
     returnToBasePath: lz.toBikeRackWaypoints,
   };
 
-  return createMissionCourierFromStops('pickup', [pickupStop, baseUnloadStop], [], speed);
+  return createMissionCourierFromStops(
+    'pickup',
+    [pickupStop, baseUnloadStop],
+    [],
+    resolvedSpeed,
+    DELIVERY_PAUSE_SECONDS,
+    vehicle
+  );
 }
 
 export interface DeliveryStopInput {
@@ -734,7 +1104,7 @@ function orderStopsNearestNeighbor(
     let bestIdx = 0;
     let bestDist = Infinity;
     for (let i = 0; i < remaining.length; i++) {
-      const sp = remaining[i].building.deliveryStopPoint;
+      const sp = remaining[i].building.deliveryStopPoint ?? remaining[i].building.roadApproachPoint;
       const d = sp ? Math.hypot(sp.x - cursor.x, sp.y - cursor.y) : Infinity;
       if (d < bestDist) {
         bestDist = d;
@@ -743,10 +1113,11 @@ function orderStopsNearestNeighbor(
     }
     const [picked] = remaining.splice(bestIdx, 1);
     ordered.push(picked);
-    if (picked.building.deliveryStopPoint) {
+    const nextAnchor = picked.building.deliveryStopPoint ?? picked.building.roadApproachPoint;
+    if (nextAnchor) {
       cursor = {
-        x: picked.building.deliveryStopPoint.x,
-        y: picked.building.deliveryStopPoint.y,
+        x: nextAnchor.x,
+        y: nextAnchor.y,
       };
     }
   }
@@ -757,7 +1128,7 @@ function orderStopsNearestNeighbor(
 /**
  * Creates a Stage-2 Multi-Stop Delivery Mission:
  * - First moves to (or pauses directly at) the Base loading zone (`base_load`) to load parcels from warehouse
- * - Rides Base loading zone -> recipient 1 -> recipient 2 -> ... -> recipient N -> Base loading zone
+ * - Rides/drives Base loading zone -> recipient 1 -> recipient 2 -> ... -> recipient N -> Base loading zone
  */
 export function createDeliveryMissionCourier(
   graph: RoadGraph,
@@ -765,53 +1136,125 @@ export function createDeliveryMissionCourier(
   stopsInput: readonly DeliveryStopInput[],
   initialCargo: readonly CourierCargoItem[],
   startFrom: CourierStartPoint = 'rack',
-  speed = DEFAULT_COURIER_SPEED
+  speed?: number,
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
 ): CourierState {
   if (stopsInput.length === 0 || initialCargo.length === 0) {
-    return createIdleCourier();
+    return createIdleCourier(vehicle);
   }
 
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
   const lz = baseDepot.loadingZone;
   const lzPoint: Point = { x: lz.stopX, y: lz.stopY };
   const orderedInputs = orderStopsNearestNeighbor(stopsInput, lzPoint);
 
   const deliveryStops: CourierMissionStop[] = [];
-  let prevBuilding: Building | null = null;
 
-  for (const entry of orderedInputs) {
-    const b = entry.building;
-    if (!b.deliveryStopPoint || !b.roadApproachPoint) continue;
+  if (vehicle.type === 'van') {
+    const usedSpotIds = new Set<string>();
+    let prevPlan: VanBuildingStopPlan | null = null;
 
-    const legPath = prevBuilding
-      ? buildLegBetweenBuildings(graph, prevBuilding, b)
-      : buildOutboundLegFromBaseToBuilding(graph, baseDepot, b, 'loading_zone');
-    const returnToLoadingZone = buildReturnLegFromBuildingToLoadingZone(graph, baseDepot, b);
+    for (const entry of orderedInputs) {
+      const b = entry.building;
+      const stopPlan = resolveVanStopForBuilding(b, parkingNavNetworks, usedSpotIds);
+      if (!stopPlan) continue;
 
-    if (
-      !legPath ||
-      legPath.length < 2 ||
-      !returnToLoadingZone ||
-      returnToLoadingZone.length < 2
-    ) {
-      continue;
+      const legPath = prevPlan
+        ? buildVanLegBetweenStops(graph, prevPlan, stopPlan)
+        : buildVanOutboundLegFromBaseToStop(
+            graph,
+            baseDepot,
+            stopPlan,
+            'loading_zone',
+            vehicle.index,
+            parkingNavNetworks
+          );
+      const returnToLoadingZone = buildVanReturnLegFromStopToLoadingZone(
+        graph,
+        baseDepot,
+        stopPlan
+      );
+
+      if (
+        !legPath ||
+        legPath.length < 2 ||
+        !returnToLoadingZone ||
+        returnToLoadingZone.length < 2
+      ) {
+        continue;
+      }
+
+      if (stopPlan.parkingSpotId) {
+        usedSpotIds.add(stopPlan.parkingSpotId);
+      }
+
+      const actualStopPoint = legPath[legPath.length - 1];
+      deliveryStops.push({
+        kind: 'delivery',
+        buildingId: b.id,
+        label: formatBuildingAddress(b),
+        stopPoint: { x: actualStopPoint.x, y: actualStopPoint.y },
+        pauseDuration: DELIVERY_PAUSE_SECONDS,
+        deliveryItems: entry.items.map((it) => ({ ...it })),
+        legPath,
+        returnToBasePath: returnToLoadingZone,
+      });
+      prevPlan = stopPlan;
     }
+  } else {
+    let prevBuilding: Building | null = null;
 
-    deliveryStops.push({
-      kind: 'delivery',
-      buildingId: b.id,
-      label: formatBuildingAddress(b),
-      stopPoint: { x: b.deliveryStopPoint.x, y: b.deliveryStopPoint.y },
-      pauseDuration: DELIVERY_PAUSE_SECONDS,
-      deliveryItems: entry.items.map((it) => ({ ...it })),
-      legPath,
-      returnToBasePath: returnToLoadingZone,
-    });
-    prevBuilding = b;
+    for (const entry of orderedInputs) {
+      const b = entry.building;
+      if (!b.deliveryStopPoint || !b.roadApproachPoint) continue;
+
+      const legPath = prevBuilding
+        ? buildLegBetweenBuildings(graph, prevBuilding, b)
+        : buildOutboundLegFromBaseToBuilding(graph, baseDepot, b, 'loading_zone');
+      const returnToLoadingZone = buildReturnLegFromBuildingToLoadingZone(graph, baseDepot, b);
+
+      if (
+        !legPath ||
+        legPath.length < 2 ||
+        !returnToLoadingZone ||
+        returnToLoadingZone.length < 2
+      ) {
+        continue;
+      }
+
+      deliveryStops.push({
+        kind: 'delivery',
+        buildingId: b.id,
+        label: formatBuildingAddress(b),
+        stopPoint: { x: b.deliveryStopPoint.x, y: b.deliveryStopPoint.y },
+        pauseDuration: DELIVERY_PAUSE_SECONDS,
+        deliveryItems: entry.items.map((it) => ({ ...it })),
+        legPath,
+        returnToBasePath: returnToLoadingZone,
+      });
+      prevBuilding = b;
+    }
   }
 
   if (deliveryStops.length === 0) {
-    return createIdleCourier();
+    return createIdleCourier(vehicle);
   }
+
+  const baseLoadLegPath =
+    vehicle.type === 'van'
+      ? buildVanSpotToLoadingZoneWaypoints(baseDepot, parkingNavNetworks, vehicle.index, graph)
+      : lz.fromBikeRackWaypoints;
+  const baseLoadReturnPath =
+    vehicle.type === 'van'
+      ? buildVanLoadingZoneToSpotWaypoints(
+          baseDepot,
+          parkingNavNetworks,
+          vehicle.index,
+          undefined,
+          graph
+        )
+      : lz.toBikeRackWaypoints;
 
   const baseLoadStop: CourierMissionStop = {
     kind: 'base_load',
@@ -819,8 +1262,8 @@ export function createDeliveryMissionCourier(
     label: 'BAZA (załadunek)',
     stopPoint: lzPoint,
     pauseDuration: BASE_TRANSFER_PAUSE_SECONDS,
-    legPath: lz.fromBikeRackWaypoints,
-    returnToBasePath: lz.toBikeRackWaypoints,
+    legPath: baseLoadLegPath,
+    returnToBasePath: baseLoadReturnPath,
   };
 
   const allStops: CourierMissionStop[] = [baseLoadStop, ...deliveryStops];
@@ -844,12 +1287,15 @@ export function createDeliveryMissionCourier(
       angle: lz.stopAngle,
       totalDistance: 0,
       traveledDistance: 0,
-      speed,
+      speed: resolvedSpeed,
       currentSpeed: 0,
       deliveryPauseRemaining: BASE_TRANSFER_PAUSE_SECONDS,
       deliveryPauseDuration: DELIVERY_PAUSE_SECONDS,
       wheelPhase: 0,
       missionKind: 'delivery',
+      vehicleType: vehicle.type,
+      vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
+      cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
       stops: allStops,
       currentStopIndex: 0,
       cargo: initialCargo.map((it) => ({ ...it })),
@@ -861,53 +1307,73 @@ export function createDeliveryMissionCourier(
     'delivery',
     allStops,
     initialCargo.map((it) => ({ ...it })),
-    speed
+    resolvedSpeed,
+    DELIVERY_PAUSE_SECONDS,
+    vehicle
   );
 }
 
 /**
  * Creates a short Base-yard parking ride from the loading zone (or live Base yard position)
- * back to the exterior bike rack when all tasks for the day are finished or night begins.
+ * back to the exterior bike rack (for bicycles) or assigned Base stall `P1–P8` (for vans)
+ * when all tasks for the day are finished or night begins.
  */
 export function createParkAtRackCourier(
   baseDepot: BaseDepotSpec,
   fromPoint?: Point,
   wasForcedReturn = false,
-  speed = DEFAULT_COURIER_SPEED
+  speed?: number,
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  graph?: RoadGraph
 ): CourierState {
-  const rackWaypoints = fromPoint
-    ? stitchWaypoints([fromPoint], baseDepot.loadingZone.toBikeRackWaypoints)
-    : baseDepot.loadingZone.toBikeRackWaypoints.map((p) => ({ x: p.x, y: p.y }));
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
+  const parkWaypoints =
+    vehicle.type === 'van'
+      ? buildVanLoadingZoneToSpotWaypoints(
+          baseDepot,
+          parkingNavNetworks,
+          vehicle.index,
+          fromPoint,
+          graph
+        )
+      : fromPoint
+        ? stitchWaypoints([fromPoint], baseDepot.loadingZone.toBikeRackWaypoints)
+        : baseDepot.loadingZone.toBikeRackWaypoints.map((p) => ({ x: p.x, y: p.y }));
 
-  if (rackWaypoints.length < 2) {
-    return createIdleCourier();
+  if (parkWaypoints.length < 2) {
+    return createIdleCourier(vehicle);
   }
 
-  const dx = rackWaypoints[1].x - rackWaypoints[0].x;
-  const dy = rackWaypoints[1].y - rackWaypoints[0].y;
+  const dx = parkWaypoints[1].x - parkWaypoints[0].x;
+  const dy = parkWaypoints[1].y - parkWaypoints[0].y;
 
   return {
     phase: 'returning',
     active: true,
     arrived: false,
     riderMounted: true,
-    path: rackWaypoints,
-    outboundPath: rackWaypoints,
-    returnPath: rackWaypoints,
-    targetLabel: 'BAZA (stojak)',
+    path: parkWaypoints,
+    outboundPath: parkWaypoints,
+    returnPath: parkWaypoints,
+    targetLabel:
+      vehicle.type === 'van' ? `BAZA (parking P${vehicle.index})` : 'BAZA (stojak)',
     segmentIndex: 0,
     distanceInSegment: 0,
-    x: rackWaypoints[0].x,
-    y: rackWaypoints[0].y,
+    x: parkWaypoints[0].x,
+    y: parkWaypoints[0].y,
     angle: Math.atan2(dy, dx),
-    totalDistance: computePolylineLength(rackWaypoints),
+    totalDistance: computePolylineLength(parkWaypoints),
     traveledDistance: 0,
-    speed,
+    speed: resolvedSpeed,
     currentSpeed: 0,
     deliveryPauseRemaining: 0,
     deliveryPauseDuration: 0,
     wheelPhase: 0,
     missionKind: 'park_rack',
+    vehicleType: vehicle.type,
+    vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
+    cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
     stops: [],
     currentStopIndex: 0,
     cargo: [],
@@ -918,13 +1384,14 @@ export function createParkAtRackCourier(
 /**
  * Immediately interrupts an active courier when seasonal workday hours end:
  * - If carrying packages: routes to the Base loading zone first to safely unload cargo
- *   into the warehouse, after which the courier parks at the bike rack.
- * - If carrying no packages: routes directly back to the Base bike rack.
+ *   into the warehouse, after which the vehicle parks at the bike rack or Base stall P1–P8.
+ * - If carrying no packages: routes directly back to the Base bike rack or Base stall P1–P8.
  */
 export function interruptCourierForEndOfWorkday(
   state: CourierState,
   graph: RoadGraph,
-  baseDepot: BaseDepotSpec
+  baseDepot: BaseDepotSpec,
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
 ): CourierState {
   if (!state.active || state.phase === 'idle') {
     return state;
@@ -948,6 +1415,21 @@ export function interruptCourierForEndOfWorkday(
     return state.isForcedReturn ? state : { ...state, isForcedReturn: true };
   }
 
+  const activeVehicle: ActiveVehicleSelection = {
+    type: state.vehicleType,
+    index: state.vehicleIndex,
+  };
+  const parkReturnWaypoints =
+    state.vehicleType === 'van'
+      ? buildVanLoadingZoneToSpotWaypoints(
+          baseDepot,
+          parkingNavNetworks,
+          state.vehicleIndex,
+          undefined,
+          graph
+        )
+      : lz.toBikeRackWaypoints;
+
   // If paused at the loading zone mid-loading when workday ends, immediately unload back to warehouse
   if (hasCargo && state.phase === 'delivering' && currentStop?.kind === 'base_load') {
     const unloadHereStop: CourierMissionStop = {
@@ -956,8 +1438,8 @@ export function interruptCourierForEndOfWorkday(
       label: 'BAZA (rozładunek)',
       stopPoint: { x: lz.stopX, y: lz.stopY },
       pauseDuration: 0.6,
-      legPath: lz.toBikeRackWaypoints,
-      returnToBasePath: lz.toBikeRackWaypoints,
+      legPath: parkReturnWaypoints,
+      returnToBasePath: parkReturnWaypoints,
     };
     return {
       ...state,
@@ -989,7 +1471,9 @@ export function interruptCourierForEndOfWorkday(
         graph,
         { x: state.x, y: state.y },
         baseDepot,
-        'loading_zone'
+        'loading_zone',
+        activeVehicle,
+        parkingNavNetworks
       );
     }
 
@@ -1000,7 +1484,7 @@ export function interruptCourierForEndOfWorkday(
       stopPoint: { x: lz.stopX, y: lz.stopY },
       pauseDuration: 0.8,
       legPath: returnToLoadingPath,
-      returnToBasePath: lz.toBikeRackWaypoints,
+      returnToBasePath: parkReturnWaypoints,
     };
 
     if (returnToLoadingPath.length < 2) {
@@ -1052,12 +1536,14 @@ export function interruptCourierForEndOfWorkday(
     };
   }
 
-  // Carrying no packages -> return straight to the Base bike rack
+  // Carrying no packages -> return straight to the Base bike rack or assigned Base van stall P1–P8
   const returnToRackPath = buildEmergencyReturnPathToBase(
     graph,
     { x: state.x, y: state.y },
     baseDepot,
-    'rack'
+    'rack',
+    activeVehicle,
+    parkingNavNetworks
   );
 
   if (returnToRackPath.length < 2) {
@@ -1092,7 +1578,8 @@ export function interruptCourierForEndOfWorkday(
     riderMounted: true,
     path: returnToRackPath,
     returnPath: returnToRackPath,
-    targetLabel: 'BAZA (stojak)',
+    targetLabel:
+      state.vehicleType === 'van' ? `BAZA (parking P${state.vehicleIndex})` : 'BAZA (stojak)',
     segmentIndex: 0,
     distanceInSegment: 0,
     x: returnToRackPath[0].x,
@@ -1149,7 +1636,7 @@ function beginLegOnPath(
   overrides: Partial<CourierState> = {}
 ): CourierState {
   if (nextPath.length < 2) {
-    return createIdleCourier();
+    return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
   }
 
   const dx = nextPath[1].x - nextPath[0].x;
@@ -1315,7 +1802,7 @@ function stepCourierBySimDtInternal(
           type: 'arrived_at_loading_zone',
           wasForcedReturn: state.isForcedReturn,
         });
-        return createIdleCourier();
+        return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
       }
 
       if (currentStop.kind === 'base_unload') {
@@ -1329,7 +1816,7 @@ function stepCourierBySimDtInternal(
           type: 'arrived_at_loading_zone',
           wasForcedReturn: state.isForcedReturn,
         });
-        return createIdleCourier();
+        return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
       }
 
       if (currentStop.kind === 'pickup') {
@@ -1437,7 +1924,7 @@ function stepCourierBySimDtInternal(
         });
       }
     }
-    return createIdleCourier();
+    return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
   }
 
   // Smooth acceleration, corner slowdown & stop braking (scales naturally with 1x/2x/4x simDt)
@@ -1571,14 +2058,14 @@ function stepCourierBySimDtInternal(
       };
     }
 
-    // 2. If parking at the Base bike rack (or finishing a manual path) -> park idle on rack
+    // 2. If parking at the Base bike rack or Base van stall (or finishing a manual path) -> park idle
     if (state.missionKind === 'park_rack' || state.missionKind === 'manual') {
       events.push({
         type: 'parked_at_rack',
         cargo: state.cargo.map((c) => ({ ...c })),
         wasForcedReturn: state.isForcedReturn,
       });
-      return createIdleCourier();
+      return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
     }
 
     // 3. Completed return leg from delivery mission to Base loading zone
@@ -1592,7 +2079,7 @@ function stepCourierBySimDtInternal(
       type: 'arrived_at_loading_zone',
       wasForcedReturn: state.isForcedReturn,
     });
-    return createIdleCourier();
+    return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
   }
 
   const a = state.path[segIdx];

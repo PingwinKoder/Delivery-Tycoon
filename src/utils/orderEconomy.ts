@@ -4,6 +4,8 @@ import type {
   ActiveLongTermOrder,
   ActiveOrder,
   ActiveShortTermOrder,
+  ActiveVehicleSelection,
+  ActiveVehicleType,
   CompanyEmployee,
   EmployeeLicenseUpgradeInfo,
   HirableEmployeeRole,
@@ -51,8 +53,10 @@ import {
 
 /** Monthly fixed cost: base upkeep & tax for Base Lv. 1 (includes starter bicycle) */
 export const BASE_UPKEEP_AND_TAX_COST = 350;
-/** Monthly fixed cost: bicycle insurance ($90 / mies. per additional bike beyond the 1st starter bike) */
-export const COURIER_INSURANCE_COST = 90;
+/** Monthly fixed cost: bicycle insurance ($50 / mies. per additional bike beyond the 1st starter bike) */
+export const COURIER_INSURANCE_COST = 50;
+/** Monthly fixed cost: used delivery van insurance ($130 / mies. per owned van) */
+export const USED_VAN_INSURANCE_COST = 130;
 /** Monthly fixed cost: delivery van driver & vehicle insurance ($180 / mies. per van driver) */
 export const VAN_DRIVER_INSURANCE_COST = 180;
 
@@ -65,17 +69,29 @@ export const HIRED_VAN_DRIVER_SALARY = 2300;
 export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST; // $350
 
 // ============================================================================
-// Bike Fleet Limit, Courier Capacity, Base Warehouse & 3 Independent Upgrade Paths
+// Bike & Van Fleet Limits, Courier Capacity, Base Warehouse & Upgrade Paths
 // ============================================================================
 
 /** Maximum packages a bicycle courier can carry in a single pickup or delivery run */
 export const BIKE_COURIER_CAPACITY = 5;
+/** Maximum packages a used delivery van (20-package class) can carry in a single run */
+export const VAN_COURIER_CAPACITY = 20;
+
+/** Returns package capacity for the selected vehicle type (5 for bicycle, 20 for used van) */
+export function getVehicleCourierCapacity(vehicleType: ActiveVehicleType): number {
+  return vehicleType === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY;
+}
 
 /** Bicycle fleet configuration (includes owner's starter bike; up to 2 extra bikes at $450 each) */
 export const INITIAL_BICYCLES = 1;
 export const MAX_BICYCLES = 3;
 export const MAX_ADDITIONAL_BICYCLES = MAX_BICYCLES - INITIAL_BICYCLES; // 2
 export const BICYCLE_PURCHASE_COST = 450;
+
+/** Used delivery van (20-package class) fleet configuration (limit = unlocked parkingSpots, max 8) */
+export const INITIAL_VANS = 0;
+export const MAX_VANS = 8;
+export const USED_VAN_PURCHASE_COST = 8500;
 
 /** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity, monthly upkeep & depot building size */
 export const WAREHOUSE_TIERS: readonly WarehouseTierConfig[] = [
@@ -749,7 +765,9 @@ export function createInitialOrderEconomyState(
     employees: [ownerCourier],
     bikesCount: INITIAL_BICYCLES,
     bicyclesCount: INITIAL_BICYCLES,
-    deliveryVansCount: 0,
+    vansCount: INITIAL_VANS,
+    deliveryVansCount: INITIAL_VANS,
+    activeVehicle: { type: 'bike', index: 1 },
     pendingOffers: [],
     activeOrders: [],
     archivedOrders: [],
@@ -777,30 +795,28 @@ export function createInitialOrderEconomyState(
  * OrdersModal forecast, and CompanyModal summary:
  * - Base upkeep & tax by warehouse level: $350 (Poz. 1) / $440 (Poz. 2) / $540 (Poz. 3) / $680 (Poz. 4)
  *   (Base Poz. 1 includes the starter bicycle; owner salary is $0/mies.)
- * - Additional courier bicycles (2nd & 3rd bike): +$90/mies. insurance each
- * - Hired employees (future stages): monthly salaries + van driver insurance
+ * - Additional courier bicycles (2nd & 3rd bike): +$50/mies. insurance each
+ * - Owned used delivery vans (20-package class): +$130/mies. insurance each
+ * - Hired employees (future stages): monthly salaries
  */
 export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyCostBreakdown {
   const warehouseConfig = getWarehouseTierConfig(state.warehouseLevel ?? state.warehouseTier);
   const baseUpkeepAndTaxCost = warehouseConfig.monthlyUpkeepCost;
   const bikesCount = state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES;
   const additionalBikes = Math.max(0, bikesCount - 1);
+  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
 
   let salariesCost = 0;
-  let vanInsuranceCost = 0;
 
   for (const emp of state.employees) {
     if (!emp.isOwner) {
       salariesCost += emp.monthlySalary;
     }
-    if (emp.role === 'van_driver') {
-      vanInsuranceCost += emp.monthlyInsurance;
-    }
   }
 
   salariesCost = roundCurrency(salariesCost);
   const courierInsuranceCost = roundCurrency(additionalBikes * COURIER_INSURANCE_COST);
-  vanInsuranceCost = roundCurrency(vanInsuranceCost);
+  const vanInsuranceCost = roundCurrency(vansCount * USED_VAN_INSURANCE_COST);
   const insuranceCost = roundCurrency(courierInsuranceCost + vanInsuranceCost);
   const totalFixedCosts = roundCurrency(baseUpkeepAndTaxCost + salariesCost + insuranceCost);
 
@@ -836,6 +852,70 @@ export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult
     },
     purchased: true,
     cost: BICYCLE_PURCHASE_COST,
+  };
+}
+
+/**
+ * Purchases a used delivery van (20-package class, $8 500 each) if a free Base parking spot
+ * (parkingSpots) is available and balance covers the purchase price.
+ */
+export function purchaseUsedVan(state: OrderEconomyState): UpgradePurchaseResult {
+  const currentVans = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  if (currentVans >= MAX_VANS) {
+    return { state, purchased: false, cost: 0, reason: 'max_reached' };
+  }
+  if (currentVans >= state.parkingSpots) {
+    return { state, purchased: false, cost: USED_VAN_PURCHASE_COST, reason: 'no_parking_spot' };
+  }
+  if (state.balance < USED_VAN_PURCHASE_COST) {
+    return { state, purchased: false, cost: USED_VAN_PURCHASE_COST, reason: 'insufficient_funds' };
+  }
+
+  const nextVans = currentVans + 1;
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - USED_VAN_PURCHASE_COST),
+      vansCount: nextVans,
+      deliveryVansCount: nextVans,
+    },
+    purchased: true,
+    cost: USED_VAN_PURCHASE_COST,
+  };
+}
+
+/**
+ * Updates the owner courier's active vehicle selection among owned bicycles and vans.
+ * Caller enforces that the owner courier is currently at Base.
+ */
+export function setOwnerActiveVehicle(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): OrderEconomyState {
+  const bikesCount = Math.max(INITIAL_BICYCLES, state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES);
+  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+
+  if (!Number.isInteger(vehicle.index) || vehicle.index < 1) {
+    return state;
+  }
+  if (vehicle.type === 'bike' && vehicle.index > bikesCount) {
+    return state;
+  }
+  if (vehicle.type === 'van' && vehicle.index > vansCount) {
+    return state;
+  }
+
+  if (
+    state.activeVehicle &&
+    state.activeVehicle.type === vehicle.type &&
+    state.activeVehicle.index === vehicle.index
+  ) {
+    return state;
+  }
+
+  return {
+    ...state,
+    activeVehicle: { type: vehicle.type, index: vehicle.index },
   };
 }
 
@@ -995,7 +1075,7 @@ export function returnPackagesToWarehouse(
 }
 
 /**
- * Loads up to `BIKE_COURIER_CAPACITY` (5) packages from the Base warehouse onto a bicycle
+ * Loads up to `maxCapacity` (5 for bicycle, up to 20 for delivery van) packages from the Base warehouse
  * for a delivery run. When `orderId` is omitted, packages are drawn from stored orders
  * respecting `priorityOrderIds` (today's Plan tygodnia order), then active orders, then any remaining keys.
  */
@@ -1005,7 +1085,7 @@ export function loadPackagesFromWarehouseForBike(
   maxCapacity: number = BIKE_COURIER_CAPACITY,
   priorityOrderIds?: readonly string[]
 ): WarehouseLoadForBikeResult {
-  const effectiveCap = Math.max(0, Math.min(Math.floor(maxCapacity), BIKE_COURIER_CAPACITY));
+  const effectiveCap = Math.max(0, Math.min(Math.floor(maxCapacity), VAN_COURIER_CAPACITY));
   if (effectiveCap === 0 || state.warehousePackages <= 0) {
     return { state, loadedPackages: [], totalLoaded: 0 };
   }

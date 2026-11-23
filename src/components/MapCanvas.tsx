@@ -13,6 +13,7 @@ import {
   type ViewportGroundCache,
   buildSceneSpriteAtlas,
   buildStaticGroundBuffer,
+  createBaseParkedVanEntities,
   createProceduralTextures,
   createViewportGroundCache,
   disposeSceneSpriteAtlas,
@@ -28,6 +29,7 @@ import {
   drawCourierDestinationPin,
   drawCourierRoute,
   drawIsometricBicycle,
+  drawIsometricDeliveryVan,
 } from '../utils/courierRenderer';
 import {
   type ArrowInputVector,
@@ -46,7 +48,6 @@ import {
 import {
   type CourierStartPoint,
   type CourierState,
-  DEFAULT_COURIER_SPEED,
   DELIVERY_PAUSE_SECONDS,
   type DeliveryStopInput,
   MAX_REAL_FRAME_DT,
@@ -56,17 +57,28 @@ import {
   createIdleCourier,
   createParkAtRackCourier,
   createPickupMissionCourier,
+  getCourierCapacityForVehicle,
+  getCourierCargoCount,
+  getCourierSpeedForVehicle,
   interruptCourierForEndOfWorkday,
   selectNextCourierTaskForDay,
   stepCourierMissionWithSimDt,
   stitchWaypoints,
 } from '../utils/courierSim';
-import type { OrderEconomyState, WarehouseLoadedBatch } from '../types/orders';
+import type {
+  ActiveVehicleSelection,
+  OrderEconomyState,
+  WarehouseLoadedBatch,
+} from '../types/orders';
 import { type GameSpeed, getGameClockDisplay } from '../utils/gameClock';
 import {
   isNightHoursForTime,
   pickRandomRecipientBuildingForPackage,
 } from '../utils/orderEconomy';
+import {
+  getBaseParkedBikeIndices,
+  getBaseParkedVanSlots,
+} from '../utils/parkingLayout';
 import {
   findShortestPathFromEdgePoint,
   findShortestPathToEdgePoint,
@@ -74,6 +86,7 @@ import {
 import {
   ALL_PARKING_NAV_NETWORKS,
   buildBaseParkingNavNetwork,
+  resolveVanStopForBuilding,
 } from '../utils/parkingNavigation';
 import { applyRightHandLaneOffsets } from '../utils/trafficLanes';
 
@@ -87,6 +100,9 @@ interface MapCanvasProps {
   graph: RoadGraph;
   buildings: Building[];
   baseDepot?: BaseDepotSpec;
+  bikesCount?: number;
+  vansCount?: number;
+  activeVehicle?: ActiveVehicleSelection;
   showGrid: boolean;
   footprintOnly: boolean;
   showStreetNames: boolean;
@@ -98,12 +114,14 @@ interface MapCanvasProps {
   onCourierAtBaseChange?: (atBase: boolean) => void;
   onLoadFromWarehouse?: (
     orderId?: string,
-    priorityOrderIds?: readonly string[]
+    priorityOrderIds?: readonly string[],
+    capacityOverride?: number
   ) => WarehouseLoadedBatch[];
   onPickupPackagesLoaded?: (
     orderId: string,
     requestedCount: number,
-    currentGameDay: number
+    currentGameDay: number,
+    capacityOverride?: number
   ) => number;
   onDeliverPackages?: (
     items: readonly WarehouseLoadedBatch[],
@@ -117,6 +135,7 @@ const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 const FPS_SAMPLE_WINDOW_MS = 500;
 const FRAME_INTERVAL_MS = 1000 / 60.5;
 const MAX_CANVAS_DPR = 1.5;
+const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
 
 type ArrowKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
 
@@ -144,6 +163,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   graph,
   buildings,
   baseDepot = BASE_DEPOT,
+  bikesCount = 1,
+  vansCount = 0,
+  activeVehicle = DEFAULT_ACTIVE_VEHICLE,
   showGrid,
   footprintOnly,
   showStreetNames,
@@ -198,6 +220,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     baseNode,
     buildings,
     baseDepot,
+    bikesCount,
+    vansCount,
+    activeVehicle,
     parkingNavNetworks,
     showGrid,
     footprintOnly,
@@ -218,6 +243,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     baseNode,
     buildings,
     baseDepot,
+    bikesCount,
+    vansCount,
+    activeVehicle,
     parkingNavNetworks,
     showGrid,
     footprintOnly,
@@ -260,14 +288,70 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         targetCameraRef.current = createInitialCamera(viewportRef.current, MAP_SIZE, focus);
       },
       dispatchCourierToBuilding: (building: Building) => {
-        const { graph: curGraph } = propsRef.current;
+        const {
+          graph: curGraph,
+          baseDepot: curBaseDepot,
+          activeVehicle: curVehicle,
+          parkingNavNetworks: curParkingNav,
+        } = propsRef.current;
+        const address = formatBuildingAddress(building);
+
+        if (curVehicle.type === 'van') {
+          const stopPlan = resolveVanStopForBuilding(building, curParkingNav);
+          if (!stopPlan) return false;
+          const outboundRes = findShortestPathToEdgePoint(
+            curGraph,
+            'base',
+            stopPlan.entryEdge,
+            stopPlan.entryRoadPoint
+          );
+          if (!outboundRes) return false;
+          const returnRes = findShortestPathFromEdgePoint(
+            curGraph,
+            stopPlan.exitEdge,
+            stopPlan.exitRoadPoint,
+            'base'
+          );
+          const outboundLanePts = applyRightHandLaneOffsets(outboundRes.points, {
+            laneIndex: 0,
+            vehicleClass: 'van',
+          });
+          const returnCenterPts = returnRes ? returnRes.points : [...outboundRes.points].reverse();
+          const returnLanePts = applyRightHandLaneOffsets(returnCenterPts, {
+            laneIndex: 0,
+            vehicleClass: 'van',
+          });
+          const fullOutbound = stitchWaypoints(
+            curBaseDepot.loadingZone.exitWaypoints,
+            outboundLanePts,
+            stopPlan.entryOffRoadPoints
+          );
+          const fullReturn = stitchWaypoints(
+            stopPlan.exitOffRoadPoints,
+            returnLanePts,
+            [...curBaseDepot.loadingZone.exitWaypoints].reverse()
+          );
+          const stopPt = fullOutbound[fullOutbound.length - 1] ?? stopPlan.stopPoint;
+          activeRouteRef.current = stitchWaypoints(outboundLanePts, stopPlan.entryOffRoadPoints);
+          targetMarkerRef.current = stopPt;
+          courierRef.current = createCourierFromPath(
+            fullOutbound,
+            getCourierSpeedForVehicle('van'),
+            DELIVERY_PAUSE_SECONDS,
+            fullReturn,
+            address,
+            curVehicle
+          );
+          reportCourierAtBase(false);
+          return true;
+        }
+
         if (!building.roadApproachPoint || !building.deliveryStopPoint) {
           return false;
         }
 
         const approach = building.roadApproachPoint;
         const stop = building.deliveryStopPoint;
-        const address = formatBuildingAddress(building);
 
         const outboundRes = findShortestPathToEdgePoint(
           curGraph,
@@ -299,7 +383,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const stopPoint: Point = { x: stop.x, y: stop.y };
         const approachExtras = stop.approachWaypoints ?? [];
         const returnExtras = [...approachExtras].reverse();
-        const rackExit = propsRef.current.baseDepot.bikeRack.exitWaypoints;
+        const rackExit = curBaseDepot.bikeRack.exitWaypoints;
         const rackReturn = [...rackExit].reverse();
 
         const fullOutbound = stitchWaypoints(rackExit, outboundLanePts, approachExtras, [stopPoint]);
@@ -309,10 +393,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         targetMarkerRef.current = stopPoint;
         courierRef.current = createCourierFromPath(
           fullOutbound,
-          DEFAULT_COURIER_SPEED,
+          getCourierSpeedForVehicle('bike'),
           DELIVERY_PAUSE_SECONDS,
           fullReturn,
-          address
+          address,
+          curVehicle
         );
         reportCourierAtBase(false);
 
@@ -322,7 +407,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const recoveredCargo = courierRef.current.cargo
           .filter((item) => item.count > 0)
           .map((item) => ({ ...item }));
-        courierRef.current = createIdleCourier();
+        courierRef.current = createIdleCourier(propsRef.current.activeVehicle);
         activeRouteRef.current = [];
         targetMarkerRef.current = null;
         reportCourierAtBase(true);
@@ -644,12 +729,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
     const tryDispatchCourier = (
       currentGameMinutes: number,
-      startFrom: CourierStartPoint
+      startFrom: CourierStartPoint,
+      vehicleOverride?: ActiveVehicleSelection
     ): boolean => {
       const {
         graph: curGraph,
         buildings: curBuildings,
         baseDepot: curBaseDepot,
+        activeVehicle: curActiveVehicle,
+        parkingNavNetworks: curParkingNav,
         economyStateRef: ecoRef,
         onLoadFromWarehouse: loadFromWarehouse,
         onReturnCargoToWarehouse: returnCargoToWarehouse,
@@ -658,13 +746,26 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const ecoState = ecoRef?.current;
       if (!ecoState) return false;
 
+      const dispatchVehicle: ActiveVehicleSelection =
+        vehicleOverride ?? ecoState.activeVehicle ?? curActiveVehicle;
+      const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type);
+      const vehicleCapacity = getCourierCapacityForVehicle(dispatchVehicle.type);
+
       // Strictly scan today's Plan tygodnia from top (#1, #2, ...) and pick the first ready Odbiór or Rozwózka
-      const selectedTask = selectNextCourierTaskForDay(ecoState, currentGameMinutes);
+      const selectedTask = selectNextCourierTaskForDay(
+        ecoState,
+        currentGameMinutes,
+        dispatchVehicle.type
+      );
       if (!selectedTask) return false;
 
       if (selectedTask.kind === 'delivery') {
         if (!loadFromWarehouse) return false;
-        const loadedBatches = loadFromWarehouse(selectedTask.order.id);
+        const loadedBatches = loadFromWarehouse(
+          selectedTask.order.id,
+          undefined,
+          vehicleCapacity
+        );
         if (loadedBatches.length === 0) return false;
 
         const stopByBuildingId = new Map<string, DeliveryStopInput>();
@@ -707,7 +808,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           groupedStops,
           loadedBatches,
           startFrom,
-          DEFAULT_COURIER_SPEED
+          vehicleSpeed,
+          dispatchVehicle,
+          curParkingNav
         );
 
         if (mission.active) {
@@ -736,7 +839,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         selectedTask.order.id,
         selectedTask.pickupCount,
         startFrom,
-        DEFAULT_COURIER_SPEED
+        vehicleSpeed,
+        dispatchVehicle,
+        curParkingNav
       );
       if (pickupMission.active) {
         courierRef.current = pickupMission;
@@ -822,7 +927,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const interrupted = interruptCourierForEndOfWorkday(
           courierRef.current,
           propsRef.current.graph,
-          propsRef.current.baseDepot
+          propsRef.current.baseDepot,
+          propsRef.current.parkingNavNetworks
         );
         courierRef.current = interrupted;
         activeRouteRef.current = interrupted.path;
@@ -830,6 +936,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       if (simDt > 0 && courierRef.current.active) {
+        const activeMissionVehicle: ActiveVehicleSelection = {
+          type: courierRef.current.vehicleType,
+          index: courierRef.current.vehicleIndex,
+        };
+        const activeMissionCapacity = courierRef.current.cargoCapacity;
         const stepRes = stepCourierMissionWithSimDt(courierRef.current, simDt);
         courierRef.current = stepRes.state;
 
@@ -840,7 +951,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               propsRef.current.onPickupPackagesLoaded?.(
                 ev.orderId,
                 ev.plannedCount,
-                clock.gameDay
+                clock.gameDay,
+                activeMissionCapacity
               ) ?? 0;
             if (actualLoaded > 0) {
               if (courierRef.current.active) {
@@ -862,18 +974,22 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             }
           } else if (ev.type === 'arrived_at_loading_zone') {
             // If workday is still open and another task is ready, chain immediately from the loading bay
+            // keeping the exact same vehicle currently parked in the loading bay
             const chained =
               !isNightNow && !ev.wasForcedReturn
-                ? tryDispatchCourier(currentGameMinutes, 'loading_zone')
+                ? tryDispatchCourier(currentGameMinutes, 'loading_zone', activeMissionVehicle)
                 : false;
 
             if (!chained) {
-              // All tasks done or workday ended -> park bicycle at the exterior bike rack
+              // All tasks done or workday ended -> park vehicle at Base bike rack or assigned stall P1–P8
               const parkMission = createParkAtRackCourier(
                 propsRef.current.baseDepot,
                 undefined,
                 ev.wasForcedReturn || isNightNow,
-                DEFAULT_COURIER_SPEED
+                getCourierSpeedForVehicle(activeMissionVehicle.type),
+                activeMissionVehicle,
+                propsRef.current.parkingNavNetworks,
+                propsRef.current.graph
               );
               if (parkMission.active) {
                 courierRef.current = parkMission;
@@ -1021,19 +1137,34 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       };
 
       const courier = courierRef.current;
-      const showParkedBikeAtRack = courier.phase === 'idle';
+      const curBikesCount = propsRef.current.bikesCount;
+      const curVansCount = propsRef.current.vansCount;
+      const activeOutBikeIndex =
+        courier.phase !== 'idle' && courier.vehicleType === 'bike'
+          ? courier.vehicleIndex
+          : null;
+      const activeOutVanIndex =
+        courier.phase !== 'idle' && courier.vehicleType === 'van'
+          ? courier.vehicleIndex
+          : null;
+      const parkedBikeIndices = getBaseParkedBikeIndices(curBikesCount, activeOutBikeIndex);
       const rack = curBaseDepot.bikeRack;
+      const activeCourierCargoCount = getCourierCargoCount(courier.cargo);
 
-      if (isFootprintOnly) {
-        // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
-        drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
-        drawDynamicRouteAndPin();
-        if (curBaseNode) {
-          drawBaseMarker(curBaseNode);
-        }
-        drawBikeRackWithOptionalBike(ctx, rack, showParkedBikeAtRack);
-        if (courier.phase !== 'idle') {
-          drawIsometricBicycle(ctx, {
+      const drawActiveCourier = (drawCtx: CanvasRenderingContext2D) => {
+        if (courier.vehicleType === 'van') {
+          drawIsometricDeliveryVan(drawCtx, {
+            x: courier.x,
+            y: courier.y,
+            angle: courier.angle,
+            wheelPhase: courier.wheelPhase,
+            isDelivering: courier.phase === 'delivering',
+            cargoCount: activeCourierCargoCount,
+            cargoCapacity: courier.cargoCapacity,
+            invScale,
+          });
+        } else {
+          drawIsometricBicycle(drawCtx, {
             x: courier.x,
             y: courier.y,
             angle: courier.angle,
@@ -1042,41 +1173,85 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             isDelivering: courier.phase === 'delivering',
           });
         }
+      };
+
+      if (isFootprintOnly) {
+        // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
+        drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+        drawDynamicRouteAndPin();
+        if (curBaseNode) {
+          drawBaseMarker(curBaseNode);
+        }
+        drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices);
+        const parkedVanSlots = getBaseParkedVanSlots(
+          curBaseDepot.parking,
+          curVansCount,
+          activeOutVanIndex
+        );
+        for (const slot of parkedVanSlots) {
+          drawIsometricDeliveryVan(ctx, {
+            x: slot.spot.x,
+            y: slot.spot.y,
+            angle: slot.parkedAngle,
+            wheelPhase: 0,
+          });
+        }
+        if (courier.phase !== 'idle') {
+          drawActiveCourier(ctx);
+        }
         if (streetNamesVisible) {
           renderStreetNames(ctx, effectiveZoom, viewBounds);
         }
       } else {
         // Normal 3D Mode: Base loading zone & active route on ground, then Z-sorted 3D building sprites interleaved with
-        // fences, BAZA bike rack, and active courier bicycle so tall blocks naturally occlude the rider
+        // fences, BAZA bike rack, parked fleet vans on P1–P8, and active courier vehicle so tall blocks naturally occlude them
         const bikeRackEntity: DepthSortedEntity = {
           id: rack.id,
           uMin: rack.uMin,
           uMax: rack.uMax,
           vMin: rack.vMin,
           vMax: rack.vMax,
-          draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, showParkedBikeAtRack),
+          draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices),
         };
 
-        const depthEntities: DepthSortedEntity[] = [bikeRackEntity];
+        const parkedVanEntities = createBaseParkedVanEntities(
+          curBaseDepot,
+          curVansCount,
+          activeOutVanIndex
+        );
+        const depthEntities: DepthSortedEntity[] = [bikeRackEntity, ...parkedVanEntities];
+
         if (courier.phase !== 'idle') {
           const isoPos = canvasToIso(courier.x, courier.y);
-          const halfFoot = 3.2;
-          depthEntities.push({
-            id: 'courier_bike',
-            uMin: isoPos.u - halfFoot,
-            uMax: isoPos.u + halfFoot,
-            vMin: isoPos.v - halfFoot,
-            vMax: isoPos.v + halfFoot,
-            draw: (drawCtx) =>
-              drawIsometricBicycle(drawCtx, {
-                x: courier.x,
-                y: courier.y,
-                angle: courier.angle,
-                withRider: courier.riderMounted,
-                wheelPhase: courier.wheelPhase,
-                isDelivering: courier.phase === 'delivering',
-              }),
-          });
+          if (courier.vehicleType === 'van') {
+            const fx = Math.cos(courier.angle);
+            const fy = Math.sin(courier.angle);
+            const du = fx * 0.5 + fy;
+            const dv = fx * 0.5 - fy;
+            const dLen = Math.hypot(du, dv) || 1;
+            const au = Math.abs(du / dLen);
+            const av = Math.abs(dv / dLen);
+            const halfU = 9.4 * au + 4.6 * av;
+            const halfV = 9.4 * av + 4.6 * au;
+            depthEntities.push({
+              id: `courier_van_${courier.vehicleIndex}`,
+              uMin: isoPos.u - halfU,
+              uMax: isoPos.u + halfU,
+              vMin: isoPos.v - halfV,
+              vMax: isoPos.v + halfV,
+              draw: drawActiveCourier,
+            });
+          } else {
+            const halfFoot = 3.2;
+            depthEntities.push({
+              id: `courier_bike_${courier.vehicleIndex}`,
+              uMin: isoPos.u - halfFoot,
+              uMax: isoPos.u + halfFoot,
+              vMin: isoPos.v - halfFoot,
+              vMax: isoPos.v + halfFoot,
+              draw: drawActiveCourier,
+            });
+          }
         }
 
         drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);

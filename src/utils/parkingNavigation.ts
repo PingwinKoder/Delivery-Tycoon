@@ -1,3 +1,4 @@
+import type { Building } from '../types/building';
 import type { Point, RoadGraph } from '../types/roadGraph';
 import {
   PROCEDURAL_PARKING_LOTS,
@@ -1000,3 +1001,176 @@ export const ALL_PARKING_NAV_NETWORKS: ParkingNavNetwork[] = buildAllParkingNavN
 export const PARKING_NAV_BY_LOT_ID: ReadonlyMap<string, ParkingNavNetwork> = new Map(
   ALL_PARKING_NAV_NETWORKS.map((net) => [net.lotId, net])
 );
+
+export type VanStopKind = 'parking_lot' | 'delivery_bay' | 'road_curbside';
+
+export interface VanBuildingStopPlan {
+  kind: VanStopKind;
+  /** Street graph edge and projection where the van leaves the main road */
+  entryEdge: [string, string];
+  entryRoadPoint: Point;
+  /** Street graph edge and projection where the van merges back onto the road */
+  exitEdge: [string, string];
+  exitRoadPoint: Point;
+  /** Off-road waypoints from street entry to the final parked van position */
+  entryOffRoadPoints: Point[];
+  /** Off-road waypoints from the final parked van position back out to street exit */
+  exitOffRoadPoints: Point[];
+  /** Exact parked canvas position where the delivery van halts for pickup/delivery */
+  stopPoint: Point;
+  /** Matched parking lot ID when kind === 'parking_lot' */
+  lotId?: string;
+  /** Matched parking spot ID when kind === 'parking_lot' */
+  parkingSpotId?: string;
+}
+
+/**
+ * Resolves a realistic road-legal stop plan for a delivery van visiting `building`:
+ *  1. Prefers an adjacent city parking lot stall (market, courtyard, or bus station)
+ *     when the building is served by or sits immediately beside a parking lot, routing
+ *     strictly through driveway mouth -> driving aisle -> painted stall.
+ *  2. Uses a building's dedicated asphalt `delivery_zone` when present.
+ *  3. Otherwise halts cleanly curbside on the nearest road edge (`roadApproachPoint`),
+ *     never driving a delivery van onto sidewalks or residential gardens.
+ */
+export function resolveVanStopForBuilding(
+  building: Building,
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  excludeSpotIds?: ReadonlySet<string>
+): VanBuildingStopPlan | null {
+  const bCenterU = (building.uMin + building.uMax) / 2;
+  const bCenterV = (building.vMin + building.vMax) / 2;
+  const prefersParkingLot = building.deliveryStopPoint?.surface === 'parking';
+  const maxLotDistanceIso = prefersParkingLot ? 200 : 128;
+
+  const distToBuildingRect = (u: number, v: number): number => {
+    const du = u < building.uMin ? building.uMin - u : u > building.uMax ? u - building.uMax : 0;
+    const dv = v < building.vMin ? building.vMin - v : v > building.vMax ? v - building.vMax : 0;
+    return Math.hypot(du, dv);
+  };
+
+  let bestCandidate: {
+    net: ParkingNavNetwork;
+    spot: ParkingSpotNav;
+    entryNode: ParkingNavNode;
+    exitNode: ParkingNavNode;
+    score: number;
+  } | null = null;
+
+  for (const net of parkingNavNetworks) {
+    if (net.kind === 'base_fleet' || net.spots.length === 0) continue;
+    const entryNode = net.nodes.find((n) => n.id === net.entryRoadNodeId);
+    const exitNode = net.nodes.find((n) => n.id === net.exitRoadNodeId);
+    if (!entryNode?.roadConnection || !exitNode?.roadConnection) continue;
+
+    for (const spot of net.spots) {
+      const edgeDist = distToBuildingRect(spot.parkPoint.u, spot.parkPoint.v);
+      if (edgeDist > maxLotDistanceIso) continue;
+      const centerDist = Math.hypot(spot.parkPoint.u - bCenterU, spot.parkPoint.v - bCenterV);
+      const occupiedPenalty = excludeSpotIds?.has(spot.id) ? 35 : 0;
+      const score = edgeDist + centerDist * 0.12 + occupiedPenalty;
+      if (!bestCandidate || score < bestCandidate.score) {
+        bestCandidate = { net, spot, entryNode, exitNode, score };
+      }
+    }
+  }
+
+  if (bestCandidate) {
+    const entryRoute = planParkingEntryRoute(bestCandidate.net, bestCandidate.spot.id);
+    const exitRoute = planParkingExitRoute(bestCandidate.net, bestCandidate.spot.id);
+    if (
+      entryRoute &&
+      exitRoute &&
+      entryRoute.canvasPoints.length >= 2 &&
+      exitRoute.canvasPoints.length >= 2
+    ) {
+      return {
+        kind: 'parking_lot',
+        entryEdge: bestCandidate.entryNode.roadConnection!.edge,
+        entryRoadPoint: { x: bestCandidate.entryNode.x, y: bestCandidate.entryNode.y },
+        exitEdge: bestCandidate.exitNode.roadConnection!.edge,
+        exitRoadPoint: { x: bestCandidate.exitNode.x, y: bestCandidate.exitNode.y },
+        // Skip index 0 (road centerline) on entry and last point on exit so lane stitching stays smooth
+        entryOffRoadPoints: entryRoute.canvasPoints.slice(1),
+        exitOffRoadPoints: exitRoute.canvasPoints.slice(0, -1),
+        stopPoint: {
+          x: bestCandidate.spot.parkPoint.x,
+          y: bestCandidate.spot.parkPoint.y,
+        },
+        lotId: bestCandidate.net.lotId,
+        parkingSpotId: bestCandidate.spot.id,
+      };
+    }
+  }
+
+  const approach = building.roadApproachPoint;
+  if (!approach) return null;
+
+  const roadPt: Point = { x: approach.x, y: approach.y };
+  const stop = building.deliveryStopPoint;
+
+  if (stop && stop.surface === 'delivery_zone') {
+    const bayPt: Point = { x: stop.x, y: stop.y };
+    const approachWps: Point[] = (stop.approachWaypoints ?? []).map((p) => ({ x: p.x, y: p.y }));
+    return {
+      kind: 'delivery_bay',
+      entryEdge: approach.edge,
+      entryRoadPoint: roadPt,
+      exitEdge: approach.edge,
+      exitRoadPoint: roadPt,
+      entryOffRoadPoints: [...approachWps, bayPt],
+      exitOffRoadPoints: [bayPt, ...[...approachWps].reverse()],
+      stopPoint: bayPt,
+    };
+  }
+
+  // Curbside stop directly on the road edge (van never mounts sidewalks or residential yards)
+  return {
+    kind: 'road_curbside',
+    entryEdge: approach.edge,
+    entryRoadPoint: roadPt,
+    exitEdge: approach.edge,
+    exitRoadPoint: roadPt,
+    entryOffRoadPoints: [],
+    exitOffRoadPoints: [],
+    stopPoint: roadPt,
+  };
+}
+
+function resolveBaseSpotForVanIndex(
+  baseParkingNav: ParkingNavNetwork | null | undefined,
+  vanIndex: number
+): ParkingSpotNav | null {
+  if (!baseParkingNav || baseParkingNav.spots.length === 0) return null;
+  const clampedIdx = Math.max(0, Math.min(Math.floor(vanIndex) - 1, baseParkingNav.spots.length - 1));
+  return baseParkingNav.spots[clampedIdx] ?? baseParkingNav.spots[0] ?? null;
+}
+
+/**
+ * Plans a collision-free departure trajectory from a Base fleet parking stall (`P1–P8`)
+ * through the Base parking aisle and connector out to the Base driveway road node.
+ */
+export function planBaseVanDepartureFromSpot(
+  baseParkingNav: ParkingNavNetwork | null | undefined,
+  vanIndex: number
+): PlannedParkingRoute | null {
+  if (!baseParkingNav) return null;
+  const spot = resolveBaseSpotForVanIndex(baseParkingNav, vanIndex);
+  if (!spot) return null;
+  return planParkingExitRoute(baseParkingNav, spot.id);
+}
+
+/**
+ * Plans a collision-free return trajectory from the Base driveway road node
+ * through the Base parking connector and aisle cleanly into stall `P{vanIndex}`.
+ */
+export function planBaseVanReturnToSpot(
+  baseParkingNav: ParkingNavNetwork | null | undefined,
+  vanIndex: number
+): PlannedParkingRoute | null {
+  if (!baseParkingNav) return null;
+  const spot = resolveBaseSpotForVanIndex(baseParkingNav, vanIndex);
+  if (!spot) return null;
+  return planParkingEntryRoute(baseParkingNav, spot.id);
+}
+

@@ -912,3 +912,63 @@ export function computeBaseParkingPerimeterSegments(
   );
 }
 
+export interface BaseParkedVanSlot {
+  /** 1-based van fleet index matching Base parking spot P1–P8 */
+  vanIndex: number;
+  /** Exact Base parking spot coordinates and stall bounds */
+  spot: BaseParkingSpot;
+  /** World-canvas heading angle facing nose-in into the stall from the central aisle */
+  parkedAngle: number;
+}
+
+/**
+ * Returns the Base parking spots occupied by currently parked company delivery vans (`P1–P8`),
+ * omitting `activeOutVanIndex` whenever that van is currently away on a route.
+ */
+export function getBaseParkedVanSlots(
+  parking: BaseParkingSpec,
+  vansCount: number,
+  activeOutVanIndex: number | null = null
+): BaseParkedVanSlot[] {
+  const count = Math.max(0, Math.min(Math.floor(vansCount), parking.spots.length));
+  const result: BaseParkedVanSlot[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const vanIndex = i + 1;
+    if (activeOutVanIndex !== null && activeOutVanIndex === vanIndex) {
+      continue;
+    }
+    const spot = parking.spots[i];
+    if (!spot) continue;
+    // Row 0 (south row, vMax side) pulls nose-in toward +v; row 1 (north row, vMin side) pulls nose-in toward -v
+    const parkedAngle = spot.row === 0 ? Math.atan2(-0.5, 1) : Math.atan2(0.5, -1);
+    result.push({
+      vanIndex,
+      spot,
+      parkedAngle,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Returns 1-based indices of company bicycles currently parked at the Base bike rack (1..3),
+ * omitting `activeOutBikeIndex` whenever that bicycle is currently away on a route.
+ */
+export function getBaseParkedBikeIndices(
+  bikesCount: number,
+  activeOutBikeIndex: number | null = null
+): number[] {
+  const count = Math.max(0, Math.min(Math.floor(bikesCount), 3));
+  const indices: number[] = [];
+  for (let i = 1; i <= count; i++) {
+    if (activeOutBikeIndex !== null && activeOutBikeIndex === i) {
+      continue;
+    }
+    indices.push(i);
+  }
+  return indices;
+}
+
+

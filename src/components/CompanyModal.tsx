@@ -9,7 +9,7 @@ import {
   Warehouse,
   X,
 } from 'lucide-react';
-import type { OrderEconomyState } from '../types/orders';
+import type { ActiveVehicleSelection, OrderEconomyState } from '../types/orders';
 import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
@@ -17,8 +17,12 @@ import {
   MAX_BICYCLES,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
+  MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
+  USED_VAN_INSURANCE_COST,
+  USED_VAN_PURCHASE_COST,
+  VAN_COURIER_CAPACITY,
   WAREHOUSE_TIERS,
   calculateMonthlyCompanyCosts,
   formatCurrencyUsd,
@@ -32,19 +36,25 @@ type CompanyTabId = 'base' | 'fleet' | 'employees';
 interface CompanyModalProps {
   isOpen: boolean;
   economyState: OrderEconomyState;
+  isOwnerAtBase: boolean;
   onClose: () => void;
   onUpgradeWarehouse: () => void;
   onBuyParkingSpot: () => void;
   onBuyBicycle: () => void;
+  onBuyUsedVan: () => void;
+  onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
 }
 
 export const CompanyModal: React.FC<CompanyModalProps> = ({
   isOpen,
   economyState,
+  isOwnerAtBase,
   onClose,
   onUpgradeWarehouse,
   onBuyParkingSpot,
   onBuyBicycle,
+  onBuyUsedVan,
+  onSelectActiveVehicle,
 }) => {
   const [activeTab, setActiveTab] = useState<CompanyTabId>('base');
 
@@ -64,6 +74,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
   const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
   const bikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
+  const vansCount = economyState.vansCount ?? economyState.deliveryVansCount ?? 0;
+  const activeVehicle: ActiveVehicleSelection = economyState.activeVehicle ?? {
+    type: 'bike',
+    index: 1,
+  };
 
   const monthlyCosts = useMemo(
     () => calculateMonthlyCompanyCosts(economyState),
@@ -94,11 +109,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
         `Ubezp. dodatkowych rowerów: ${formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}`
       );
     }
+    if (monthlyCosts.vanInsuranceCost > 0) {
+      parts.push(`Ubezp. busów: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`);
+    }
     if (monthlyCosts.salariesCost > 0) {
       parts.push(`Pensje: ${formatCurrencyUsd(monthlyCosts.salariesCost, false)}`);
-    }
-    if (monthlyCosts.vanInsuranceCost > 0) {
-      parts.push(`Ubezp. aut: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`);
     }
     return parts.join(' | ');
   }, [monthlyCosts, warehouseLevel]);
@@ -111,6 +126,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
     nextParkingUpgrade !== null && economyState.balance >= nextParkingUpgrade.cost;
   const bikesMaxed = bikesCount >= MAX_BICYCLES;
   const canBuyBicycle = !bikesMaxed && economyState.balance >= BICYCLE_PURCHASE_COST;
+  const vansMaxed = vansCount >= MAX_VANS;
+  const hasFreeParkingForVan = vansCount < economyState.parkingSpots;
+  const canBuyUsedVan =
+    !vansMaxed && hasFreeParkingForVan && economyState.balance >= USED_VAN_PURCHASE_COST;
+
+  const ownerVehicleOptions: ActiveVehicleSelection[] = [
+    { type: 'bike', index: 1 },
+    ...Array.from({ length: vansCount }, (_, idx) => ({
+      type: 'van' as const,
+      index: idx + 1,
+    })),
+  ];
 
   const warehouseFillPercent =
     economyState.warehouseCapacity > 0
@@ -156,7 +183,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="whitespace-nowrap">
               <span className="text-slate-400">Magazyn: </span>
               <span className="font-bold text-amber-300 font-mono-nums">
-                {economyState.warehousePackages}/{economyState.warehouseCapacity} szt.
+                {economyState.warehousePackages}/{economyState.warehouseCapacity}
               </span>
             </span>
 
@@ -172,9 +199,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Parkingi: </span>
-              <span className="font-bold text-slate-100 font-mono-nums">
-                {economyState.parkingSpots}/{MAX_PARKING_SPOTS}
+              <span className="text-slate-400">Busy: </span>
+              <span className="font-bold text-amber-300 font-mono-nums">
+                {vansCount}/{economyState.parkingSpots}
               </span>
             </span>
 
@@ -523,33 +550,68 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </div>
               </article>
 
-              {/* Card 2: Bus dostawczy 20 paczek (Preview Stage 2) */}
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5 opacity-90">
+              {/* Card 2: Używany bus dostawczy 20 paczek (Active Stage 2A) */}
+              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-1.5">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-                        Bus dostawczy
+                        Używany bus dostawczy
                       </h3>
                     </div>
-                    <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-semibold text-amber-300 shrink-0 whitespace-nowrap">
-                      Wkrótce (Etap 2)
+                    <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0 whitespace-nowrap">
+                      Busy: {vansCount} / {economyState.parkingSpots}
                     </span>
                   </div>
 
-                  <p className="text-[11px] font-semibold text-slate-200">
-                    Klasa 20 paczek — warianty Lite / Standard / Pro
-                  </p>
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    Szybkie dostawy większych partii paczek w jednym kursie. Wymaga wolnego miejsca
-                    parkingowego przy Bazie.
+                    Klasa {VAN_COURIER_CAPACITY} paczek. Zwiększa ładowność pojedynczego kursu
+                    i wymaga wolnego stanowiska postojowego przy Bazie.
                   </p>
+
+                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2.5 py-1.5 space-y-1 text-[11px] font-mono-nums">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400">Ładowność:</span>
+                      <span className="text-slate-100 font-semibold">
+                        {VAN_COURIER_CAPACITY} paczek
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400">Ubezpieczenie (szt.):</span>
+                      <span className="text-rose-300 font-semibold">
+                        +{formatCurrencyUsd(USED_VAN_INSURANCE_COST, false)}/mies.
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400">Aktualnie ubezp.:</span>
+                      <span className="text-slate-200 font-semibold">
+                        +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}/mies.
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-nums text-slate-400">
-                  <span>Ładowność: 20 paczek</span>
-                  <span>Parkingi: {economyState.parkingSpots}/{MAX_PARKING_SPOTS}</span>
+                <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                  {!vansMaxed && !hasFreeParkingForVan && (
+                    <p className="text-[11px] text-amber-300/90 leading-snug">
+                      Wymaga wolnego miejsca parkingowego P1–P8
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!canBuyUsedVan}
+                    onClick={onBuyUsedVan}
+                    className={`w-full px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                      canBuyUsedVan
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                        : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                    }`}
+                  >
+                    {vansMaxed
+                      ? `Limit osiągnięty (${MAX_VANS}/${MAX_VANS})`
+                      : `Kup busa (${formatCurrencyUsd(USED_VAN_PURCHASE_COST, false)})`}
+                  </button>
                 </div>
               </article>
 
@@ -606,21 +668,89 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </span>
                 </div>
 
-                <div className="rounded-md bg-slate-900/75 border border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-100 truncate">
-                        Właściciel — Kurier rowerowy
-                      </p>
-                      <p className="text-[11px] text-slate-400">
-                        Stanowisko startowe • obsługuje zlecenia na rowerze firmowym
-                      </p>
+                <div className="rounded-md bg-slate-900/75 border border-slate-800 p-2.5 space-y-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {activeVehicle.type === 'van' ? (
+                        <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-100 truncate">
+                          Właściciel (Kurier #1)
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          Aktywny pojazd:{' '}
+                          <span className="text-slate-200 font-semibold font-mono-nums">
+                            {activeVehicle.type === 'van'
+                              ? `Bus #${activeVehicle.index} (${VAN_COURIER_CAPACITY} szt.)`
+                              : `Rower #${activeVehicle.index} (${BIKE_COURIER_CAPACITY} szt.)`}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold font-mono-nums text-[11px] shrink-0">
+                      $0/mies.
+                    </span>
+                  </div>
+
+                  {/* Owner vehicle switcher */}
+                  <div className="pt-2 border-t border-slate-800/90 space-y-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Wybierz pojazd właściciela:
+                      </span>
+                      {!isOwnerAtBase && (
+                        <span className="text-[11px] text-amber-300/90">
+                          Zmiana pojazdu dostępna po powrocie do Bazy
+                        </span>
+                      )}
+                    </div>
+
+                    <div
+                      className="flex flex-wrap items-center gap-1.5"
+                      role="group"
+                      aria-label="Przełącznik pojazdu właściciela"
+                    >
+                      {ownerVehicleOptions.map((option) => {
+                        const isSelected =
+                          activeVehicle.type === option.type &&
+                          activeVehicle.index === option.index;
+                        const label =
+                          option.type === 'van'
+                            ? `Bus #${option.index}`
+                            : `Rower #${option.index}`;
+                        const disabled = !isOwnerAtBase;
+
+                        return (
+                          <button
+                            key={`${option.type}-${option.index}`}
+                            type="button"
+                            disabled={disabled}
+                            aria-pressed={isSelected}
+                            onClick={() => onSelectActiveVehicle(option)}
+                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold font-mono-nums flex items-center gap-1.5 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                              isSelected
+                                ? disabled
+                                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-200/80 cursor-not-allowed'
+                                  : 'bg-amber-500 border-amber-400 text-slate-950 cursor-pointer'
+                                : disabled
+                                  ? 'bg-slate-800/70 border-slate-700/70 text-slate-500 cursor-not-allowed'
+                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200 cursor-pointer'
+                            }`}
+                          >
+                            {option.type === 'van' ? (
+                              <Car className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            ) : (
+                              <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            )}
+                            <span>{label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold font-mono-nums text-[11px] shrink-0">
-                    $0/mies.
-                  </span>
                 </div>
 
                 <p className="text-[11px] text-slate-400 leading-snug">
