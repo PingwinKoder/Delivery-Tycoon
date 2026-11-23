@@ -36,6 +36,9 @@ import {
   loadPackagesFromWarehouseForBike,
   markAllPendingOffersSeen,
   moveWeeklyTaskPriority,
+  purchaseBicycle,
+  purchaseParkingSpot,
+  purchaseWarehouseUpgrade,
   recordPackageDelivery,
   recordPackagePickup,
   rejectOrderOffer,
@@ -319,6 +322,18 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleUpgradeWarehouse = useCallback(() => {
+    applyEconomyUpdate((prev) => purchaseWarehouseUpgrade(prev).state);
+  }, [applyEconomyUpdate]);
+
+  const handleBuyParkingSpot = useCallback(() => {
+    applyEconomyUpdate((prev) => purchaseParkingSpot(prev).state);
+  }, [applyEconomyUpdate]);
+
+  const handleBuyBicycle = useCallback(() => {
+    applyEconomyUpdate((prev) => purchaseBicycle(prev).state);
+  }, [applyEconomyUpdate]);
+
   const unreadOffersCount = countUnreadOffers(economyState);
   const isNightMode = allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
@@ -332,14 +347,16 @@ export function App() {
     [economyState, gameMinutes]
   );
 
+  const activeWarehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
+
   const baseDepot = useMemo(
-    () => buildBaseDepotSpec(economyState.warehouseTier, economyState.parkingSpots),
-    [economyState.warehouseTier, economyState.parkingSpots]
+    () => buildBaseDepotSpec(activeWarehouseLevel, economyState.parkingSpots),
+    [activeWarehouseLevel, economyState.parkingSpots]
   );
 
   const mapBuildings = useMemo(
-    () => applyWarehouseTierToBuildings(PROCEDURAL_BUILDINGS, economyState.warehouseTier),
-    [economyState.warehouseTier]
+    () => applyWarehouseTierToBuildings(PROCEDURAL_BUILDINGS, activeWarehouseLevel),
+    [activeWarehouseLevel]
   );
 
   return (
@@ -420,6 +437,9 @@ export function App() {
         isOpen={companyOpen}
         economyState={economyState}
         onClose={handleCloseCompany}
+        onUpgradeWarehouse={handleUpgradeWarehouse}
+        onBuyParkingSpot={handleBuyParkingSpot}
+        onBuyBicycle={handleBuyBicycle}
       />
 
       <SkipTimeModal

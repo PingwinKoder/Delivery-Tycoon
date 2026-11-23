@@ -712,6 +712,18 @@ export function buildBaseParkingNavNetwork(
   roadGraph: RoadGraph
 ): ParkingNavNetwork {
   const p = depot.parking;
+  if (p.spots.length === 0) {
+    return {
+      lotId: p.id,
+      kind: 'base_fleet',
+      entryRoadNodeId: 'base_parking_road',
+      exitRoadNodeId: 'base_parking_road',
+      hasSeparateExit: false,
+      nodes: [],
+      edges: [],
+      spots: [],
+    };
+  }
   const roadEdges = precomputeRoadEdges(roadGraph, true);
   const baseDrivewayEdges = roadEdges.filter(
     (e) =>

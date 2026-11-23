@@ -178,15 +178,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   const monthlyCosts = useMemo(() => calculateMonthlyCompanyCosts(economyState), [economyState]);
   const monthlyNetForecast = roundCurrency(accruedLongTerm - monthlyCosts.totalFixedCosts);
   const monthlyCostsBreakdownTitle = useMemo(() => {
+    const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
     const parts: string[] = [
-      `Utrzymanie i podatek Bazy: ${formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}`,
+      `Utrzymanie Bazy (Poz. ${warehouseLevel}): ${formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}`,
     ];
     if (monthlyCosts.salariesCost > 0) {
       parts.push(`Pensje pracowników: ${formatCurrencyUsd(monthlyCosts.salariesCost, false)}`);
     }
     if (monthlyCosts.courierInsuranceCost > 0) {
       parts.push(
-        `Ubezpieczenie kuriera: ${formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}`
+        `Ubezpieczenie dodatkowych rowerów: ${formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}`
       );
     }
     if (monthlyCosts.vanInsuranceCost > 0) {
@@ -195,7 +196,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       );
     }
     return parts.join(' | ');
-  }, [monthlyCosts]);
+  }, [monthlyCosts, economyState.warehouseLevel, economyState.warehouseTier]);
 
   const weeklyColumns = useMemo(() => {
     const weekMondayGameDay = clock.gameDay - clock.dayIndex;

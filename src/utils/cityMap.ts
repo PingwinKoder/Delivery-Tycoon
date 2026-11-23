@@ -124,8 +124,8 @@ export interface BaseParkingSpec {
   maxSpots: number;
   /** Spots per row (up to 4 per row across 2 equal rows) */
   spotsPerRow: number;
-  /** Active rows currently built (1 for 1–4 spots, 2 for 5–8 spots) */
-  rowCount: 1 | 2;
+  /** Active rows currently built (0 for 0 spots, 1 for 1–4 spots, 2 for 5–8 spots) */
+  rowCount: 0 | 1 | 2;
   /** Internal asphalt road segments directly connecting this parking lot to the BAZA courier driveway */
   connectorSegments: Array<{ uMin: number; uMax: number; vMin: number; vMax: number }>;
   /** Individual fleet vehicle parking spots with exact coordinates (length = unlocked parkingSpots) */
@@ -447,24 +447,43 @@ export function getBaseBuildingSpec(warehouseTier: WarehouseTier = 1): BaseBuild
 }
 
 /**
- * Generates the sequential Base car parking lot for 1..8 unlocked spots.
- * Spots are arranged in up to 2 equal rows of 4 spots each across a central driving aisle (v = -830):
- * - Spots 1–4: south row along vMax (-817..-792), facing the open driving aisle
+ * Generates the sequential Base van/car parking lot for 0..8 unlocked spots.
+ * - 0 spots: no parking tarmac or connector is built yet on the Base yard.
+ * - Spots 1–4: south row along vMax (-817..-792), facing the open driving aisle (v = -830).
  * - Spots 5–8: north row opposite across the aisle (-868..-843), staying strictly inside
  *   the concrete yard (v = -1056..-776) and clear of all roads, sidewalks, and Base building tiers.
  */
-export function buildBaseParkingSpec(parkingSpots = 1): BaseParkingSpec {
-  const count = Math.max(1, Math.min(BASE_PARKING_MAX_SPOTS_LIMIT, Math.floor(parkingSpots)));
+export function buildBaseParkingSpec(parkingSpots = 0): BaseParkingSpec {
+  const count = Math.max(0, Math.min(BASE_PARKING_MAX_SPOTS_LIMIT, Math.floor(parkingSpots)));
   const spotsPerRow = BASE_PARKING_SPOTS_PER_ROW_LIMIT;
+  const uMin = 124;
+  const aisleV = -830;
+
+  if (count === 0) {
+    return {
+      id: 'base_parking',
+      uMin,
+      uMax: uMin,
+      vMin: aisleV,
+      vMax: aisleV,
+      stallAxis: 'u',
+      stallSide: 'max',
+      aisleV,
+      maxSpots: BASE_PARKING_MAX_SPOTS_LIMIT,
+      spotsPerRow,
+      rowCount: 0,
+      connectorSegments: [],
+      spots: [],
+    };
+  }
+
   const rowCount: 1 | 2 = count > spotsPerRow ? 2 : 1;
   const cols = Math.min(spotsPerRow, count);
 
-  const uMin = 124;
   const padAlong = 6;
   const padDepth = 4;
   const stallWidth = 24;
   const stallDepth = 25;
-  const aisleV = -830;
   const aisleHalfWidth = 13; // 26u wide central driving aisle (-843..-817)
 
   const row0OpenV = aisleV + aisleHalfWidth; // -817
@@ -627,11 +646,11 @@ export function buildBaseLoadingZoneSpec(
 
 /**
  * Builds the full Base depot geometry spec for a given warehouse tier (1–4)
- * and unlocked car parking spot count (1–8).
+ * and unlocked car/van parking spot count (0–8).
  */
 export function buildBaseDepotSpec(
   warehouseTier: WarehouseTier = 1,
-  parkingSpots = 1
+  parkingSpots = 0
 ): BaseDepotSpec {
   const bikeRack = buildBaseBikeRackSpec(warehouseTier);
   const loadingZone = buildBaseLoadingZoneSpec(warehouseTier, bikeRack);
@@ -656,9 +675,9 @@ export function buildBaseDepotSpec(
 
 /**
  * Starting logistics depot (BAZA) at Warehouse Tier 1 (compact starter garage, flush bike rack)
- * and 1 starter car parking spot on the lower-left concrete quarter.
+ * and 0 initial fleet parking spots on the lower-left concrete quarter.
  */
-export const BASE_DEPOT: BaseDepotSpec = buildBaseDepotSpec(1, 1);
+export const BASE_DEPOT: BaseDepotSpec = buildBaseDepotSpec(1, 0);
 
 function buildBusStationSpec(): BusStationSpec {
   // Quarter q_3_4 directly along al. Dworcowa (v = 0, sidewalk edge v = 36)

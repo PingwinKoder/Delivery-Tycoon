@@ -203,11 +203,11 @@ export interface CompanyEmployee {
 }
 
 export interface MonthlyCostBreakdown {
-  /** Fixed base tax & upkeep cost ($350) */
+  /** Fixed base upkeep & tax cost for current warehouse level ($350 / $440 / $540 / $680) */
   baseUpkeepAndTaxCost: number;
   /** Total monthly salaries for all hired employees ($0 for owner) */
   salariesCost: number;
-  /** Total monthly insurance for owner + hired bike couriers ($90 each) */
+  /** Total monthly insurance for additional bicycles ($90 each for 2nd and 3rd bike) */
   courierInsuranceCost: number;
   /** Total monthly driver & vehicle insurance for hired van drivers ($180 each) */
   vanInsuranceCost: number;
@@ -255,6 +255,8 @@ export interface WarehouseTierConfig {
   capacity: number;
   /** One-time USD cost to upgrade from the previous tier (0 for starter Tier 1) */
   upgradeCost: number;
+  /** Monthly Base fixed upkeep cost in USD ($350 / $440 / $540 / $680) */
+  monthlyUpkeepCost: number;
 }
 
 export interface WarehouseUpgradeInfo {
@@ -262,6 +264,8 @@ export interface WarehouseUpgradeInfo {
   nextTier: WarehouseTier;
   currentCapacity: number;
   nextCapacity: number;
+  currentMonthlyUpkeepCost: number;
+  nextMonthlyUpkeepCost: number;
   cost: number;
 }
 
@@ -320,7 +324,9 @@ export interface OrderEconomyState {
   annualStatsYear: number;
   /** Current company reputation tier (1–4) */
   reputationLevel: ReputationLevel;
-  /** Base warehouse expansion level (1–4; determines capacity & Base building size) */
+  /** Base warehouse expansion level (1–4; determines capacity, Base upkeep & building size) */
+  warehouseLevel: WarehouseTier;
+  /** Alias for warehouseLevel kept strictly in sync */
   warehouseTier: WarehouseTier;
   /** Maximum package capacity of the Base warehouse (30 / 70 / 140 / 250) */
   warehouseCapacity: number;
@@ -328,13 +334,15 @@ export interface OrderEconomyState {
   warehousePackages: number;
   /** Per-order counts of packages currently stored in the Base warehouse */
   warehouseInventory: Record<string, number>;
-  /** Number of unlocked car parking spots directly at Base (starts at 1, max 8) */
+  /** Number of unlocked car/van parking spots directly at Base (starts at 0, max 8) */
   parkingSpots: number;
   /** Number of unlocked employee licenses/slots (starts at 1, max 6) */
   maxEmployees: number;
-  /** Active company staff roster (starts with 1 owner-courier at $0 salary + $90 courier insurance) */
+  /** Active company staff roster (starts with 1 owner-courier at $0/mies.) */
   employees: CompanyEmployee[];
-  /** Number of owned bicycles including the owner's starter bike (starts at 1, max MAX_BICYCLES = 3) */
+  /** Number of owned courier bicycles including the owner's starter bike (starts at 1, max MAX_BICYCLES = 3) */
+  bikesCount: number;
+  /** Alias for bikesCount kept strictly in sync */
   bicyclesCount: number;
   /** Number of owned delivery vans (starts at 0, prepared for future vehicle fleet) */
   deliveryVansCount: number;

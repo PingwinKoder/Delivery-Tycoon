@@ -715,7 +715,8 @@ export interface BaseParkingLayout {
 }
 
 /**
- * Computes structured row-by-row stall layout for the dynamic Base car parking lot (1–8 spots).
+ * Computes structured row-by-row stall layout for the dynamic Base fleet parking lot (0–8 spots).
+ * - 0 spots: returns empty rows.
  * - Spots 1–4 occupy Row 0 (south edge along vMax, entering +v).
  * - Spots 5–8 occupy Row 1 (north edge along vMin, entering -v), across the central driving aisle.
  */
@@ -895,6 +896,9 @@ export function computeBaseParkingPerimeterSegments(
   parking: BaseParkingSpec,
   outset = 0
 ): ParkingContourSegment[] {
+  if (parking.spots.length === 0 || parking.uMax <= parking.uMin || parking.vMax <= parking.vMin) {
+    return [];
+  }
   const entranceSeg = parking.connectorSegments.find((seg) => seg.uMax >= parking.uMin - 1);
   const gapMin = entranceSeg ? entranceSeg.vMin : parking.aisleV - 11;
   const gapMax = entranceSeg ? entranceSeg.vMax : parking.aisleV + 11;

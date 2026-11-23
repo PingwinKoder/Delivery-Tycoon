@@ -9,6 +9,7 @@ import {
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
   getStoredPackagesForOrder,
+  hasEnoughWarehouseSpaceForPickup,
 } from './orderEconomy';
 import {
   findClosestRoadTarget,
@@ -203,6 +204,9 @@ export function selectNextCourierTaskForDay(
         clock.gameDay
       );
       if (remainingToPickup <= 0) continue;
+      // Hold ODBIÓR if the Base warehouse (30 / 70 / 140 / 250 capacity) does not have
+      // enough free slots for this order's remaining pickup packages; proceed to ROZWÓZKA instead.
+      if (!hasEnoughWarehouseSpaceForPickup(state, remainingToPickup)) continue;
       const pickupCount = Math.min(BIKE_COURIER_CAPACITY, remainingToPickup, freeWarehouseSpace);
       if (pickupCount > 0) {
         return { kind: 'pickup', order, pickupCount, task };

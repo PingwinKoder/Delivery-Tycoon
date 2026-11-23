@@ -575,8 +575,8 @@ function drawConcretePlot(
 
   // Special logistics yard markings on the BAZA plot
   if (plot.isBaseYard) {
-    const apronU = BASE_DEPOT.u - 42;
-    const apronV = BASE_DEPOT.v - 38;
+    const apronU = baseDepot.u - 42;
+    const apronV = baseDepot.v - 38;
     const apronW = 86;
     const apronH = 76;
 
@@ -592,8 +592,8 @@ function drawConcretePlot(
     ctx.lineWidth = 1.6;
     ctx.beginPath();
     for (let offset = -22; offset <= 22; offset += 22) {
-      ctx.moveTo(BASE_DEPOT.u + 22, BASE_DEPOT.v + offset);
-      ctx.lineTo(BASE_DEPOT.u + 40, BASE_DEPOT.v + offset);
+      ctx.moveTo(baseDepot.u + 22, baseDepot.v + offset);
+      ctx.lineTo(baseDepot.u + 40, baseDepot.v + offset);
     }
     ctx.stroke();
 
@@ -722,6 +722,10 @@ function drawBaseParking(
   parking: BaseParkingSpec,
   asphaltFill: CanvasPattern | string
 ) {
+  if (parking.spots.length === 0 || parking.uMax <= parking.uMin || parking.vMax <= parking.vMin) {
+    return;
+  }
+
   const uW = parking.uMax - parking.uMin;
   const vW = parking.vMax - parking.vMin;
   const layout = computeBaseParkingLayout(parking);
@@ -2330,9 +2334,11 @@ export function renderProceduralCity(
   ctx.moveTo(baseDepot.exitU + 28, baseDepot.v);
   ctx.lineTo(baseDepot.u - 16, baseDepot.v);
   // Branch line leading neatly from BAZA courier driveway into the fleet parking lot aisle
-  ctx.moveTo(82, baseDepot.v);
-  ctx.lineTo(82, baseDepot.parking.aisleV);
-  ctx.lineTo(baseDepot.parking.uMin + 4, baseDepot.parking.aisleV);
+  if (baseDepot.parking.spots.length > 0) {
+    ctx.moveTo(82, baseDepot.v);
+    ctx.lineTo(82, baseDepot.parking.aisleV);
+    ctx.lineTo(baseDepot.parking.uMin + 4, baseDepot.parking.aisleV);
+  }
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = GROUND_PALETTE.markingWhite;

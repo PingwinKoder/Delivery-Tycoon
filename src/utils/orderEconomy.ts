@@ -49,9 +49,9 @@ import {
 // Economy, Reputation & Order Constants
 // ============================================================================
 
-/** Monthly fixed cost: tax & upkeep for Base Lv. 1 */
+/** Monthly fixed cost: base upkeep & tax for Base Lv. 1 (includes starter bicycle) */
 export const BASE_UPKEEP_AND_TAX_COST = 350;
-/** Monthly fixed cost: courier insurance ($90 / mies. per bike courier, including owner) */
+/** Monthly fixed cost: bicycle insurance ($90 / mies. per additional bike beyond the 1st starter bike) */
 export const COURIER_INSURANCE_COST = 90;
 /** Monthly fixed cost: delivery van driver & vehicle insurance ($180 / mies. per van driver) */
 export const VAN_DRIVER_INSURANCE_COST = 180;
@@ -61,8 +61,8 @@ export const OWNER_COURIER_SALARY = 0;
 export const HIRED_BIKE_COURIER_SALARY = 1650;
 export const HIRED_VAN_DRIVER_SALARY = 2300;
 
-/** Starter monthly fixed company costs at game start (Base Lv.1 $350 + owner courier insurance $90 = $440) */
-export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + COURIER_INSURANCE_COST; // $440
+/** Starter monthly fixed company costs at game start (Base Lv.1 + starter bicycle = $350/mies.) */
+export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST; // $350
 
 // ============================================================================
 // Bike Fleet Limit, Courier Capacity, Base Warehouse & 3 Independent Upgrade Paths
@@ -77,39 +77,43 @@ export const MAX_BICYCLES = 3;
 export const MAX_ADDITIONAL_BICYCLES = MAX_BICYCLES - INITIAL_BICYCLES; // 2
 export const BICYCLE_PURCHASE_COST = 450;
 
-/** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity & depot building size */
+/** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity, monthly upkeep & depot building size */
 export const WAREHOUSE_TIERS: readonly WarehouseTierConfig[] = [
   {
     tier: 1,
     name: 'Mały garaż (Poz. 1)',
     capacity: 30,
     upgradeCost: 0,
+    monthlyUpkeepCost: 350,
   },
   {
     tier: 2,
     name: 'Rozbudowany magazyn (Poz. 2)',
     capacity: 70,
     upgradeCost: 3000,
+    monthlyUpkeepCost: 440,
   },
   {
     tier: 3,
     name: 'Centrum przeładunkowe (Poz. 3)',
     capacity: 140,
     upgradeCost: 7000,
+    monthlyUpkeepCost: 540,
   },
   {
     tier: 4,
     name: 'Duża baza logistyczna (Poz. 4)',
     capacity: 250,
     upgradeCost: 13500,
+    monthlyUpkeepCost: 680,
   },
 ] as const;
 
 export const INITIAL_WAREHOUSE_TIER: WarehouseTier = 1;
 export const MAX_WAREHOUSE_TIER: WarehouseTier = 4;
 
-/** Path 2: Individual car parking spots directly at Base (starts at 1 free, spots 2–8 bought sequentially) */
-export const INITIAL_PARKING_SPOTS = 1;
+/** Path 2: Individual van/car parking spots directly at Base (starts at 0, spots 1–8 bought sequentially) */
+export const INITIAL_PARKING_SPOTS = 0;
 export const MAX_PARKING_SPOTS = 8;
 export const PARKING_SPOT_COST = 3500;
 
@@ -723,7 +727,7 @@ export function createInitialOrderEconomyState(
     role: 'owner_bike_courier',
     isOwner: true,
     monthlySalary: OWNER_COURIER_SALARY,
-    monthlyInsurance: COURIER_INSURANCE_COST,
+    monthlyInsurance: 0,
     hiredAtGameDay: startDate.gameDay,
   };
 
@@ -735,6 +739,7 @@ export function createInitialOrderEconomyState(
     annualSatisfactionAvg: 0,
     annualStatsYear: startDate.year,
     reputationLevel: 1,
+    warehouseLevel: starterWarehouse.tier,
     warehouseTier: starterWarehouse.tier,
     warehouseCapacity: starterWarehouse.capacity,
     warehousePackages: 0,
@@ -742,6 +747,7 @@ export function createInitialOrderEconomyState(
     parkingSpots: INITIAL_PARKING_SPOTS,
     maxEmployees: INITIAL_MAX_EMPLOYEES,
     employees: [ownerCourier],
+    bikesCount: INITIAL_BICYCLES,
     bicyclesCount: INITIAL_BICYCLES,
     deliveryVansCount: 0,
     pendingOffers: [],
@@ -767,35 +773,39 @@ export function createInitialOrderEconomyState(
 // ============================================================================
 
 /**
- * Computes the complete monthly operating cost breakdown for the 1st-of-month settlement
- * and OrdersModal monthly forecast:
- * - Base tax & upkeep ($350)
- * - Owner-courier: $0 salary + $90 courier insurance
- * - Hired bike couriers: $1 650 salary + $90 courier insurance each
- * - Hired delivery van drivers: $2 300 salary + $180 driver & vehicle insurance each
+ * Computes the complete monthly operating cost breakdown for the 1st-of-month settlement,
+ * OrdersModal forecast, and CompanyModal summary:
+ * - Base upkeep & tax by warehouse level: $350 (Poz. 1) / $440 (Poz. 2) / $540 (Poz. 3) / $680 (Poz. 4)
+ *   (Base Poz. 1 includes the starter bicycle; owner salary is $0/mies.)
+ * - Additional courier bicycles (2nd & 3rd bike): +$90/mies. insurance each
+ * - Hired employees (future stages): monthly salaries + van driver insurance
  */
 export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyCostBreakdown {
+  const warehouseConfig = getWarehouseTierConfig(state.warehouseLevel ?? state.warehouseTier);
+  const baseUpkeepAndTaxCost = warehouseConfig.monthlyUpkeepCost;
+  const bikesCount = state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES;
+  const additionalBikes = Math.max(0, bikesCount - 1);
+
   let salariesCost = 0;
-  let courierInsuranceCost = 0;
   let vanInsuranceCost = 0;
 
   for (const emp of state.employees) {
-    salariesCost += emp.isOwner ? OWNER_COURIER_SALARY : emp.monthlySalary;
+    if (!emp.isOwner) {
+      salariesCost += emp.monthlySalary;
+    }
     if (emp.role === 'van_driver') {
       vanInsuranceCost += emp.monthlyInsurance;
-    } else {
-      courierInsuranceCost += emp.monthlyInsurance;
     }
   }
 
   salariesCost = roundCurrency(salariesCost);
-  courierInsuranceCost = roundCurrency(courierInsuranceCost);
+  const courierInsuranceCost = roundCurrency(additionalBikes * COURIER_INSURANCE_COST);
   vanInsuranceCost = roundCurrency(vanInsuranceCost);
   const insuranceCost = roundCurrency(courierInsuranceCost + vanInsuranceCost);
-  const totalFixedCosts = roundCurrency(BASE_UPKEEP_AND_TAX_COST + salariesCost + insuranceCost);
+  const totalFixedCosts = roundCurrency(baseUpkeepAndTaxCost + salariesCost + insuranceCost);
 
   return {
-    baseUpkeepAndTaxCost: BASE_UPKEEP_AND_TAX_COST,
+    baseUpkeepAndTaxCost,
     salariesCost,
     courierInsuranceCost,
     vanInsuranceCost,
@@ -808,18 +818,21 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
  * Purchases an additional bicycle ($450 each) up to MAX_BICYCLES = 3 (including owner's starter bike).
  */
 export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult {
-  if (state.bicyclesCount >= MAX_BICYCLES) {
+  const currentBikes = state.bikesCount ?? state.bicyclesCount;
+  if (currentBikes >= MAX_BICYCLES) {
     return { state, purchased: false, cost: 0, reason: 'max_reached' };
   }
   if (state.balance < BICYCLE_PURCHASE_COST) {
     return { state, purchased: false, cost: BICYCLE_PURCHASE_COST, reason: 'insufficient_funds' };
   }
 
+  const nextBikes = currentBikes + 1;
   return {
     state: {
       ...state,
       balance: roundCurrency(state.balance - BICYCLE_PURCHASE_COST),
-      bicyclesCount: state.bicyclesCount + 1,
+      bikesCount: nextBikes,
+      bicyclesCount: nextBikes,
     },
     purchased: true,
     cost: BICYCLE_PURCHASE_COST,
@@ -886,8 +899,33 @@ export function getWarehouseTierConfig(tier: WarehouseTier): WarehouseTierConfig
   return WAREHOUSE_TIERS[tier - 1] ?? WAREHOUSE_TIERS[0];
 }
 
+export function getEffectiveWarehouseCapacity(state: OrderEconomyState): number {
+  return getWarehouseTierConfig(state.warehouseLevel ?? state.warehouseTier).capacity;
+}
+
 export function getFreeWarehouseCapacity(state: OrderEconomyState): number {
-  return Math.max(0, state.warehouseCapacity - state.warehousePackages);
+  return Math.max(0, getEffectiveWarehouseCapacity(state) - state.warehousePackages);
+}
+
+/**
+ * Checks whether the Base warehouse currently has enough free slots to accommodate
+ * the remaining packages to pick up for an order. If not, the courier holds off on
+ * starting this ODBIÓR until ROZWÓZKA tasks free up space.
+ * (If an order exceeds the entire warehouse capacity at a low tier, requires at least
+ * a full courier load so deliveries cannot permanently deadlock.)
+ */
+export function hasEnoughWarehouseSpaceForPickup(
+  state: OrderEconomyState,
+  remainingOrderPackagesToPickup: number
+): boolean {
+  if (remainingOrderPackagesToPickup <= 0) return false;
+  const capacity = getEffectiveWarehouseCapacity(state);
+  const freeSpace = Math.max(0, capacity - state.warehousePackages);
+  const requiredSpace =
+    remainingOrderPackagesToPickup <= capacity
+      ? remainingOrderPackagesToPickup
+      : Math.min(BIKE_COURIER_CAPACITY, remainingOrderPackagesToPickup);
+  return freeSpace >= requiredSpace;
 }
 
 export function getStoredPackagesForOrder(state: OrderEconomyState, orderId: string): number {
@@ -1039,14 +1077,18 @@ export function loadPackagesFromWarehouseForBike(
  * Returns info about the next Base warehouse expansion tier (1 -> 2 -> 3 -> 4), or null if maxed.
  */
 export function getNextWarehouseUpgrade(state: OrderEconomyState): WarehouseUpgradeInfo | null {
-  if (state.warehouseTier >= MAX_WAREHOUSE_TIER) return null;
-  const nextTier = (state.warehouseTier + 1) as WarehouseTier;
+  const currentTier = state.warehouseLevel ?? state.warehouseTier;
+  if (currentTier >= MAX_WAREHOUSE_TIER) return null;
+  const nextTier = (currentTier + 1) as WarehouseTier;
+  const currentConfig = getWarehouseTierConfig(currentTier);
   const nextConfig = getWarehouseTierConfig(nextTier);
   return {
-    currentTier: state.warehouseTier,
+    currentTier,
     nextTier,
-    currentCapacity: state.warehouseCapacity,
+    currentCapacity: currentConfig.capacity,
     nextCapacity: nextConfig.capacity,
+    currentMonthlyUpkeepCost: currentConfig.monthlyUpkeepCost,
+    nextMonthlyUpkeepCost: nextConfig.monthlyUpkeepCost,
     cost: nextConfig.upgradeCost,
   };
 }
@@ -1067,6 +1109,7 @@ export function purchaseWarehouseUpgrade(state: OrderEconomyState): UpgradePurch
     state: {
       ...state,
       balance: roundCurrency(state.balance - next.cost),
+      warehouseLevel: next.nextTier,
       warehouseTier: next.nextTier,
       warehouseCapacity: next.nextCapacity,
     },
@@ -1794,8 +1837,8 @@ export function settleWeeklySatisfaction(
 
 /**
  * Executes the automatic 1st-of-month financial settlement (starting 1 Lipiec, Rok 1):
- * - Deducts Base Lv.1 upkeep/tax ($350) + monthly employee salaries + courier/driver insurance
- *   ($440 at start with owner-courier only: $350 base + $0 owner salary + $90 courier insurance)
+ * - Deducts Base upkeep for current warehouse level ($350/$440/$540/$680) + additional bike insurance
+ *   (+$90/mies. for 2nd & 3rd bike) + any hired staff salaries/insurance
  * - Pays out accumulated long-term contract earnings from the previous month
  */
 export function processMonthlySettlement(
@@ -2050,7 +2093,7 @@ export function advanceOrderEconomy(
         };
       }
 
-      // 3. Every 1st of a new month (starting 1 Lipiec, Rok 1): deduct $440 + pay long-term contracts
+      // 3. Every 1st of a new month (starting 1 Lipiec, Rok 1): deduct dynamic fixed costs + pay long-term contracts
       if (date.dayOfMonth === 1) {
         current = processMonthlySettlement(current, date);
       }
@@ -2360,6 +2403,7 @@ export function selectNextPickupTaskForCourier(
       clock.gameDay
     );
     if (remainingToPickup <= 0) continue;
+    if (!hasEnoughWarehouseSpaceForPickup(state, remainingToPickup)) continue;
 
     const pickupCount = Math.min(BIKE_COURIER_CAPACITY, remainingToPickup, freeWarehouseSpace);
     if (pickupCount > 0) {
