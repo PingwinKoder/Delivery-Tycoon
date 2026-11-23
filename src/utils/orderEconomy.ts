@@ -6,6 +6,7 @@ import type {
   ActiveShortTermOrder,
   ActiveVehicleSelection,
   ActiveVehicleType,
+  CompanyCourier,
   CompanyEmployee,
   EmployeeLicenseUpgradeInfo,
   HirableEmployeeRole,
@@ -271,6 +272,16 @@ function nextRng(state: number): { value: number; nextState: number } {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   const value = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   return { value, nextState };
+}
+
+/** Generates a non-zero 32-bit seed from the system clock (Date.now()) for Day 15+ random offer generation */
+function createClockRandomSeed(): number {
+  const now = Date.now();
+  let h = (now ^ Math.floor(now / 0x100000000) ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return h === 0 ? 0x6d2b79f5 : h;
 }
 
 function rngInt(state: number, min: number, max: number): { value: number; nextState: number } {
@@ -683,7 +694,8 @@ function generateOffersBatch(
   state: OrderEconomyState,
   desiredCount: number,
   currentMinutes: number,
-  buildings: readonly Building[]
+  buildings: readonly Building[],
+  useRandomRng = false
 ): OrderEconomyState {
   const freeSlots = Math.max(0, MAX_PENDING_OFFERS - state.pendingOffers.length);
   const toGenerate = Math.min(desiredCount, freeSlots);
@@ -700,7 +712,7 @@ function generateOffersBatch(
     usedOrderNumbers.add(pending.orderNumber);
   }
 
-  let rngState = state.rngState;
+  let activeRngState = useRandomRng ? state.randomRngState : state.rngState;
   let nextOrderSeq = state.nextOrderSeq;
 
   for (let i = 0; i < toGenerate; i++) {
@@ -709,12 +721,12 @@ function generateOffersBatch(
       currentMinutes,
       buildings,
       nextOrderSeq,
-      rngState,
+      activeRngState,
       usedOrderNumbers
     );
     usedOrderNumbers.add(generated.offer.orderNumber);
     newOffers.push(generated.offer);
-    rngState = generated.nextState;
+    activeRngState = generated.nextState;
     nextOrderSeq += 1;
   }
 
@@ -722,8 +734,115 @@ function generateOffersBatch(
     ...state,
     pendingOffers: [...state.pendingOffers, ...newOffers],
     nextOrderSeq,
-    rngState,
+    ...(useRandomRng ? { randomRngState: activeRngState } : { rngState: activeRngState }),
   };
+}
+
+// ============================================================================
+// Courier Roster & Vehicle Assignment Helpers
+// ============================================================================
+
+/**
+ * Returns the monthly salary in USD for a courier slot:
+ * - Kurier #1 (Właściciel): $0/mies.
+ * - Vacant/locked slot: $0/mies.
+ * - Hired courier (#2–#6) assigned to a van: $2 300/mies.
+ * - Hired courier (#2–#6) assigned to a bicycle or without a vehicle: $1 650/mies.
+ */
+export function getCourierMonthlySalary(
+  isOwner: boolean,
+  hired: boolean,
+  assignedVehicle: ActiveVehicleSelection | null
+): number {
+  if (isOwner || !hired) return 0;
+  return assignedVehicle?.type === 'van' ? HIRED_VAN_DRIVER_SALARY : HIRED_BIKE_COURIER_SALARY;
+}
+
+export function vehiclesEqual(
+  a: ActiveVehicleSelection | null | undefined,
+  b: ActiveVehicleSelection | null | undefined
+): boolean {
+  return Boolean(a && b && a.type === b.type && a.index === b.index);
+}
+
+/** Lists all concrete vehicles currently owned by the company (Rower #1–3, Bus #1–8). */
+export function getOwnedFleetVehicles(state: OrderEconomyState): ActiveVehicleSelection[] {
+  const bikesCount = Math.max(
+    INITIAL_BICYCLES,
+    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
+  );
+  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  const list: ActiveVehicleSelection[] = [];
+  for (let i = 1; i <= bikesCount; i++) {
+    list.push({ type: 'bike', index: i });
+  }
+  for (let i = 1; i <= vansCount; i++) {
+    list.push({ type: 'van', index: i });
+  }
+  return list;
+}
+
+/** Finds a hired courier (optionally excluding `excludeSlotIndex`) currently assigned to `vehicle`. */
+export function findCourierAssignedToVehicle(
+  couriers: readonly CompanyCourier[],
+  vehicle: ActiveVehicleSelection,
+  excludeSlotIndex?: number
+): CompanyCourier | null {
+  for (const c of couriers) {
+    if (!c.hired) continue;
+    if (excludeSlotIndex !== undefined && c.slotIndex === excludeSlotIndex) continue;
+    if (vehiclesEqual(c.assignedVehicle, vehicle)) {
+      return c;
+    }
+  }
+  return null;
+}
+
+/** Counts currently employed couriers across all 6 company slots (includes Kurier #1 Właściciel). */
+export function countHiredCouriers(state: OrderEconomyState): number {
+  if (state.couriers && state.couriers.length > 0) {
+    return state.couriers.filter((c) => c.hired).length;
+  }
+  return state.employees.length;
+}
+
+function syncEmployeesFromCouriers(couriers: readonly CompanyCourier[]): CompanyEmployee[] {
+  const result: CompanyEmployee[] = [];
+  for (const c of couriers) {
+    if (!c.hired) continue;
+    const isVan = c.assignedVehicle?.type === 'van';
+    result.push({
+      id: c.isOwner ? 'emp-owner' : c.id,
+      name: c.name,
+      role: c.isOwner ? 'owner_bike_courier' : isVan ? 'van_driver' : 'bike_courier',
+      isOwner: c.isOwner,
+      monthlySalary: c.monthlySalary,
+      monthlyInsurance: 0,
+      hiredAtGameDay: c.hiredAtGameDay ?? 1,
+    });
+  }
+  return result;
+}
+
+function createInitialCouriers(
+  startGameDay: number,
+  ownerVehicle: ActiveVehicleSelection
+): CompanyCourier[] {
+  return Array.from({ length: MAX_EMPLOYEES }, (_, idx) => {
+    const slotIndex = idx + 1;
+    const isOwner = slotIndex === 1;
+    return {
+      slotIndex,
+      id: `courier-${slotIndex}`,
+      name: isOwner ? 'Właściciel' : `Kurier #${slotIndex}`,
+      isOwner,
+      unlocked: isOwner,
+      hired: isOwner,
+      assignedVehicle: isOwner ? { ...ownerVehicle } : null,
+      monthlySalary: 0,
+      hiredAtGameDay: isOwner ? startGameDay : null,
+    };
+  });
 }
 
 // ============================================================================
@@ -732,20 +851,15 @@ function generateOffersBatch(
 
 export function createInitialOrderEconomyState(
   buildings: readonly Building[] = PROCEDURAL_BUILDINGS,
-  initialSeed = 133742
+  initialSeed = 133742,
+  randomSeed?: number
 ): OrderEconomyState {
   const startDate = getCalendarDateFromElapsedDays(0);
 
   const starterWarehouse = getWarehouseTierConfig(INITIAL_WAREHOUSE_TIER);
-  const ownerCourier: CompanyEmployee = {
-    id: 'emp-owner',
-    name: 'Właściciel',
-    role: 'owner_bike_courier',
-    isOwner: true,
-    monthlySalary: OWNER_COURIER_SALARY,
-    monthlyInsurance: 0,
-    hiredAtGameDay: startDate.gameDay,
-  };
+  const starterVehicle: ActiveVehicleSelection = { type: 'bike', index: 1 };
+  const initialCouriers = createInitialCouriers(startDate.gameDay, starterVehicle);
+  const initialEmployees = syncEmployeesFromCouriers(initialCouriers);
 
   const baseState: OrderEconomyState = {
     balance: INITIAL_BALANCE,
@@ -762,12 +876,13 @@ export function createInitialOrderEconomyState(
     warehouseInventory: {},
     parkingSpots: INITIAL_PARKING_SPOTS,
     maxEmployees: INITIAL_MAX_EMPLOYEES,
-    employees: [ownerCourier],
+    couriers: initialCouriers,
+    employees: initialEmployees,
     bikesCount: INITIAL_BICYCLES,
     bicyclesCount: INITIAL_BICYCLES,
     vansCount: INITIAL_VANS,
     deliveryVansCount: INITIAL_VANS,
-    activeVehicle: { type: 'bike', index: 1 },
+    activeVehicle: starterVehicle,
     pendingOffers: [],
     activeOrders: [],
     archivedOrders: [],
@@ -779,11 +894,12 @@ export function createInitialOrderEconomyState(
     lastSettledMonthKey: startDate.monthKey, // "1-06" so 1 Czerwiec is not billed; 1 Lipiec is first
     nextOrderSeq: 1,
     rngState: initialSeed >>> 0,
+    randomRngState: (randomSeed ?? createClockRandomSeed()) >>> 0,
     weeklyPriorityOrder: createEmptyWeeklyPriorityOrder(),
   };
 
-  // Day 1 starts with 2 unread offers immediately available
-  return generateOffersBatch(baseState, INITIAL_OFFERS_COUNT, INITIAL_GAME_MINUTES, buildings);
+  // Day 1 starts with 2 deterministic unread offers immediately available
+  return generateOffersBatch(baseState, INITIAL_OFFERS_COUNT, INITIAL_GAME_MINUTES, buildings, false);
 }
 
 // ============================================================================
@@ -808,9 +924,19 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
 
   let salariesCost = 0;
 
-  for (const emp of state.employees) {
-    if (!emp.isOwner) {
-      salariesCost += emp.monthlySalary;
+  if (state.couriers && state.couriers.length > 0) {
+    for (const courier of state.couriers) {
+      salariesCost += getCourierMonthlySalary(
+        courier.isOwner,
+        courier.hired,
+        courier.assignedVehicle
+      );
+    }
+  } else {
+    for (const emp of state.employees) {
+      if (!emp.isOwner) {
+        salariesCost += emp.monthlySalary;
+      }
     }
   }
 
@@ -885,42 +1011,178 @@ export function purchaseUsedVan(state: OrderEconomyState): UpgradePurchaseResult
 }
 
 /**
- * Updates the owner courier's active vehicle selection among owned bicycles and vans.
- * Caller enforces that the owner courier is currently at Base.
+ * Assigns a specific vehicle from the owned fleet (or `null` = "Brak pojazdu" for slots #2–#6)
+ * to the courier in `slotIndex`. Enforces strict uniqueness (one vehicle per courier) and
+ * keeps Kurier #1 (Właściciel) synchronized with `state.activeVehicle`.
+ * Caller enforces that the target courier is currently at Base.
+ */
+export function assignCourierVehicle(
+  state: OrderEconomyState,
+  slotIndex: number,
+  vehicle: ActiveVehicleSelection | null
+): OrderEconomyState {
+  const target = state.couriers.find((c) => c.slotIndex === slotIndex);
+  if (!target || !target.unlocked || !target.hired) {
+    return state;
+  }
+
+  // Kurier #1 (Właściciel) always stays bound to a concrete owned vehicle so map simulation stays active
+  if (target.isOwner && vehicle === null) {
+    return state;
+  }
+
+  const bikesCount = Math.max(
+    INITIAL_BICYCLES,
+    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
+  );
+  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+
+  if (vehicle !== null) {
+    if (!Number.isInteger(vehicle.index) || vehicle.index < 1) {
+      return state;
+    }
+    if (vehicle.type === 'bike' && vehicle.index > bikesCount) {
+      return state;
+    }
+    if (vehicle.type === 'van' && vehicle.index > vansCount) {
+      return state;
+    }
+    if (findCourierAssignedToVehicle(state.couriers, vehicle, slotIndex) !== null) {
+      return state;
+    }
+  }
+
+  if (
+    (target.assignedVehicle === null && vehicle === null) ||
+    vehiclesEqual(target.assignedVehicle, vehicle)
+  ) {
+    return state;
+  }
+
+  const nextAssigned = vehicle ? { type: vehicle.type, index: vehicle.index } : null;
+  const nextCouriers = state.couriers.map((c) =>
+    c.slotIndex === slotIndex
+      ? {
+          ...c,
+          assignedVehicle: nextAssigned,
+          monthlySalary: getCourierMonthlySalary(c.isOwner, c.hired, nextAssigned),
+        }
+      : c
+  );
+
+  return {
+    ...state,
+    couriers: nextCouriers,
+    employees: syncEmployeesFromCouriers(nextCouriers),
+    ...(target.isOwner && nextAssigned ? { activeVehicle: nextAssigned } : {}),
+  };
+}
+
+/**
+ * Updates the owner courier's (Kurier #1) active vehicle selection among free owned bicycles and vans.
+ * Synchronizes both `activeVehicle` and `couriers[0].assignedVehicle`.
  */
 export function setOwnerActiveVehicle(
   state: OrderEconomyState,
   vehicle: ActiveVehicleSelection
 ): OrderEconomyState {
-  const bikesCount = Math.max(INITIAL_BICYCLES, state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES);
-  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  return assignCourierVehicle(state, 1, vehicle);
+}
 
-  if (!Number.isInteger(vehicle.index) || vehicle.index < 1) {
-    return state;
-  }
-  if (vehicle.type === 'bike' && vehicle.index > bikesCount) {
-    return state;
-  }
-  if (vehicle.type === 'van' && vehicle.index > vansCount) {
-    return state;
+/**
+ * Hires a new courier in an unlocked, vacant license slot (#2–#6) with $0 recruitment fee.
+ * Auto-assigns the first free bicycle if available (same $1 650/mies. salary), otherwise starts
+ * with `Brak pojazdu` ($1 650/mies.) until the player assigns a bike or van ($2 300/mies.).
+ */
+export function hireCourierInSlot(
+  state: OrderEconomyState,
+  slotIndex: number,
+  currentGameDay?: number
+): { state: OrderEconomyState; hired: boolean; courier?: CompanyCourier } {
+  const slot = state.couriers.find((c) => c.slotIndex === slotIndex);
+  if (!slot || slot.isOwner || !slot.unlocked || slot.hired) {
+    return { state, hired: false };
   }
 
-  if (
-    state.activeVehicle &&
-    state.activeVehicle.type === vehicle.type &&
-    state.activeVehicle.index === vehicle.index
-  ) {
-    return state;
+  const bikesCount = Math.max(
+    INITIAL_BICYCLES,
+    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
+  );
+  let defaultVehicle: ActiveVehicleSelection | null = null;
+  for (let i = 1; i <= bikesCount; i++) {
+    const candidate: ActiveVehicleSelection = { type: 'bike', index: i };
+    if (findCourierAssignedToVehicle(state.couriers, candidate) === null) {
+      defaultVehicle = candidate;
+      break;
+    }
   }
+
+  const hiredAtGameDay =
+    currentGameDay ?? Math.floor(state.lastProcessedMinutes / MINUTES_PER_DAY) + 1;
+  const monthlySalary = getCourierMonthlySalary(false, true, defaultVehicle);
+
+  let updatedCourier: CompanyCourier | undefined;
+  const nextCouriers = state.couriers.map((c) => {
+    if (c.slotIndex !== slotIndex) return c;
+    updatedCourier = {
+      ...c,
+      hired: true,
+      assignedVehicle: defaultVehicle,
+      monthlySalary,
+      hiredAtGameDay,
+    };
+    return updatedCourier;
+  });
 
   return {
-    ...state,
-    activeVehicle: { type: vehicle.type, index: vehicle.index },
+    state: {
+      ...state,
+      couriers: nextCouriers,
+      employees: syncEmployeesFromCouriers(nextCouriers),
+    },
+    hired: true,
+    courier: updatedCourier,
   };
 }
 
 /**
- * Hires an additional employee (bike courier or van driver) if an unlocked employee license slot is free.
+ * Fires a hired courier in slot #2–#6, freeing their assigned vehicle and keeping the
+ * purchased license permanently unlocked for future hiring.
+ * Caller enforces that the courier is currently at Base.
+ */
+export function fireCourierInSlot(
+  state: OrderEconomyState,
+  slotIndex: number
+): { state: OrderEconomyState; fired: boolean } {
+  const slot = state.couriers.find((c) => c.slotIndex === slotIndex);
+  if (!slot || slot.isOwner || !slot.hired) {
+    return { state, fired: false };
+  }
+
+  const nextCouriers = state.couriers.map((c) =>
+    c.slotIndex === slotIndex
+      ? {
+          ...c,
+          hired: false,
+          assignedVehicle: null,
+          monthlySalary: 0,
+          hiredAtGameDay: null,
+        }
+      : c
+  );
+
+  return {
+    state: {
+      ...state,
+      couriers: nextCouriers,
+      employees: syncEmployeesFromCouriers(nextCouriers),
+    },
+    fired: true,
+  };
+}
+
+/**
+ * Legacy helper: hires an additional employee in the next unlocked vacant slot.
  */
 export function hireEmployee(
   state: OrderEconomyState,
@@ -928,34 +1190,41 @@ export function hireEmployee(
   name?: string,
   currentGameDay?: number
 ): { state: OrderEconomyState; hired: boolean; employee?: CompanyEmployee } {
-  if (state.employees.length >= state.maxEmployees) {
+  const vacantSlot = state.couriers.find((c) => c.unlocked && !c.hired && !c.isOwner);
+  if (!vacantSlot) {
     return { state, hired: false };
   }
 
-  const isVanDriver = role === 'van_driver';
-  const monthlySalary = isVanDriver ? HIRED_VAN_DRIVER_SALARY : HIRED_BIKE_COURIER_SALARY;
-  const monthlyInsurance = isVanDriver ? VAN_DRIVER_INSURANCE_COST : COURIER_INSURANCE_COST;
-  const staffIndex = state.employees.length + 1;
-  const hiredAtGameDay =
-    currentGameDay ?? Math.floor(state.lastProcessedMinutes / MINUTES_PER_DAY) + 1;
+  const res = hireCourierInSlot(state, vacantSlot.slotIndex, currentGameDay);
+  if (!res.hired || !res.courier) {
+    return { state, hired: false };
+  }
 
-  const employee: CompanyEmployee = {
-    id: `emp-${staffIndex}-${hiredAtGameDay}`,
-    name: name ?? (isVanDriver ? `Kierowca #${staffIndex - 1}` : `Kurier #${staffIndex - 1}`),
-    role,
-    isOwner: false,
-    monthlySalary,
-    monthlyInsurance,
-    hiredAtGameDay,
-  };
+  let nextState = res.state;
+  if (name) {
+    const renamedCouriers = nextState.couriers.map((c) =>
+      c.slotIndex === vacantSlot.slotIndex ? { ...c, name } : c
+    );
+    nextState = {
+      ...nextState,
+      couriers: renamedCouriers,
+      employees: syncEmployeesFromCouriers(renamedCouriers),
+    };
+  }
 
+  const employee = nextState.employees.find((e) => e.id === vacantSlot.id);
   return {
-    state: {
-      ...state,
-      employees: [...state.employees, employee],
-    },
+    state: nextState,
     hired: true,
-    employee,
+    employee: employee ?? {
+      id: vacantSlot.id,
+      name: name ?? vacantSlot.name,
+      role,
+      isOwner: false,
+      monthlySalary: res.courier.monthlySalary,
+      monthlyInsurance: 0,
+      hiredAtGameDay: res.courier.hiredAtGameDay ?? 1,
+    },
   };
 }
 
@@ -1261,7 +1530,8 @@ export function getNextEmployeeLicenseUpgrade(
 }
 
 /**
- * Purchases the next individual employee license slot (1 -> 2 -> ... -> 6).
+ * Purchases the next individual employee license slot (1 -> 2 -> ... -> 6),
+ * unlocking the corresponding courier position for hiring.
  */
 export function purchaseEmployeeLicense(state: OrderEconomyState): UpgradePurchaseResult {
   const next = getNextEmployeeLicenseUpgrade(state);
@@ -1272,11 +1542,16 @@ export function purchaseEmployeeLicense(state: OrderEconomyState): UpgradePurcha
     return { state, purchased: false, cost: next.cost, reason: 'insufficient_funds' };
   }
 
+  const nextCouriers = state.couriers.map((c) =>
+    c.slotIndex === next.nextEmployeeSlot ? { ...c, unlocked: true } : c
+  );
+
   return {
     state: {
       ...state,
       balance: roundCurrency(state.balance - next.cost),
       maxEmployees: next.nextEmployeeSlot,
+      couriers: nextCouriers,
     },
     purchased: true,
     cost: next.cost,
@@ -1750,7 +2025,8 @@ export function settleWeeklySatisfaction(
   let nextBalance = state.balance;
   let annualSatisfactionSum = state.annualSatisfactionSum;
   let annualSatisfactionCount = state.annualSatisfactionCount;
-  let rngState = state.rngState;
+  const useRandomRng = sundayGameDay >= EARLY_OFFERS_DAY_LIMIT;
+  let rngState = useRandomRng ? state.randomRngState : state.rngState;
 
   const { deliveryBuildings } = getBuildingPools(buildings);
   const remainingActive: ActiveOrder[] = [];
@@ -1911,7 +2187,7 @@ export function settleWeeklySatisfaction(
     archivedOrders: [...newlyArchived, ...state.archivedOrders],
     recentWeeklySettlements: [...settlementResults, ...state.recentWeeklySettlements].slice(0, 20),
     weeklyPriorityOrder: removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, archivedIds),
-    rngState,
+    ...(useRandomRng ? { randomRngState: rngState } : { rngState }),
   };
 }
 
@@ -2074,24 +2350,33 @@ function processDailyOfferLifecycle(
       ? { ...state, pendingOffers: validOffers }
       : state;
 
-  // 2. Check offer inflow cadence:
-  //    - Days 1–14: 2 new offers every 3 days
-  //    - Day 15+: 2–4 new offers every 2 days (max 7 pending offers at once)
+  // 2. Hybrid offer inflow schedule:
+  //    - Days 1–14: deterministic fixed-seed generator, 2 new offers every 3 days
+  //    - Day 15+: system-clock-seeded random generator, 2–4 new offers every 2 days (max 7 pending offers)
   const isEarlyPeriod = date.gameDay <= EARLY_OFFERS_DAY_LIMIT;
+  const useRandomRng = !isEarlyPeriod;
   const intervalDays = isEarlyPeriod ? EARLY_OFFERS_INTERVAL_DAYS : LATE_OFFERS_INTERVAL_DAYS;
 
   if (date.gameDay - nextState.lastOfferGenerationGameDay >= intervalDays) {
     let desiredCount = EARLY_OFFERS_BATCH_SIZE;
-    let rngState = nextState.rngState;
 
-    if (!isEarlyPeriod) {
-      const countStep = rngInt(rngState, LATE_OFFERS_BATCH_MIN, LATE_OFFERS_BATCH_MAX);
+    if (useRandomRng) {
+      const countStep = rngInt(
+        nextState.randomRngState,
+        LATE_OFFERS_BATCH_MIN,
+        LATE_OFFERS_BATCH_MAX
+      );
       desiredCount = countStep.value;
-      rngState = countStep.nextState;
-      nextState = { ...nextState, rngState };
+      nextState = { ...nextState, randomRngState: countStep.nextState };
     }
 
-    nextState = generateOffersBatch(nextState, desiredCount, dayStartMinutes, buildings);
+    nextState = generateOffersBatch(
+      nextState,
+      desiredCount,
+      dayStartMinutes,
+      buildings,
+      useRandomRng
+    );
     nextState = {
       ...nextState,
       lastOfferGenerationGameDay: date.gameDay,

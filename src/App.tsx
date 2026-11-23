@@ -28,19 +28,23 @@ import {
 import {
   acceptOrderOffer,
   advanceOrderEconomy,
+  assignCourierVehicle,
   countUnreadOffers,
   createInitialOrderEconomyState,
   findNextScheduledOrderDayMinutes,
+  fireCourierInSlot,
   getFreeWarehouseCapacity,
   getNextDayMorningMinutes,
   getRemainingPickupPackagesForOrderToday,
   getVehicleCourierCapacity,
   hasEconomyBoundaryBetween,
+  hireCourierInSlot,
   isNightHoursForTime,
   loadPackagesFromWarehouseForBike,
   markAllPendingOffersSeen,
   moveWeeklyTaskPriority,
   purchaseBicycle,
+  purchaseEmployeeLicense,
   purchaseParkingSpot,
   purchaseUsedVan,
   purchaseWarehouseUpgrade,
@@ -53,13 +57,36 @@ import {
 
 const MAX_CLOCK_REAL_DT = 0.1;
 
+const devModules = import.meta.glob('./devVanTest.ts', { eager: true }) as Record<
+  string,
+  {
+    DEV_VAN_OVERRIDE?: {
+      parkingSpots: number;
+      vansCount: number;
+      activeVehicle: { type: 'bike' | 'van'; index: number };
+    };
+  }
+>;
+const devOverride = Object.values(devModules)[0]?.DEV_VAN_OVERRIDE;
+
 export function App() {
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [footprintOnly, setFootprintOnly] = useState<boolean>(false);
   const [showStreetNames, setShowStreetNames] = useState<boolean>(true);
-  const [economyState, setEconomyState] = useState<OrderEconomyState>(() =>
-    createInitialOrderEconomyState(PROCEDURAL_BUILDINGS)
-  );
+  const [economyState, setEconomyState] = useState<OrderEconomyState>(() => {
+    const initial = createInitialOrderEconomyState(PROCEDURAL_BUILDINGS);
+    if (!devOverride) return initial;
+    return {
+      ...initial,
+      parkingSpots: devOverride.parkingSpots,
+      vansCount: devOverride.vansCount,
+      deliveryVansCount: devOverride.vansCount,
+      activeVehicle: devOverride.activeVehicle,
+      couriers: initial.couriers.map((c) =>
+        c.slotIndex === 1 ? { ...c, assignedVehicle: { ...devOverride.activeVehicle } } : c
+      ),
+    };
+  });
   const [gameMinutes, setGameMinutes] = useState<number>(INITIAL_GAME_MINUTES);
   const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
   // Tracks whether all couriers are currently parked at Base (required for automatic 15x Night Mode)
@@ -365,6 +392,34 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleBuyEmployeeLicense = useCallback(() => {
+    applyEconomyUpdate((prev) => purchaseEmployeeLicense(prev).state);
+  }, [applyEconomyUpdate]);
+
+  const handleHireCourier = useCallback(
+    (slotIndex: number) => {
+      const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
+      applyEconomyUpdate((prev) => hireCourierInSlot(prev, slotIndex, currentGameDay).state);
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handleFireCourier = useCallback(
+    (slotIndex: number) => {
+      if (slotIndex === 1 && !allCouriersAtBaseRef.current) return;
+      applyEconomyUpdate((prev) => fireCourierInSlot(prev, slotIndex).state);
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handleAssignCourierVehicle = useCallback(
+    (slotIndex: number, vehicle: ActiveVehicleSelection | null) => {
+      if (slotIndex === 1 && !allCouriersAtBaseRef.current) return;
+      applyEconomyUpdate((prev) => assignCourierVehicle(prev, slotIndex, vehicle));
+    },
+    [applyEconomyUpdate]
+  );
+
   const unreadOffersCount = countUnreadOffers(economyState);
   const isNightMode = allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
@@ -474,12 +529,24 @@ export function App() {
         isOpen={companyOpen}
         economyState={economyState}
         isOwnerAtBase={allCouriersAtBase}
+        courierAtBaseBySlot={{
+          1: allCouriersAtBase,
+          2: true,
+          3: true,
+          4: true,
+          5: true,
+          6: true,
+        }}
         onClose={handleCloseCompany}
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}
         onBuyBicycle={handleBuyBicycle}
         onBuyUsedVan={handleBuyUsedVan}
         onSelectActiveVehicle={handleSelectActiveVehicle}
+        onBuyEmployeeLicense={handleBuyEmployeeLicense}
+        onHireCourier={handleHireCourier}
+        onFireCourier={handleFireCourier}
+        onAssignCourierVehicle={handleAssignCourierVehicle}
       />
 
       <SkipTimeModal

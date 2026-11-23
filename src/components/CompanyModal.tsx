@@ -3,8 +3,11 @@ import {
   Bike,
   Building2,
   Car,
+  Lock,
   ParkingSquare,
   Truck,
+  UserMinus,
+  UserPlus,
   Users,
   Warehouse,
   X,
@@ -14,6 +17,8 @@ import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
   COURIER_INSURANCE_COST,
+  HIRED_BIKE_COURIER_SALARY,
+  HIRED_VAN_DRIVER_SALARY,
   MAX_BICYCLES,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
@@ -25,9 +30,13 @@ import {
   VAN_COURIER_CAPACITY,
   WAREHOUSE_TIERS,
   calculateMonthlyCompanyCosts,
+  countHiredCouriers,
+  findCourierAssignedToVehicle,
   formatCurrencyUsd,
+  getEmployeeLicenseCost,
   getNextParkingSpotUpgrade,
   getNextWarehouseUpgrade,
+  getOwnedFleetVehicles,
   getWarehouseTierConfig,
 } from '../utils/orderEconomy';
 
@@ -37,24 +46,49 @@ interface CompanyModalProps {
   isOpen: boolean;
   economyState: OrderEconomyState;
   isOwnerAtBase: boolean;
+  courierAtBaseBySlot?: Readonly<Record<number, boolean>>;
   onClose: () => void;
   onUpgradeWarehouse: () => void;
   onBuyParkingSpot: () => void;
   onBuyBicycle: () => void;
   onBuyUsedVan: () => void;
   onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
+  onBuyEmployeeLicense: () => void;
+  onHireCourier: (slotIndex: number) => void;
+  onFireCourier: (slotIndex: number) => void;
+  onAssignCourierVehicle: (slotIndex: number, vehicle: ActiveVehicleSelection | null) => void;
+}
+
+function serializeVehicleKey(vehicle: ActiveVehicleSelection | null): string {
+  if (!vehicle) return 'none';
+  return `${vehicle.type}:${vehicle.index}`;
+}
+
+function parseVehicleKey(key: string): ActiveVehicleSelection | null {
+  if (key === 'none') return null;
+  const [type, rawIndex] = key.split(':');
+  const index = Number(rawIndex);
+  if ((type === 'bike' || type === 'van') && Number.isInteger(index) && index >= 1) {
+    return { type, index };
+  }
+  return null;
 }
 
 export const CompanyModal: React.FC<CompanyModalProps> = ({
   isOpen,
   economyState,
   isOwnerAtBase,
+  courierAtBaseBySlot,
   onClose,
   onUpgradeWarehouse,
   onBuyParkingSpot,
   onBuyBicycle,
   onBuyUsedVan,
   onSelectActiveVehicle,
+  onBuyEmployeeLicense,
+  onHireCourier,
+  onFireCourier,
+  onAssignCourierVehicle,
 }) => {
   const [activeTab, setActiveTab] = useState<CompanyTabId>('base');
 
@@ -131,13 +165,16 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   const canBuyUsedVan =
     !vansMaxed && hasFreeParkingForVan && economyState.balance >= USED_VAN_PURCHASE_COST;
 
-  const ownerVehicleOptions: ActiveVehicleSelection[] = [
-    { type: 'bike', index: 1 },
-    ...Array.from({ length: vansCount }, (_, idx) => ({
-      type: 'van' as const,
-      index: idx + 1,
-    })),
-  ];
+  const hiredCouriersCount = countHiredCouriers(economyState);
+  const ownedFleet = getOwnedFleetVehicles(economyState);
+  const couriers = economyState.couriers;
+
+  const isSlotAtBase = (slotIndex: number): boolean => {
+    if (courierAtBaseBySlot && typeof courierAtBaseBySlot[slotIndex] === 'boolean') {
+      return courierAtBaseBySlot[slotIndex];
+    }
+    return slotIndex === 1 ? isOwnerAtBase : true;
+  };
 
   const warehouseFillPercent =
     economyState.warehouseCapacity > 0
@@ -202,6 +239,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               <span className="text-slate-400">Busy: </span>
               <span className="font-bold text-amber-300 font-mono-nums">
                 {vansCount}/{economyState.parkingSpots}
+              </span>
+            </span>
+
+            <span className="text-slate-600" aria-hidden="true">|</span>
+
+            <span className="whitespace-nowrap">
+              <span className="text-slate-400">Zespół: </span>
+              <span className="font-bold text-emerald-300 font-mono-nums">
+                {hiredCouriersCount}/{MAX_EMPLOYEES}
               </span>
             </span>
 
@@ -655,110 +701,284 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-labelledby="company-tab-employees"
               className="space-y-2.5"
             >
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Users className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-100">
-                      Zespół kurierów ({economyState.employees.length} / {MAX_EMPLOYEES})
-                    </h3>
-                  </div>
-                  <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-semibold text-amber-300 shrink-0">
-                    Wkrótce (Etap 3)
+              {/* Compact Team Overview Header */}
+              <div className="rounded-lg bg-[#182030] border border-slate-700/85 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Users className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-100">
+                    Zespół kurierów ({hiredCouriersCount} / {MAX_EMPLOYEES})
+                  </h3>
+                  <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono-nums text-slate-300">
+                    Licencje: {economyState.maxEmployees}/{MAX_EMPLOYEES}
                   </span>
                 </div>
 
-                <div className="rounded-md bg-slate-900/75 border border-slate-800 p-2.5 space-y-2 text-xs">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {activeVehicle.type === 'van' ? (
-                        <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                      ) : (
-                        <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
-                      )}
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-100 truncate">
-                          Właściciel (Kurier #1)
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          Aktywny pojazd:{' '}
-                          <span className="text-slate-200 font-semibold font-mono-nums">
-                            {activeVehicle.type === 'van'
-                              ? `Bus #${activeVehicle.index} (${VAN_COURIER_CAPACITY} szt.)`
-                              : `Rower #${activeVehicle.index} (${BIKE_COURIER_CAPACITY} szt.)`}
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono-nums">
+                  <span className="text-slate-400">
+                    Pensje:{' '}
+                    <span className="font-bold text-rose-300">
+                      {formatCurrencyUsd(monthlyCosts.salariesCost, false)}/mies.
+                    </span>
+                  </span>
+                  <span className="text-slate-600" aria-hidden="true">•</span>
+                  <span className="text-slate-400">
+                    Rower/brak: {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)} | Bus:{' '}
+                    {formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}
+                  </span>
+                </div>
+              </div>
+
+              {/* 6-Slot Staff Roster Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {couriers.map((courier) => {
+                  const slotAtBase = isSlotAtBase(courier.slotIndex);
+                  const effectiveAssigned = courier.isOwner
+                    ? courier.assignedVehicle ?? activeVehicle
+                    : courier.assignedVehicle;
+
+                  // 1. Unlocked & Hired Slot
+                  if (courier.unlocked && courier.hired) {
+                    const roleHeading = courier.isOwner
+                      ? '#1 Właściciel'
+                      : `#${courier.slotIndex} Kurier`;
+                    const assignedValueKey = serializeVehicleKey(effectiveAssigned);
+
+                    return (
+                      <article
+                        key={courier.id}
+                        className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 flex flex-col justify-between gap-2 text-xs"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {effectiveAssigned?.type === 'van' ? (
+                                <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                              ) : effectiveAssigned?.type === 'bike' ? (
+                                <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                              ) : (
+                                <Users className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
+                              )}
+                              <h4 className="font-bold text-slate-100 truncate">{roleHeading}</h4>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
+                                  slotAtBase
+                                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                    : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
+                                }`}
+                              >
+                                {slotAtBase ? 'W Bazie' : 'W trasie'}
+                              </span>
+                            </div>
+
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono-nums border shrink-0 ${
+                                courier.isOwner
+                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                  : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+                              }`}
+                            >
+                              {formatCurrencyUsd(courier.monthlySalary, false)}/mies.
+                            </span>
+                          </div>
+
+                          {/* Vehicle assignment dropdown */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <label
+                                htmlFor={`courier-vehicle-${courier.slotIndex}`}
+                                className="text-[11px] text-slate-400"
+                              >
+                                Przypisany pojazd:
+                              </label>
+                              {!slotAtBase && (
+                                <span className="text-[10px] text-amber-300/90">
+                                  Zmiana po powrocie do Bazy
+                                </span>
+                              )}
+                            </div>
+
+                            <select
+                              id={`courier-vehicle-${courier.slotIndex}`}
+                              value={assignedValueKey}
+                              disabled={!slotAtBase}
+                              onChange={(e) => {
+                                const parsed = parseVehicleKey(e.target.value);
+                                if (courier.isOwner && parsed) {
+                                  onSelectActiveVehicle(parsed);
+                                } else {
+                                  onAssignCourierVehicle(courier.slotIndex, parsed);
+                                }
+                              }}
+                              className={`w-full rounded-md border px-2 py-1.5 text-xs font-mono-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                slotAtBase
+                                  ? 'bg-slate-950/90 border-slate-700 text-slate-100 hover:border-slate-500 cursor-pointer'
+                                  : 'bg-slate-900/70 border-slate-800 text-slate-500 cursor-not-allowed'
+                              }`}
+                            >
+                              {!courier.isOwner && (
+                                <option value="none">Brak pojazdu ($1 650/mies.)</option>
+                              )}
+                              {ownedFleet.map((vehicle) => {
+                                const key = serializeVehicleKey(vehicle);
+                                const occupant = findCourierAssignedToVehicle(
+                                  couriers,
+                                  vehicle,
+                                  courier.slotIndex
+                                );
+                                const isOccupied = occupant !== null;
+                                const baseName =
+                                  vehicle.type === 'van'
+                                    ? `Bus #${vehicle.index} (${VAN_COURIER_CAPACITY} szt.)`
+                                    : `Rower #${vehicle.index} (${BIKE_COURIER_CAPACITY} szt.)`;
+                                const salaryNote = courier.isOwner
+                                  ? ''
+                                  : vehicle.type === 'van'
+                                    ? ' — $2 300/mies.'
+                                    : ' — $1 650/mies.';
+                                const label = isOccupied
+                                  ? `${baseName} — zajęty (#${occupant.slotIndex} ${occupant.isOwner ? 'Właściciel' : 'Kurier'})`
+                                  : `${baseName}${salaryNote}`;
+
+                                return (
+                                  <option key={key} value={key} disabled={isOccupied}>
+                                    {label}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-slate-400">
+                            {courier.isOwner
+                              ? 'Właściciel firmy — stałe stanowisko'
+                              : effectiveAssigned
+                                ? `Ładowność: ${effectiveAssigned.type === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY} paczek`
+                                : 'Przypisz wolny rower lub busa'}
                           </span>
+                          {!courier.isOwner && (
+                            <button
+                              type="button"
+                              disabled={!slotAtBase}
+                              onClick={() => onFireCourier(courier.slotIndex)}
+                              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                slotAtBase
+                                  ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/45 text-rose-300 cursor-pointer'
+                                  : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                              }`}
+                            >
+                              <UserMinus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <span>Zwolnij</span>
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  }
+
+                  // 2. Unlocked but Vacant Slot (License purchased, ready to hire)
+                  if (courier.unlocked && !courier.hired) {
+                    return (
+                      <article
+                        key={courier.id}
+                        className="rounded-lg bg-[#182030] border border-sky-500/40 p-2.5 flex flex-col justify-between gap-2 text-xs"
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <UserPlus className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                              <h4 className="font-bold text-slate-100 truncate">
+                                #{courier.slotIndex} Kurier
+                              </h4>
+                            </div>
+                            <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-semibold shrink-0">
+                              Wolne stanowisko
+                            </span>
+                          </div>
+
+                          <p className="text-[11px] text-slate-400 leading-snug">
+                            Licencja aktywna. Zatrudnienie bez opłaty wstępnej — miesięczna pensja:{' '}
+                            <span className="text-slate-200 font-mono-nums">
+                              {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)}
+                            </span>{' '}
+                            (rower/brak) lub{' '}
+                            <span className="text-slate-200 font-mono-nums">
+                              {formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}
+                            </span>{' '}
+                            (bus).
+                          </p>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => onHireCourier(courier.slotIndex)}
+                            className="w-full px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                          >
+                            <UserPlus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>Zatrudnij kuriera</span>
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  }
+
+                  // 3. Locked Slot (Sequential License Purchase #2..#6)
+                  const licenseCost = getEmployeeLicenseCost(courier.slotIndex) ?? 0;
+                  const isNextToUnlock = courier.slotIndex === economyState.maxEmployees + 1;
+                  const canBuyLicense = isNextToUnlock && economyState.balance >= licenseCost;
+
+                  return (
+                    <article
+                      key={courier.id}
+                      className={`rounded-lg bg-[#151d2b] border p-2.5 flex flex-col justify-between gap-2 text-xs ${
+                        isNextToUnlock
+                          ? 'border-amber-400/45'
+                          : 'border-slate-800 opacity-75'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                            <h4 className="font-bold text-slate-200 truncate">
+                              #{courier.slotIndex} Stanowisko kurierskie
+                            </h4>
+                          </div>
+                          <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-semibold shrink-0">
+                            Zablokowane
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 leading-snug">
+                          {isNextToUnlock
+                            ? `Jednorazowy zakup licencji na ${courier.slotIndex}. stanowisko pozwala zatrudnić kolejnego kuriera.`
+                            : `Wymaga wcześniejszego wykupienia licencji na stanowisko #${courier.slotIndex - 1}.`}
                         </p>
                       </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold font-mono-nums text-[11px] shrink-0">
-                      $0/mies.
-                    </span>
-                  </div>
 
-                  {/* Owner vehicle switcher */}
-                  <div className="pt-2 border-t border-slate-800/90 space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-400 font-medium">
-                        Wybierz pojazd właściciela:
-                      </span>
-                      {!isOwnerAtBase && (
-                        <span className="text-[11px] text-amber-300/90">
-                          Zmiana pojazdu dostępna po powrocie do Bazy
+                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-400 font-mono-nums">
+                          Licencja: {formatCurrencyUsd(licenseCost, false)}
                         </span>
-                      )}
-                    </div>
-
-                    <div
-                      className="flex flex-wrap items-center gap-1.5"
-                      role="group"
-                      aria-label="Przełącznik pojazdu właściciela"
-                    >
-                      {ownerVehicleOptions.map((option) => {
-                        const isSelected =
-                          activeVehicle.type === option.type &&
-                          activeVehicle.index === option.index;
-                        const label =
-                          option.type === 'van'
-                            ? `Bus #${option.index}`
-                            : `Rower #${option.index}`;
-                        const disabled = !isOwnerAtBase;
-
-                        return (
-                          <button
-                            key={`${option.type}-${option.index}`}
-                            type="button"
-                            disabled={disabled}
-                            aria-pressed={isSelected}
-                            onClick={() => onSelectActiveVehicle(option)}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold font-mono-nums flex items-center gap-1.5 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                              isSelected
-                                ? disabled
-                                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-200/80 cursor-not-allowed'
-                                  : 'bg-amber-500 border-amber-400 text-slate-950 cursor-pointer'
-                                : disabled
-                                  ? 'bg-slate-800/70 border-slate-700/70 text-slate-500 cursor-not-allowed'
-                                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200 cursor-pointer'
-                            }`}
-                          >
-                            {option.type === 'van' ? (
-                              <Car className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            ) : (
-                              <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            )}
-                            <span>{label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  W kolejnym etapie pojawią się licencje pracownicze odblokowujące stanowiska{' '}
-                  <span className="text-slate-200 font-mono-nums">2–{MAX_EMPLOYEES}</span> oraz
-                  możliwość zatrudniania dodatkowych kurierów rowerowych i kierowców busów.
-                </p>
-              </article>
+                        <button
+                          type="button"
+                          disabled={!canBuyLicense}
+                          onClick={onBuyEmployeeLicense}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                            canBuyLicense
+                              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                              : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                          }`}
+                        >
+                          Kup licencję ({formatCurrencyUsd(licenseCost, false)})
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

@@ -210,6 +210,27 @@ export interface ActiveVehicleSelection {
   index: number;
 }
 
+export interface CompanyCourier {
+  /** 1-based courier slot index (1 = Właściciel, 2..6 = Kurier #2..#6) */
+  slotIndex: number;
+  /** Stable courier identifier ('courier-1' .. 'courier-6') */
+  id: string;
+  /** Display name ('Właściciel' or 'Kurier #2'..'Kurier #6') */
+  name: string;
+  /** True only for Kurier #1 (Właściciel) */
+  isOwner: boolean;
+  /** True once the license for this slot has been unlocked (slot #1 starts unlocked) */
+  unlocked: boolean;
+  /** True while a courier is currently employed in this slot */
+  hired: boolean;
+  /** Assigned vehicle from the owned fleet, or null ("Brak pojazdu") */
+  assignedVehicle: ActiveVehicleSelection | null;
+  /** Monthly salary in USD ($0 owner, $2 300 with van, $1 650 with bike or no vehicle; $0 if not hired) */
+  monthlySalary: number;
+  /** 1-based gameplay day when hired (null when vacant or locked) */
+  hiredAtGameDay: number | null;
+}
+
 export interface MonthlyCostBreakdown {
   /** Fixed base upkeep & tax cost for current warehouse level ($350 / $440 / $540 / $680) */
   baseUpkeepAndTaxCost: number;
@@ -346,7 +367,9 @@ export interface OrderEconomyState {
   parkingSpots: number;
   /** Number of unlocked employee licenses/slots (starts at 1, max 6) */
   maxEmployees: number;
-  /** Active company staff roster (starts with 1 owner-courier at $0/mies.) */
+  /** Complete 6-slot company courier roster (slot #1 Właściciel + slots #2–#6 licenced positions) */
+  couriers: CompanyCourier[];
+  /** Active hired company staff mirror kept in sync with `couriers` */
   employees: CompanyEmployee[];
   /** Number of owned courier bicycles including the owner's starter bike (starts at 1, max MAX_BICYCLES = 3) */
   bikesCount: number;
@@ -378,8 +401,10 @@ export interface OrderEconomyState {
   lastSettledMonthKey: string;
   /** Monotonic sequence counter for deterministic unique order IDs */
   nextOrderSeq: number;
-  /** Deterministic PRNG state for pure offer generation */
+  /** Deterministic PRNG state used during Days 1–14 for repeatable onboarding offers */
   rngState: number;
+  /** System-clock-seeded PRNG state used from Day 15 onward for fully randomized offers */
+  randomRngState: number;
   /** Saved per-weekday (0 = Pon .. 6 = Nd) priority order of active order IDs for courier dispatch */
   weeklyPriorityOrder: Record<number, string[]>;
 }
