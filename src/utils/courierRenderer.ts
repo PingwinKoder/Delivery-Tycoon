@@ -16,7 +16,9 @@ export interface DeliveryVanRenderOptions {
   wheelPhase: number;
   /** True while halted at destination handing off parcels */
   isDelivering?: boolean;
-  /** Current number of packages onboard (draws crisp X/20 cargo counter when provided) */
+  /** Optional 1-based courier slot index (#1–#6) shown in the floating label (e.g. "#2 • 14/20") */
+  courierSlotIndex?: number;
+  /** Current number of packages onboard (draws crisp cargo counter when provided) */
   cargoCount?: number;
   /** Maximum van cargo capacity (defaults to 20) */
   cargoCapacity?: number;
@@ -37,6 +39,14 @@ export interface BicycleRenderOptions {
   wheelPhase: number;
   /** True while paused at destination handing off the parcel (rider inside building/yard, empty bike parked) */
   isDelivering?: boolean;
+  /** Optional 1-based courier slot index (#1–#6) shown in the floating label (e.g. "#1 • 3/5") */
+  courierSlotIndex?: number;
+  /** Current number of packages onboard (draws crisp floating badge on active couriers when provided) */
+  cargoCount?: number;
+  /** Maximum bicycle cargo capacity (defaults to 5) */
+  cargoCapacity?: number;
+  /** Inverse zoom scale factor for crisp floating cargo badge */
+  invScale?: number;
   /** Scale multiplier (defaults to DEFAULT_BICYCLE_SCALE in world pixel units) */
   scale?: number;
 }
@@ -44,6 +54,53 @@ export interface BicycleRenderOptions {
 interface Vec2 {
   x: number;
   y: number;
+}
+
+function drawCourierFloatingBadge(
+  ctx: CanvasRenderingContext2D,
+  anchor: Vec2,
+  cargoCount: number,
+  cargoCapacity: number,
+  invScale: number,
+  courierSlotIndex?: number
+) {
+  const badgeScale = Math.max(0.75, Math.min(1.55, invScale));
+  const label =
+    typeof courierSlotIndex === 'number'
+      ? `#${courierSlotIndex} • ${cargoCount}/${cargoCapacity}`
+      : `${cargoCount}/${cargoCapacity}`;
+  const fontSize = 9.2 * badgeScale;
+  ctx.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const textW = ctx.measureText(label).width;
+  const padX = 4.2 * badgeScale;
+  const boxW = textW + padX * 2;
+  const boxH = 13.5 * badgeScale;
+  const bx = anchor.x - boxW / 2;
+  const by = anchor.y - boxH;
+  const r = 3.2 * badgeScale;
+
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.lineTo(bx + boxW - r, by);
+  ctx.quadraticCurveTo(bx + boxW, by, bx + boxW, by + r);
+  ctx.lineTo(bx + boxW, by + boxH - r);
+  ctx.quadraticCurveTo(bx + boxW, by + boxH, bx + boxW - r, by + boxH);
+  ctx.lineTo(bx + r, by + boxH);
+  ctx.quadraticCurveTo(bx, by + boxH, bx, by + boxH - r);
+  ctx.lineTo(bx, by + r);
+  ctx.quadraticCurveTo(bx, by, bx + r, by);
+  ctx.closePath();
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.90)';
+  ctx.fill();
+  ctx.strokeStyle = cargoCount > 0 ? '#f97316' : '#64748b';
+  ctx.lineWidth = 1.15 * badgeScale;
+  ctx.stroke();
+
+  ctx.fillStyle = cargoCount > 0 ? '#fed7aa' : '#e2e8f0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, anchor.x, by + boxH / 2 + 0.3 * badgeScale);
 }
 
 /**
@@ -92,6 +149,10 @@ export function drawIsometricBicycle(
     withRider,
     wheelPhase,
     isDelivering = false,
+    courierSlotIndex,
+    cargoCount,
+    cargoCapacity = 5,
+    invScale = 1,
     scale = DEFAULT_BICYCLE_SCALE,
   } = opts;
 
@@ -308,6 +369,12 @@ export function drawIsometricBicycle(
     ctx.stroke();
   }
 
+  // 6. Crisp floating courier & cargo badge (`#1 • 3/5`) above active courier bicycle
+  if (typeof cargoCount === 'number') {
+    const anchor = pt(-0.8, 0, withRider ? 27.5 + ridingBob : 17.0);
+    drawCourierFloatingBadge(ctx, anchor, cargoCount, cargoCapacity, invScale, courierSlotIndex);
+  }
+
   ctx.restore();
 }
 
@@ -356,6 +423,7 @@ export function drawIsometricDeliveryVan(
     angle,
     wheelPhase,
     isDelivering = false,
+    courierSlotIndex,
     cargoCount,
     cargoCapacity = 20,
     invScale = 1,
@@ -765,43 +833,10 @@ export function drawIsometricDeliveryVan(
   drawWheel(-5.0, nearSideSign);
   drawWheel(5.2, nearSideSign);
 
-  // 6. Crisp floating onboard cargo counter badge (`X/20`) when active on route
+  // 6. Crisp floating courier & onboard cargo badge (`#2 • 14/20`) when active on route
   if (typeof cargoCount === 'number') {
-    const badgeScale = Math.max(0.75, Math.min(1.55, invScale));
     const anchor = pt(-1.6, 0, zRoof + 4.8);
-    const label = `${cargoCount}/${cargoCapacity}`;
-    const fontSize = 9.5 * badgeScale;
-    ctx.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-    const textW = ctx.measureText(label).width;
-    const padX = 4.2 * badgeScale;
-    const boxW = textW + padX * 2;
-    const boxH = 13.5 * badgeScale;
-    const bx = anchor.x - boxW / 2;
-    const by = anchor.y - boxH;
-    const r = 3.2 * badgeScale;
-
-    ctx.beginPath();
-    ctx.moveTo(bx + r, by);
-    ctx.lineTo(bx + boxW - r, by);
-    ctx.quadraticCurveTo(bx + boxW, by, bx + boxW, by + r);
-    ctx.lineTo(bx + boxW, by + boxH - r);
-    ctx.quadraticCurveTo(bx + boxW, by + boxH, bx + boxW - r, by + boxH);
-    ctx.lineTo(bx + r, by + boxH);
-    ctx.quadraticCurveTo(bx, by + boxH, bx, by + boxH - r);
-    ctx.lineTo(bx, by + r);
-    ctx.quadraticCurveTo(bx, by, bx + r, by);
-    ctx.closePath();
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.90)';
-    ctx.fill();
-    ctx.strokeStyle = cargoCount > 0 ? '#f97316' : '#64748b';
-    ctx.lineWidth = 1.15 * badgeScale;
-    ctx.stroke();
-
-    ctx.fillStyle = cargoCount > 0 ? '#fed7aa' : '#e2e8f0';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, anchor.x, by + boxH / 2 + 0.3 * badgeScale);
+    drawCourierFloatingBadge(ctx, anchor, cargoCount, cargoCapacity, invScale, courierSlotIndex);
   }
 
   ctx.restore();

@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ClipboardList, Files, X } from 'lucide-react';
-import type { ActiveOrder, OrderEconomyState, OrderOffer } from '../types/orders';
+import type {
+  ActiveOrder,
+  OrderEconomyState,
+  OrderOffer,
+  WeeklyScheduleTask,
+} from '../types/orders';
 import {
   DAYS_PER_WEEK,
   MINUTES_PER_DAY,
@@ -25,6 +30,7 @@ interface OrdersModalProps {
   isOpen: boolean;
   economyState: OrderEconomyState;
   gameMinutes: number;
+  taskAssignmentsByTaskId?: Readonly<Record<string, number>>;
   onClose: () => void;
   onMarkOffersSeen: () => void;
   onAcceptOffer: (offerId: string) => void;
@@ -129,6 +135,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   isOpen,
   economyState,
   gameMinutes,
+  taskAssignmentsByTaskId,
   onClose,
   onMarkOffersSeen,
   onAcceptOffer,
@@ -202,17 +209,26 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
     const weekMondayGameDay = clock.gameDay - clock.dayIndex;
     return Array.from({ length: DAYS_PER_WEEK }, (_, weekdayIndex) => {
       const date = getCalendarDateFromGameDay(weekMondayGameDay + weekdayIndex);
-      const tasks = getScheduledTasksForWeekday(economyState, weekdayIndex, clock.gameDay);
+      const isToday = weekdayIndex === clock.dayIndex;
+      const rawTasks = getScheduledTasksForWeekday(economyState, weekdayIndex, clock.gameDay);
+      const tasks: WeeklyScheduleTask[] = isToday
+        ? rawTasks.map((task) => {
+            const assignedCourierId = taskAssignmentsByTaskId?.[task.taskId];
+            return assignedCourierId !== undefined
+              ? { ...task, assignedCourierId }
+              : task;
+          })
+        : rawTasks;
       return {
         weekdayIndex,
         weekdayName: POLISH_WEEKDAYS[weekdayIndex],
         weekdayShort: POLISH_WEEKDAYS_SHORT[weekdayIndex],
         dateLabel: `${date.dayOfMonth} ${date.monthShort}`,
-        isToday: weekdayIndex === clock.dayIndex,
+        isToday,
         tasks,
       };
     });
-  }, [economyState, clock.gameDay, clock.dayIndex]);
+  }, [economyState, clock.gameDay, clock.dayIndex, taskAssignmentsByTaskId]);
 
   const selectedDay = weeklyColumns[selectedWeekday] ?? weeklyColumns[clock.dayIndex] ?? weeklyColumns[0];
 
@@ -557,6 +573,25 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             <span className="font-semibold">{task.clientName}</span>
                             <span className="text-slate-400"> ({task.pickupAddress})</span>
                           </p>
+
+                          {task.assignedCourierId !== undefined && (
+                            <span
+                              title={
+                                task.assignedCourierId === 1
+                                  ? 'W trakcie realizacji: Właściciel (#1)'
+                                  : `W trakcie realizacji: Kurier #${task.assignedCourierId}`
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
+                                task.assignedCourierId === 1
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
+                                  : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
+                              }`}
+                            >
+                              {task.assignedCourierId === 1
+                                ? 'Właściciel'
+                                : `Kurier #${task.assignedCourierId}`}
+                            </span>
+                          )}
 
                           <div className="flex items-center gap-1 shrink-0">
                             <button

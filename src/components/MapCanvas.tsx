@@ -46,22 +46,32 @@ import {
   zoomCameraByWheel,
 } from '../utils/camera';
 import {
+  COURIER_SLOT_INDICES,
+  type CourierFleetStatusSnapshot,
   type CourierStartPoint,
-  type CourierState,
   DELIVERY_PAUSE_SECONDS,
   type DeliveryStopInput,
+  type FleetCourierSlotState,
   MAX_REAL_FRAME_DT,
+  type MultiCourierFleetState,
+  buildCourierAtBaseBySlot,
+  buildTaskAssignmentsByTaskId,
   computeScaledSimDt,
   createCourierFromPath,
   createDeliveryMissionCourier,
   createDirectDeliveryMissionFromBuilding,
   createIdleCourier,
+  createInitialCourierFleet,
   createParkAtRackCourier,
   createPickupMissionCourier,
+  getActiveOutVehiclesForFleet,
+  getClaimedTaskIdsForFleet,
   getCourierCapacityForVehicle,
   getCourierCargoCount,
   getCourierSpeedForVehicle,
+  getReservedWarehouseSpaceForFleet,
   interruptCourierForEndOfWorkday,
+  isVehicleCurrentlyInRoute,
   selectNextCourierTaskForDay,
   selectNextTaskAfterFinalPickup,
   stepCourierMissionWithSimDt,
@@ -78,10 +88,7 @@ import {
   isNightHoursForTime,
   pickRandomRecipientBuildingForPackage,
 } from '../utils/orderEconomy';
-import {
-  getBaseParkedBikeIndices,
-  getBaseParkedVanSlots,
-} from '../utils/parkingLayout';
+import { getBaseParkedVanSlots } from '../utils/parkingLayout';
 import {
   findShortestPathFromEdgePoint,
   findShortestPathToEdgePoint,
@@ -115,6 +122,7 @@ interface MapCanvasProps {
   interactionBlocked?: boolean;
   onFpsChange?: (fps: number) => void;
   onCourierAtBaseChange?: (atBase: boolean) => void;
+  onCourierStatusChange?: (status: CourierFleetStatusSnapshot) => void;
   onLoadFromWarehouse?: (
     orderId?: string,
     priorityOrderIds?: readonly string[],
@@ -178,6 +186,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   interactionBlocked = false,
   onFpsChange,
   onCourierAtBaseChange,
+  onCourierStatusChange,
   onLoadFromWarehouse,
   onPickupPackagesLoaded,
   onDeliverPackages,
@@ -199,10 +208,19 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   const initializedCameraRef = useRef<boolean>(false);
   const pressedArrowKeysRef = useRef<Set<ArrowKey>>(new Set());
 
-  const courierRef = useRef<CourierState>(createIdleCourier());
+  const couriersFleetRef = useRef<MultiCourierFleetState>(
+    createInitialCourierFleet(economyStateRef?.current?.couriers)
+  );
   const courierAtBaseReportedRef = useRef<boolean>(true);
-  const activeRouteRef = useRef<Point[]>([]);
-  const targetMarkerRef = useRef<Point | null>(null);
+  const reportedAtBaseBySlotRef = useRef<Record<number, boolean>>({
+    1: true,
+    2: true,
+    3: true,
+    4: true,
+    5: true,
+    6: true,
+  });
+  const reportedTaskAssignmentsRef = useRef<Record<string, number>>({});
 
   const baseNode = useMemo(
     () => graph.nodes.find((n) => n.id === 'base' || n.kind === 'base') ?? null,
@@ -236,6 +254,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     interactionBlocked,
     onFpsChange,
     onCourierAtBaseChange,
+    onCourierStatusChange,
     onLoadFromWarehouse,
     onPickupPackagesLoaded,
     onDeliverPackages,
@@ -259,16 +278,54 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     interactionBlocked,
     onFpsChange,
     onCourierAtBaseChange,
+    onCourierStatusChange,
     onLoadFromWarehouse,
     onPickupPackagesLoaded,
     onDeliverPackages,
     onReturnCargoToWarehouse,
   };
 
-  const reportCourierAtBase = (atBase: boolean) => {
-    if (courierAtBaseReportedRef.current !== atBase) {
-      courierAtBaseReportedRef.current = atBase;
-      propsRef.current.onCourierAtBaseChange?.(atBase);
+  const syncFleetStatus = () => {
+    const fleet = couriersFleetRef.current;
+    const nextAtBaseBySlot = buildCourierAtBaseBySlot(fleet);
+    const nextAllAtBase = COURIER_SLOT_INDICES.every((slot) => nextAtBaseBySlot[slot]);
+    const nextTaskAssignments = buildTaskAssignmentsByTaskId(fleet);
+
+    const prevAtBase = reportedAtBaseBySlotRef.current;
+    let atBaseChanged = false;
+    for (const slot of COURIER_SLOT_INDICES) {
+      if (prevAtBase[slot] !== nextAtBaseBySlot[slot]) {
+        atBaseChanged = true;
+        break;
+      }
+    }
+
+    const prevTasks = reportedTaskAssignmentsRef.current;
+    const prevTaskKeys = Object.keys(prevTasks);
+    const nextTaskKeys = Object.keys(nextTaskAssignments);
+    let tasksChanged = prevTaskKeys.length !== nextTaskKeys.length;
+    if (!tasksChanged) {
+      for (const key of nextTaskKeys) {
+        if (prevTasks[key] !== nextTaskAssignments[key]) {
+          tasksChanged = true;
+          break;
+        }
+      }
+    }
+
+    if (atBaseChanged || tasksChanged) {
+      reportedAtBaseBySlotRef.current = nextAtBaseBySlot;
+      reportedTaskAssignmentsRef.current = nextTaskAssignments;
+      propsRef.current.onCourierStatusChange?.({
+        atBaseBySlot: nextAtBaseBySlot,
+        allAtBase: nextAllAtBase,
+        taskAssignmentsByTaskId: nextTaskAssignments,
+      });
+    }
+
+    if (courierAtBaseReportedRef.current !== nextAllAtBase) {
+      courierAtBaseReportedRef.current = nextAllAtBase;
+      propsRef.current.onCourierAtBaseChange?.(nextAllAtBase);
     }
   };
 
@@ -335,17 +392,24 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             [...curBaseDepot.loadingZone.exitWaypoints].reverse()
           );
           const stopPt = fullOutbound[fullOutbound.length - 1] ?? stopPlan.stopPoint;
-          activeRouteRef.current = stitchWaypoints(outboundLanePts, stopPlan.entryOffRoadPoints);
-          targetMarkerRef.current = stopPt;
-          courierRef.current = createCourierFromPath(
+          const manualCourier = createCourierFromPath(
             fullOutbound,
             getCourierSpeedForVehicle('van'),
             DELIVERY_PAUSE_SECONDS,
             fullReturn,
             address,
-            curVehicle
+            curVehicle,
+            1
           );
-          reportCourierAtBase(false);
+          couriersFleetRef.current[1] = {
+            slotIndex: 1,
+            inRoute: manualCourier.active,
+            assignedTaskId: null,
+            courier: manualCourier,
+            activeRoute: stitchWaypoints(outboundLanePts, stopPlan.entryOffRoadPoints),
+            targetMarker: stopPt,
+          };
+          syncFleetStatus();
           return true;
         }
 
@@ -392,29 +456,58 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const fullOutbound = stitchWaypoints(rackExit, outboundLanePts, approachExtras, [stopPoint]);
         const fullReturn = stitchWaypoints([stopPoint], returnExtras, returnLanePts, rackReturn);
 
-        activeRouteRef.current = stitchWaypoints(outboundLanePts, approachExtras, [stopPoint]);
-        targetMarkerRef.current = stopPoint;
-        courierRef.current = createCourierFromPath(
+        const manualCourier = createCourierFromPath(
           fullOutbound,
           getCourierSpeedForVehicle('bike'),
           DELIVERY_PAUSE_SECONDS,
           fullReturn,
           address,
-          curVehicle
+          curVehicle,
+          1
         );
-        reportCourierAtBase(false);
+        couriersFleetRef.current[1] = {
+          slotIndex: 1,
+          inRoute: manualCourier.active,
+          assignedTaskId: null,
+          courier: manualCourier,
+          activeRoute: stitchWaypoints(outboundLanePts, approachExtras, [stopPoint]),
+          targetMarker: stopPoint,
+        };
+        syncFleetStatus();
 
         return true;
       },
       recallCourierToBase: () => {
-        const recoveredCargo = courierRef.current.cargo
-          .filter((item) => item.count > 0)
-          .map((item) => ({ ...item }));
-        courierRef.current = createIdleCourier(propsRef.current.activeVehicle);
-        activeRouteRef.current = [];
-        targetMarkerRef.current = null;
-        reportCourierAtBase(true);
-        return recoveredCargo;
+        const cargoByOrder = new Map<string, number>();
+        const roster = propsRef.current.economyStateRef?.current?.couriers;
+
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = couriersFleetRef.current[slotIndex];
+          if (entry) {
+            for (const item of entry.courier.cargo) {
+              if (item.count > 0) {
+                cargoByOrder.set(item.orderId, (cargoByOrder.get(item.orderId) ?? 0) + item.count);
+              }
+            }
+          }
+          const assignedVehicle =
+            roster?.find((c) => c.slotIndex === slotIndex)?.assignedVehicle ??
+            (slotIndex === 1 ? propsRef.current.activeVehicle : { type: 'bike' as const, index: 1 });
+          couriersFleetRef.current[slotIndex] = {
+            slotIndex,
+            inRoute: false,
+            assignedTaskId: null,
+            courier: createIdleCourier(assignedVehicle, slotIndex),
+            activeRoute: [],
+            targetMarker: null,
+          };
+        }
+
+        syncFleetStatus();
+        return Array.from(cargoByOrder.entries()).map(([orderId, count]) => ({
+          orderId,
+          count,
+        }));
       },
     };
     return () => {
@@ -768,16 +861,16 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       return Array.from(stopByBuildingId.values());
     };
 
-    const tryDispatchCourier = (
+    const tryDispatchCourierForSlot = (
+      slotIndex: number,
       currentGameMinutes: number,
       startFrom: CourierStartPoint,
-      vehicleOverride?: ActiveVehicleSelection
+      dispatchVehicle: ActiveVehicleSelection
     ): boolean => {
       const {
         graph: curGraph,
         buildings: curBuildings,
         baseDepot: curBaseDepot,
-        activeVehicle: curActiveVehicle,
         parkingNavNetworks: curParkingNav,
         economyStateRef: ecoRef,
         onLoadFromWarehouse: loadFromWarehouse,
@@ -787,18 +880,34 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const ecoState = ecoRef?.current;
       if (!ecoState) return false;
 
-      const dispatchVehicle: ActiveVehicleSelection =
-        vehicleOverride ?? ecoState.activeVehicle ?? curActiveVehicle;
+      // Defensive guard: never dispatch two couriers in the exact same physical vehicle
+      if (isVehicleCurrentlyInRoute(couriersFleetRef.current, dispatchVehicle, slotIndex)) {
+        return false;
+      }
+
       const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type);
       const vehicleCapacity = getCourierCapacityForVehicle(dispatchVehicle.type);
+      const claimedTaskIds = getClaimedTaskIdsForFleet(couriersFleetRef.current, slotIndex);
+      const reservedWarehouseSpace = getReservedWarehouseSpaceForFleet(
+        couriersFleetRef.current,
+        slotIndex
+      );
 
-      // Strictly scan today's Plan tygodnia from top (#1, #2, ...) and pick the first ready Odbiór or Rozwózka
+      // Strictly scan today's Plan tygodnia from top (#1, #2, ...), skipping tasks already claimed
+      // by other active couriers and respecting free warehouse capacity & available stock
       const selectedTask = selectNextCourierTaskForDay(
         ecoState,
         currentGameMinutes,
-        dispatchVehicle.type
+        dispatchVehicle.type,
+        {
+          claimedTaskIds,
+          reservedWarehouseSpace,
+        }
       );
       if (!selectedTask) return false;
+
+      const assignedTaskId =
+        selectedTask.task?.taskId ?? `${selectedTask.order.id}:${selectedTask.kind}`;
 
       if (selectedTask.kind === 'delivery') {
         if (!loadFromWarehouse) return false;
@@ -818,14 +927,20 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           startFrom,
           vehicleSpeed,
           dispatchVehicle,
-          curParkingNav
+          curParkingNav,
+          slotIndex,
+          assignedTaskId
         );
 
         if (mission.active) {
-          courierRef.current = mission;
-          activeRouteRef.current = mission.phase === 'delivering' ? [] : mission.path;
-          targetMarkerRef.current = null;
-          reportCourierAtBase(false);
+          couriersFleetRef.current[slotIndex] = {
+            slotIndex,
+            inRoute: true,
+            assignedTaskId,
+            courier: mission,
+            activeRoute: mission.phase === 'delivering' ? [] : mission.path,
+            targetMarker: null,
+          };
           return true;
         }
 
@@ -849,13 +964,19 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         startFrom,
         vehicleSpeed,
         dispatchVehicle,
-        curParkingNav
+        curParkingNav,
+        slotIndex,
+        assignedTaskId
       );
       if (pickupMission.active) {
-        courierRef.current = pickupMission;
-        activeRouteRef.current = pickupMission.path;
-        targetMarkerRef.current = pickupMission.stops[0]?.stopPoint ?? null;
-        reportCourierAtBase(false);
+        couriersFleetRef.current[slotIndex] = {
+          slotIndex,
+          inRoute: true,
+          assignedTaskId,
+          courier: pickupMission,
+          activeRoute: pickupMission.path,
+          targetMarker: pickupMission.stops[0]?.stopPoint ?? null,
+        };
         return true;
       }
 
@@ -930,192 +1051,292 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const currentGameMinutes = propsRef.current.gameMinutesRef.current ?? 0;
       const isNightNow = isNightHoursForTime(currentGameMinutes);
 
-      // End of seasonal workday: immediately abort further pickups/deliveries and route back to Base
-      if (isNightNow && courierRef.current.active && !courierRef.current.isForcedReturn) {
-        const interrupted = interruptCourierForEndOfWorkday(
-          courierRef.current,
-          propsRef.current.graph,
-          propsRef.current.baseDepot,
-          propsRef.current.parkingNavNetworks
-        );
-        courierRef.current = interrupted;
-        activeRouteRef.current = interrupted.path;
-        targetMarkerRef.current = null;
+      const fleet = couriersFleetRef.current;
+
+      // End of seasonal workday: immediately abort further pickups/deliveries for ALL active couriers and route back to Base
+      if (isNightNow) {
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = fleet[slotIndex];
+          if (entry && entry.courier.active && !entry.courier.isForcedReturn) {
+            const interrupted = interruptCourierForEndOfWorkday(
+              entry.courier,
+              propsRef.current.graph,
+              propsRef.current.baseDepot,
+              propsRef.current.parkingNavNetworks
+            );
+            entry.courier = interrupted;
+            entry.inRoute = interrupted.active;
+            entry.assignedTaskId = interrupted.assignedTaskId;
+            entry.activeRoute = interrupted.path;
+            entry.targetMarker = null;
+          }
+        }
       }
 
-      if (simDt > 0 && courierRef.current.active) {
-        const activeMissionVehicle: ActiveVehicleSelection = {
-          type: courierRef.current.vehicleType,
-          index: courierRef.current.vehicleIndex,
-        };
-        const activeMissionCapacity = courierRef.current.cargoCapacity;
-        const stepRes = stepCourierMissionWithSimDt(courierRef.current, simDt);
-        courierRef.current = stepRes.state;
+      // Step every active courier (#1–#6) independently at 60 FPS
+      if (simDt > 0) {
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = fleet[slotIndex];
+          if (!entry || !entry.courier.active) continue;
 
-        for (const ev of stepRes.events) {
-          if (ev.type === 'pickup_loaded') {
-            const clock = getGameClockDisplay(currentGameMinutes);
-            const actualLoaded =
-              propsRef.current.onPickupPackagesLoaded?.(
-                ev.orderId,
-                ev.plannedCount,
-                clock.gameDay,
-                activeMissionCapacity
-              ) ?? 0;
-            if (actualLoaded > 0) {
-              const carriedBatches: WarehouseLoadedBatch[] = [
-                { orderId: ev.orderId, count: actualLoaded },
-              ];
-              let switchedToDirectDelivery = false;
+          const activeMissionVehicle: ActiveVehicleSelection = {
+            type: entry.courier.vehicleType,
+            index: entry.courier.vehicleIndex,
+          };
+          const activeMissionCapacity = entry.courier.cargoCapacity;
+          const stepRes = stepCourierMissionWithSimDt(entry.courier, simDt);
+          entry.courier = stepRes.state;
+          entry.inRoute = stepRes.state.active;
 
-              // If this was the LAST package of the order's ODBIÓR today, immediately evaluate
-              // the next highest-priority task from Plan tygodnia (Scenarios A / B / C):
-              const latestEco = propsRef.current.economyStateRef?.current;
-              const pickedOrder = latestEco?.activeOrders.find(
-                (o) => o.id === ev.orderId && o.status === 'active'
-              );
-              const remainingAfterPickup =
-                latestEco && pickedOrder
-                  ? getRemainingPickupPackagesForOrderToday(
-                      latestEco,
-                      pickedOrder,
-                      clock.dayIndex,
-                      clock.gameDay
-                    )
-                  : 1;
-
-              if (
-                latestEco &&
-                remainingAfterPickup === 0 &&
-                !isNightNow &&
-                !courierRef.current.isForcedReturn
-              ) {
-                const postPickupDecision = selectNextTaskAfterFinalPickup(
-                  latestEco,
-                  currentGameMinutes,
+          for (const ev of stepRes.events) {
+            if (ev.type === 'pickup_loaded') {
+              const clock = getGameClockDisplay(currentGameMinutes);
+              const actualLoaded =
+                propsRef.current.onPickupPackagesLoaded?.(
                   ev.orderId,
-                  actualLoaded,
-                  activeMissionVehicle.type
-                );
+                  ev.plannedCount,
+                  clock.gameDay,
+                  activeMissionCapacity
+                ) ?? 0;
 
-                // Scenario A: next task is ROZWÓZKA of the same order -> deliver directly from sender
-                if (postPickupDecision.scenario === 'direct_delivery_same_order') {
-                  const senderBuilding = propsRef.current.buildings.find(
-                    (b) => b.id === ev.buildingId
+              if (actualLoaded > 0) {
+                const carriedBatches: WarehouseLoadedBatch[] = [
+                  { orderId: ev.orderId, count: actualLoaded },
+                ];
+                let switchedToDirectDelivery = false;
+
+                // If this was the LAST package of the order's ODBIÓR today, release the ODBIÓR claim
+                // immediately and evaluate the next highest-priority FREE task (Scenarios A / B / C):
+                const latestEco = propsRef.current.economyStateRef?.current;
+                const pickedOrder = latestEco?.activeOrders.find(
+                  (o) => o.id === ev.orderId && o.status === 'active'
+                );
+                const remainingAfterPickup =
+                  latestEco && pickedOrder
+                    ? getRemainingPickupPackagesForOrderToday(
+                        latestEco,
+                        pickedOrder,
+                        clock.dayIndex,
+                        clock.gameDay
+                      )
+                    : 1;
+
+                if (remainingAfterPickup === 0) {
+                  entry.assignedTaskId = null;
+                  entry.courier = {
+                    ...entry.courier,
+                    assignedTaskId: null,
+                  };
+                }
+
+                if (
+                  latestEco &&
+                  remainingAfterPickup === 0 &&
+                  !isNightNow &&
+                  !entry.courier.isForcedReturn
+                ) {
+                  const postPickupDecision = selectNextTaskAfterFinalPickup(
+                    latestEco,
+                    currentGameMinutes,
+                    ev.orderId,
+                    actualLoaded,
+                    activeMissionVehicle.type,
+                    {
+                      claimedTaskIds: getClaimedTaskIdsForFleet(fleet, slotIndex),
+                      reservedWarehouseSpace: getReservedWarehouseSpaceForFleet(fleet, slotIndex),
+                    }
                   );
-                  if (senderBuilding) {
-                    const directStops = buildDeliveryStopsForBatches(
-                      carriedBatches,
-                      propsRef.current.buildings,
-                      latestEco
+
+                  // Scenario A: next FREE task is ROZWÓZKA of the same order -> deliver directly from sender
+                  if (postPickupDecision.scenario === 'direct_delivery_same_order') {
+                    const senderBuilding = propsRef.current.buildings.find(
+                      (b) => b.id === ev.buildingId
                     );
-                    const directMission = createDirectDeliveryMissionFromBuilding(
-                      propsRef.current.graph,
-                      propsRef.current.baseDepot,
-                      senderBuilding,
-                      directStops,
-                      carriedBatches,
-                      getCourierSpeedForVehicle(activeMissionVehicle.type),
-                      activeMissionVehicle,
-                      propsRef.current.parkingNavNetworks
-                    );
-                    if (directMission.active) {
-                      courierRef.current = {
-                        ...directMission,
-                        wheelPhase: courierRef.current.wheelPhase,
-                      };
-                      switchedToDirectDelivery = true;
+                    if (senderBuilding) {
+                      const directStops = buildDeliveryStopsForBatches(
+                        carriedBatches,
+                        propsRef.current.buildings,
+                        latestEco
+                      );
+                      const directTaskId =
+                        postPickupDecision.task?.taskId ?? `${ev.orderId}:delivery`;
+                      const directMission = createDirectDeliveryMissionFromBuilding(
+                        propsRef.current.graph,
+                        propsRef.current.baseDepot,
+                        senderBuilding,
+                        directStops,
+                        carriedBatches,
+                        getCourierSpeedForVehicle(activeMissionVehicle.type),
+                        activeMissionVehicle,
+                        propsRef.current.parkingNavNetworks,
+                        slotIndex,
+                        directTaskId
+                      );
+                      if (directMission.active) {
+                        entry.courier = {
+                          ...directMission,
+                          wheelPhase: entry.courier.wheelPhase,
+                        };
+                        entry.inRoute = true;
+                        entry.assignedTaskId = directTaskId;
+                        switchedToDirectDelivery = true;
+                      }
                     }
                   }
                 }
-              }
 
-              // Scenarios B & C (or non-final pickup / fallback): return to Base loading zone,
-              // unload carried packages into warehouse, then dispatch the next task from Base
-              if (!switchedToDirectDelivery) {
-                if (courierRef.current.active) {
-                  courierRef.current = {
-                    ...courierRef.current,
-                    cargo: carriedBatches,
-                  };
+                // Scenarios B & C (or non-final pickup / fallback): return to Base loading zone,
+                // unload carried packages into warehouse, then dispatch the next free task from Base
+                if (!switchedToDirectDelivery) {
+                  if (entry.courier.active) {
+                    entry.courier = {
+                      ...entry.courier,
+                      cargo: carriedBatches,
+                    };
+                  } else {
+                    propsRef.current.onReturnCargoToWarehouse?.(carriedBatches);
+                  }
+                }
+              } else {
+                entry.assignedTaskId = null;
+                entry.courier = {
+                  ...entry.courier,
+                  assignedTaskId: null,
+                };
+              }
+            } else if (ev.type === 'delivery_completed') {
+              propsRef.current.onDeliverPackages?.(ev.items, currentGameMinutes);
+            } else if (ev.type === 'base_unloaded') {
+              if (ev.cargo.length > 0) {
+                propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
+              }
+            } else if (ev.type === 'arrived_at_loading_zone') {
+              // Release current task claim before scanning Plan tygodnia from the top
+              entry.assignedTaskId = null;
+              entry.courier = {
+                ...entry.courier,
+                assignedTaskId: null,
+              };
+
+              // If workday is still open and another free task is ready, chain immediately from the loading bay
+              // keeping the exact same vehicle currently parked in the loading bay
+              const chained =
+                !isNightNow && !ev.wasForcedReturn
+                  ? tryDispatchCourierForSlot(
+                      slotIndex,
+                      currentGameMinutes,
+                      'loading_zone',
+                      activeMissionVehicle
+                    )
+                  : false;
+
+              if (!chained) {
+                // All free tasks done or workday ended -> park vehicle at Base bike rack or assigned stall P1–P8
+                const parkMission = createParkAtRackCourier(
+                  propsRef.current.baseDepot,
+                  undefined,
+                  ev.wasForcedReturn || isNightNow,
+                  getCourierSpeedForVehicle(activeMissionVehicle.type),
+                  activeMissionVehicle,
+                  propsRef.current.parkingNavNetworks,
+                  propsRef.current.graph,
+                  slotIndex
+                );
+                if (parkMission.active) {
+                  entry.courier = parkMission;
+                  entry.inRoute = true;
+                  entry.assignedTaskId = null;
+                  entry.activeRoute = [];
+                  entry.targetMarker = null;
                 } else {
-                  propsRef.current.onReturnCargoToWarehouse?.(carriedBatches);
+                  entry.courier = createIdleCourier(activeMissionVehicle, slotIndex);
+                  entry.inRoute = false;
+                  entry.assignedTaskId = null;
+                  entry.activeRoute = [];
+                  entry.targetMarker = null;
                 }
               }
-            }
-          } else if (ev.type === 'delivery_completed') {
-            propsRef.current.onDeliverPackages?.(ev.items, currentGameMinutes);
-          } else if (ev.type === 'base_unloaded') {
-            if (ev.cargo.length > 0) {
-              propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
-            }
-          } else if (ev.type === 'arrived_at_loading_zone') {
-            // If workday is still open and another task is ready, chain immediately from the loading bay
-            // keeping the exact same vehicle currently parked in the loading bay
-            const chained =
-              !isNightNow && !ev.wasForcedReturn
-                ? tryDispatchCourier(currentGameMinutes, 'loading_zone', activeMissionVehicle)
-                : false;
-
-            if (!chained) {
-              // All tasks done or workday ended -> park vehicle at Base bike rack or assigned stall P1–P8
-              const parkMission = createParkAtRackCourier(
-                propsRef.current.baseDepot,
-                undefined,
-                ev.wasForcedReturn || isNightNow,
-                getCourierSpeedForVehicle(activeMissionVehicle.type),
-                activeMissionVehicle,
-                propsRef.current.parkingNavNetworks,
-                propsRef.current.graph
-              );
-              if (parkMission.active) {
-                courierRef.current = parkMission;
-                activeRouteRef.current = [];
-                targetMarkerRef.current = null;
-              } else {
-                activeRouteRef.current = [];
-                targetMarkerRef.current = null;
-                reportCourierAtBase(true);
+            } else if (ev.type === 'parked_at_rack') {
+              if (ev.cargo.length > 0) {
+                propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
               }
+              entry.courier = createIdleCourier(activeMissionVehicle, slotIndex);
+              entry.inRoute = false;
+              entry.assignedTaskId = null;
+              entry.activeRoute = [];
+              entry.targetMarker = null;
             }
-          } else if (ev.type === 'parked_at_rack') {
-            if (ev.cargo.length > 0) {
-              propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
-            }
-            activeRouteRef.current = [];
-            targetMarkerRef.current = null;
-            reportCourierAtBase(true);
           }
-        }
 
-        if (courierRef.current.active) {
-          if (courierRef.current.missionKind === 'park_rack') {
-            activeRouteRef.current = [];
-            targetMarkerRef.current = null;
-          } else if (
-            courierRef.current.phase === 'outbound' ||
-            courierRef.current.phase === 'delivering'
-          ) {
-            const curStop = courierRef.current.stops[courierRef.current.currentStopIndex];
-            if (curStop && (curStop.kind === 'base_load' || curStop.kind === 'base_unload')) {
-              activeRouteRef.current =
-                courierRef.current.phase === 'delivering' ? [] : courierRef.current.path;
-              targetMarkerRef.current = null;
-            } else {
-              activeRouteRef.current = courierRef.current.path;
-              targetMarkerRef.current = curStop?.stopPoint ?? null;
+          const latestEntry = fleet[slotIndex];
+          if (latestEntry.courier.active) {
+            latestEntry.inRoute = true;
+            if (latestEntry.courier.missionKind === 'park_rack') {
+              latestEntry.activeRoute = [];
+              latestEntry.targetMarker = null;
+            } else if (
+              latestEntry.courier.phase === 'outbound' ||
+              latestEntry.courier.phase === 'delivering'
+            ) {
+              const curStop =
+                latestEntry.courier.stops[latestEntry.courier.currentStopIndex];
+              if (curStop && (curStop.kind === 'base_load' || curStop.kind === 'base_unload')) {
+                latestEntry.activeRoute =
+                  latestEntry.courier.phase === 'delivering' ? [] : latestEntry.courier.path;
+                latestEntry.targetMarker = null;
+              } else {
+                latestEntry.activeRoute = latestEntry.courier.path;
+                latestEntry.targetMarker = curStop?.stopPoint ?? null;
+              }
+            } else if (latestEntry.courier.phase === 'returning') {
+              latestEntry.activeRoute = latestEntry.courier.path;
+              latestEntry.targetMarker = null;
             }
-          } else if (courierRef.current.phase === 'returning') {
-            activeRouteRef.current = courierRef.current.path;
-            targetMarkerRef.current = null;
+          } else {
+            latestEntry.inRoute = false;
+            latestEntry.assignedTaskId = null;
+            latestEntry.activeRoute = [];
+            latestEntry.targetMarker = null;
           }
         }
       }
 
-      // During seasonal workday hours, automatically dispatch idle courier parked at Base bike rack
-      if (simDt > 0 && !isNightNow && !courierRef.current.active) {
-        tryDispatchCourier(currentGameMinutes, 'rack');
+      // During seasonal workday hours, automatically dispatch ALL idle hired couriers (#1–#6)
+      // who have an assigned vehicle in „Pracownicy”
+      if (simDt > 0 && !isNightNow) {
+        const ecoState = propsRef.current.economyStateRef?.current;
+        const roster = ecoState?.couriers;
+        if (roster && roster.length > 0) {
+          for (const rosterCourier of roster) {
+            if (
+              !rosterCourier.unlocked ||
+              !rosterCourier.hired ||
+              !rosterCourier.assignedVehicle
+            ) {
+              continue;
+            }
+            const slotEntry = fleet[rosterCourier.slotIndex];
+            if (!slotEntry || slotEntry.inRoute || slotEntry.courier.active) {
+              continue;
+            }
+            tryDispatchCourierForSlot(
+              rosterCourier.slotIndex,
+              currentGameMinutes,
+              'rack',
+              rosterCourier.assignedVehicle
+            );
+          }
+        } else {
+          const ownerSlot = fleet[1];
+          if (ownerSlot && !ownerSlot.inRoute && !ownerSlot.courier.active) {
+            const ownerVehicle = ecoState?.activeVehicle ?? propsRef.current.activeVehicle;
+            tryDispatchCourierForSlot(1, currentGameMinutes, 'rack', ownerVehicle);
+          }
+        }
       }
+
+      // Notify React only when any courier's inRoute status or claimed task actually changed
+      syncFleetStatus();
 
       // Ensure static ground buffer & individual building sprites are built (rebuilt only on static state changes)
       ensureStaticCaches();
@@ -1193,14 +1414,16 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       };
 
       const drawDynamicRouteAndPin = () => {
-        drawCourierRoute(ctx, activeRouteRef.current, invScale);
-
-        const activeCourier = courierRef.current;
-        if (
-          targetMarkerRef.current &&
-          (activeCourier.phase === 'outbound' || activeCourier.phase === 'delivering')
-        ) {
-          drawCourierDestinationPin(ctx, targetMarkerRef.current, invScale);
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = fleet[slotIndex];
+          if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
+          drawCourierRoute(ctx, entry.activeRoute, invScale);
+          if (
+            entry.targetMarker &&
+            (entry.courier.phase === 'outbound' || entry.courier.phase === 'delivering')
+          ) {
+            drawCourierDestinationPin(ctx, entry.targetMarker, invScale);
+          }
         }
       };
 
@@ -1213,41 +1436,51 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         maxY: cam.y + halfViewH,
       };
 
-      const courier = courierRef.current;
       const curBikesCount = propsRef.current.bikesCount;
       const curVansCount = propsRef.current.vansCount;
-      const activeOutBikeIndex =
-        courier.phase !== 'idle' && courier.vehicleType === 'bike'
-          ? courier.vehicleIndex
-          : null;
-      const activeOutVanIndex =
-        courier.phase !== 'idle' && courier.vehicleType === 'van'
-          ? courier.vehicleIndex
-          : null;
-      const parkedBikeIndices = getBaseParkedBikeIndices(curBikesCount, activeOutBikeIndex);
-      const rack = curBaseDepot.bikeRack;
-      const activeCourierCargoCount = getCourierCargoCount(courier.cargo);
+      const { bikeIndices: activeOutBikeIndices, vanIndices: activeOutVanIndices } =
+        getActiveOutVehiclesForFleet(fleet);
 
-      const drawActiveCourier = (drawCtx: CanvasRenderingContext2D) => {
-        if (courier.vehicleType === 'van') {
+      const parkedBikeIndices: number[] = [];
+      const clampedBikes = Math.max(0, Math.min(3, Math.floor(curBikesCount)));
+      for (let i = 1; i <= clampedBikes; i++) {
+        if (!activeOutBikeIndices.has(i)) {
+          parkedBikeIndices.push(i);
+        }
+      }
+
+      const rack = curBaseDepot.bikeRack;
+
+      const drawFleetCourier = (
+        drawCtx: CanvasRenderingContext2D,
+        entry: FleetCourierSlotState
+      ) => {
+        const c = entry.courier;
+        const cargoCount = getCourierCargoCount(c.cargo);
+        if (c.vehicleType === 'van') {
           drawIsometricDeliveryVan(drawCtx, {
-            x: courier.x,
-            y: courier.y,
-            angle: courier.angle,
-            wheelPhase: courier.wheelPhase,
-            isDelivering: courier.phase === 'delivering',
-            cargoCount: activeCourierCargoCount,
-            cargoCapacity: courier.cargoCapacity,
+            x: c.x,
+            y: c.y,
+            angle: c.angle,
+            wheelPhase: c.wheelPhase,
+            isDelivering: c.phase === 'delivering',
+            courierSlotIndex: entry.slotIndex,
+            cargoCount,
+            cargoCapacity: c.cargoCapacity,
             invScale,
           });
         } else {
           drawIsometricBicycle(drawCtx, {
-            x: courier.x,
-            y: courier.y,
-            angle: courier.angle,
-            withRider: courier.riderMounted,
-            wheelPhase: courier.wheelPhase,
-            isDelivering: courier.phase === 'delivering',
+            x: c.x,
+            y: c.y,
+            angle: c.angle,
+            withRider: c.riderMounted,
+            wheelPhase: c.wheelPhase,
+            isDelivering: c.phase === 'delivering',
+            courierSlotIndex: entry.slotIndex,
+            cargoCount,
+            cargoCapacity: c.cargoCapacity,
+            invScale,
           });
         }
       };
@@ -1263,8 +1496,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const parkedVanSlots = getBaseParkedVanSlots(
           curBaseDepot.parking,
           curVansCount,
-          activeOutVanIndex
-        );
+          null
+        ).filter((slot) => !activeOutVanIndices.has(slot.vanIndex));
         for (const slot of parkedVanSlots) {
           drawIsometricDeliveryVan(ctx, {
             x: slot.spot.x,
@@ -1273,15 +1506,18 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             wheelPhase: 0,
           });
         }
-        if (courier.phase !== 'idle') {
-          drawActiveCourier(ctx);
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = fleet[slotIndex];
+          if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
+            drawFleetCourier(ctx, entry);
+          }
         }
         if (streetNamesVisible) {
           renderStreetNames(ctx, effectiveZoom, viewBounds);
         }
       } else {
-        // Normal 3D Mode: Base loading zone & active route on ground, then Z-sorted 3D building sprites interleaved with
-        // fences, BAZA bike rack, parked fleet vans on P1–P8, and active courier vehicle so tall blocks naturally occlude them
+        // Normal 3D Mode: Base loading zone & active routes on ground, then Z-sorted 3D building sprites interleaved with
+        // fences, BAZA bike rack, parked fleet vans on P1–P8, and ALL active courier vehicles so tall blocks naturally occlude them
         const bikeRackEntity: DepthSortedEntity = {
           id: rack.id,
           uMin: rack.uMin,
@@ -1294,15 +1530,21 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const parkedVanEntities = createBaseParkedVanEntities(
           curBaseDepot,
           curVansCount,
-          activeOutVanIndex
-        );
+          null
+        ).filter((entity) => {
+          const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
+          return !activeOutVanIndices.has(vanIdx);
+        });
         const depthEntities: DepthSortedEntity[] = [bikeRackEntity, ...parkedVanEntities];
 
-        if (courier.phase !== 'idle') {
-          const isoPos = canvasToIso(courier.x, courier.y);
-          if (courier.vehicleType === 'van') {
-            const fx = Math.cos(courier.angle);
-            const fy = Math.sin(courier.angle);
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = fleet[slotIndex];
+          if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
+          const c = entry.courier;
+          const isoPos = canvasToIso(c.x, c.y);
+          if (c.vehicleType === 'van') {
+            const fx = Math.cos(c.angle);
+            const fy = Math.sin(c.angle);
             const du = fx * 0.5 + fy;
             const dv = fx * 0.5 - fy;
             const dLen = Math.hypot(du, dv) || 1;
@@ -1311,22 +1553,22 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             const halfU = 9.4 * au + 4.6 * av;
             const halfV = 9.4 * av + 4.6 * au;
             depthEntities.push({
-              id: `courier_van_${courier.vehicleIndex}`,
+              id: `courier_slot_${slotIndex}_van_${c.vehicleIndex}`,
               uMin: isoPos.u - halfU,
               uMax: isoPos.u + halfU,
               vMin: isoPos.v - halfV,
               vMax: isoPos.v + halfV,
-              draw: drawActiveCourier,
+              draw: (drawCtx) => drawFleetCourier(drawCtx, entry),
             });
           } else {
             const halfFoot = 3.2;
             depthEntities.push({
-              id: `courier_bike_${courier.vehicleIndex}`,
+              id: `courier_slot_${slotIndex}_bike_${c.vehicleIndex}`,
               uMin: isoPos.u - halfFoot,
               uMax: isoPos.u + halfFoot,
               vMin: isoPos.v - halfFoot,
               vMax: isoPos.v + halfFoot,
-              draw: drawActiveCourier,
+              draw: (drawCtx) => drawFleetCourier(drawCtx, entry),
             });
           }
         }

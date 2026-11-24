@@ -139,6 +139,8 @@ export interface WeeklyScheduleTask {
   satisfaction: number;
   /** 1-based priority rank within this weekday */
   priorityRank: number;
+  /** Optional 1-based courier slot index (#1–#6) currently executing this task */
+  assignedCourierId?: number;
 }
 
 export interface ActiveOrderBase {

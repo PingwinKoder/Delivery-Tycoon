@@ -11,6 +11,7 @@ import {
   applyWarehouseTierToBuildings,
 } from './utils/buildings';
 import { buildBaseDepotSpec } from './utils/cityMap';
+import type { CourierFleetStatusSnapshot } from './utils/courierSim';
 import type {
   ActiveVehicleSelection,
   CourierQualification,
@@ -59,6 +60,15 @@ import {
 
 const MAX_CLOCK_REAL_DT = 0.1;
 
+const INITIAL_COURIER_AT_BASE_BY_SLOT: Record<number, boolean> = {
+  1: true,
+  2: true,
+  3: true,
+  4: true,
+  5: true,
+  6: true,
+};
+
 const devModules = import.meta.glob('./devVanTest.ts', { eager: true }) as Record<
   string,
   {
@@ -91,7 +101,14 @@ export function App() {
   });
   const [gameMinutes, setGameMinutes] = useState<number>(INITIAL_GAME_MINUTES);
   const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
-  // Tracks whether all couriers are currently parked at Base (required for automatic 15x Night Mode)
+  // Tracks per-slot courier Base presence (#1–#6) and live Plan tygodnia task assignments
+  const [courierAtBaseBySlot, setCourierAtBaseBySlot] = useState<Record<number, boolean>>(
+    INITIAL_COURIER_AT_BASE_BY_SLOT
+  );
+  const [taskAssignmentsByTaskId, setTaskAssignmentsByTaskId] = useState<Record<string, number>>(
+    {}
+  );
+  // Tracks whether ALL couriers are currently parked at Base (required for automatic 15x Night Mode)
   const [allCouriersAtBase, setAllCouriersAtBase] = useState<boolean>(true);
   const [ordersOpen, setOrdersOpen] = useState<boolean>(false);
   const [companyOpen, setCompanyOpen] = useState<boolean>(false);
@@ -102,6 +119,7 @@ export function App() {
   const economyStateRef = useRef<OrderEconomyState>(economyState);
   const exactGameMinutesRef = useRef<number>(INITIAL_GAME_MINUTES);
   const lastEconomyCheckMinutesRef = useRef<number>(INITIAL_GAME_MINUTES);
+  const courierAtBaseBySlotRef = useRef<Record<number, boolean>>(courierAtBaseBySlot);
   const allCouriersAtBaseRef = useRef<boolean>(allCouriersAtBase);
 
   const applyEconomyUpdate = useCallback(
@@ -119,6 +137,14 @@ export function App() {
   const handleCourierAtBaseChange = useCallback((atBase: boolean) => {
     allCouriersAtBaseRef.current = atBase;
     setAllCouriersAtBase(atBase);
+  }, []);
+
+  const handleCourierStatusChange = useCallback((status: CourierFleetStatusSnapshot) => {
+    courierAtBaseBySlotRef.current = status.atBaseBySlot;
+    allCouriersAtBaseRef.current = status.allAtBase;
+    setCourierAtBaseBySlot(status.atBaseBySlot);
+    setAllCouriersAtBase(status.allAtBase);
+    setTaskAssignmentsByTaskId(status.taskAssignmentsByTaskId);
   }, []);
 
   // Advance world clock smoothly:
@@ -304,9 +330,13 @@ export function App() {
 
   const jumpWorldClockTo = useCallback(
     (targetMinutes: number) => {
-      // Recall courier back to Base and secure any carried packages in Base warehouse before skipping time
+      // Recall all couriers back to Base and secure any carried packages in Base warehouse before skipping time
       const recoveredCargo = canvasControllerRef.current?.recallCourierToBase() ?? [];
-      handleCourierAtBaseChange(true);
+      handleCourierStatusChange({
+        atBaseBySlot: INITIAL_COURIER_AT_BASE_BY_SLOT,
+        allAtBase: true,
+        taskAssignmentsByTaskId: {},
+      });
 
       const safeTarget = Math.max(
         Math.floor(exactGameMinutesRef.current),
@@ -323,7 +353,7 @@ export function App() {
       });
       setSkipTimeOpen(false);
     },
-    [applyEconomyUpdate, handleCourierAtBaseChange]
+    [applyEconomyUpdate, handleCourierStatusChange]
   );
 
   const handleSkipOneDay = useCallback(() => {
@@ -388,7 +418,7 @@ export function App() {
 
   const handleSelectActiveVehicle = useCallback(
     (vehicle: ActiveVehicleSelection) => {
-      if (!allCouriersAtBaseRef.current) return;
+      if (courierAtBaseBySlotRef.current[1] === false) return;
       applyEconomyUpdate((prev) => setOwnerActiveVehicle(prev, vehicle));
     },
     [applyEconomyUpdate]
@@ -417,7 +447,7 @@ export function App() {
 
   const handleFireCourier = useCallback(
     (slotIndex: number) => {
-      if (slotIndex === 1 && !allCouriersAtBaseRef.current) return;
+      if (courierAtBaseBySlotRef.current[slotIndex] === false) return;
       applyEconomyUpdate((prev) => fireCourierInSlot(prev, slotIndex).state);
     },
     [applyEconomyUpdate]
@@ -425,7 +455,7 @@ export function App() {
 
   const handleAssignCourierVehicle = useCallback(
     (slotIndex: number, vehicle: ActiveVehicleSelection | null) => {
-      if (slotIndex === 1 && !allCouriersAtBaseRef.current) return;
+      if (courierAtBaseBySlotRef.current[slotIndex] === false) return;
       applyEconomyUpdate((prev) => assignCourierVehicle(prev, slotIndex, vehicle));
     },
     [applyEconomyUpdate]
@@ -477,6 +507,7 @@ export function App() {
         interactionBlocked={ordersOpen || skipTimeOpen || companyOpen}
         onFpsChange={setFps}
         onCourierAtBaseChange={handleCourierAtBaseChange}
+        onCourierStatusChange={handleCourierStatusChange}
         onLoadFromWarehouse={handleLoadFromWarehouse}
         onPickupPackagesLoaded={handlePickupPackagesLoaded}
         onDeliverPackages={handleDeliverPackages}
@@ -529,6 +560,7 @@ export function App() {
         isOpen={ordersOpen}
         economyState={economyState}
         gameMinutes={gameMinutes}
+        taskAssignmentsByTaskId={taskAssignmentsByTaskId}
         onClose={handleCloseOrders}
         onMarkOffersSeen={handleMarkOffersSeen}
         onAcceptOffer={handleAcceptOffer}
@@ -539,15 +571,8 @@ export function App() {
       <CompanyModal
         isOpen={companyOpen}
         economyState={economyState}
-        isOwnerAtBase={allCouriersAtBase}
-        courierAtBaseBySlot={{
-          1: allCouriersAtBase,
-          2: true,
-          3: true,
-          4: true,
-          5: true,
-          6: true,
-        }}
+        isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
+        courierAtBaseBySlot={courierAtBaseBySlot}
         onClose={handleCloseCompany}
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}

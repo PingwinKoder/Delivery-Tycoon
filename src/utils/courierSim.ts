@@ -3,6 +3,7 @@ import type {
   ActiveOrder,
   ActiveVehicleSelection,
   ActiveVehicleType,
+  CompanyCourier,
   OrderEconomyState,
   WeeklyScheduleTask,
 } from '../types/orders';
@@ -111,7 +112,20 @@ export type PostFinalPickupDecision =
       scenario: 'return_to_base_idle';
     };
 
+export interface CourierTaskSelectionOptions {
+  /** Task IDs (`"${orderId}:pickup"` / `"${orderId}:delivery"`) already claimed by other active couriers */
+  claimedTaskIds?: ReadonlySet<string>;
+  /** Packages currently reserved in-flight by other couriers' active pickup runs (not yet unloaded into Base) */
+  reservedWarehouseSpace?: number;
+}
+
 export interface CourierState {
+  /** 1-based courier slot index (1 = Właściciel, 2..6 = Kurier #2..#6) */
+  courierId: number;
+  /** True whenever this courier is out on a route or moving on the Base yard */
+  inRoute: boolean;
+  /** Currently claimed WeeklyScheduleTask taskId (e.g. "ord-1:pickup", "ord-1:delivery"), or null */
+  assignedTaskId: string | null;
   phase: CourierPhase;
   /** True while the courier is out on a mission or moving on the Base yard */
   active: boolean;
@@ -164,6 +178,25 @@ export interface CourierState {
   cargo: CourierCargoItem[];
   /** True when the courier was recalled to Base due to end of seasonal workday */
   isForcedReturn: boolean;
+}
+
+export const COURIER_SLOT_INDICES = [1, 2, 3, 4, 5, 6] as const;
+
+export interface FleetCourierSlotState {
+  slotIndex: number;
+  inRoute: boolean;
+  assignedTaskId: string | null;
+  courier: CourierState;
+  activeRoute: Point[];
+  targetMarker: Point | null;
+}
+
+export type MultiCourierFleetState = Record<number, FleetCourierSlotState>;
+
+export interface CourierFleetStatusSnapshot {
+  atBaseBySlot: Record<number, boolean>;
+  allAtBase: boolean;
+  taskAssignmentsByTaskId: Record<string, number>;
 }
 
 /** Original base bicycle speed before the 30% pacing reduction */
@@ -245,17 +278,22 @@ export function prependRackExitToPath(rackWaypoints: Point[], roadPath: Point[])
 export function selectNextCourierTaskForDay(
   state: OrderEconomyState,
   currentMinutes: number,
-  vehicleTypeOverride?: ActiveVehicleType
+  vehicleTypeOverride?: ActiveVehicleType,
+  options?: CourierTaskSelectionOptions
 ): SelectedCourierTask | null {
   const clock = getGameClockDisplay(currentMinutes);
   const todayTasks = getScheduledTasksForWeekday(state, clock.dayIndex, clock.gameDay);
   const activeById = new Map(state.activeOrders.map((o) => [o.id, o]));
-  const freeWarehouseSpace = getFreeWarehouseCapacity(state);
+  const warehouseCapacity = getEffectiveWarehouseCapacity(state);
+  const reservedSpace = Math.max(0, options?.reservedWarehouseSpace ?? 0);
+  const freeWarehouseSpace = Math.max(0, getFreeWarehouseCapacity(state) - reservedSpace);
+  const claimedTaskIds = options?.claimedTaskIds;
   const activeType: ActiveVehicleType =
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
   const vehicleCapacity = getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
+    if (claimedTaskIds?.has(task.taskId)) continue;
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 
@@ -271,7 +309,13 @@ export function selectNextCourierTaskForDay(
       // Hold ODBIÓR if the Base warehouse does not have enough free slots for the next
       // single-trip pickup batch (`min(vehicleCapacity, remainingToPickup)`); leave the rest
       // of this ODBIÓR on the list and run one ROZWÓZKA trip first to free space.
-      if (!hasEnoughWarehouseSpaceForPickup(state, remainingToPickup, vehicleCapacity)) continue;
+      const requiredSpace = Math.min(vehicleCapacity, remainingToPickup, warehouseCapacity);
+      if (
+        freeWarehouseSpace < requiredSpace ||
+        !hasEnoughWarehouseSpaceForPickup(state, remainingToPickup, vehicleCapacity)
+      ) {
+        continue;
+      }
       const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeWarehouseSpace);
       if (pickupCount > 0) {
         return { kind: 'pickup', order, pickupCount, task };
@@ -288,6 +332,7 @@ export function selectNextCourierTaskForDay(
   if (state.warehousePackages > 0) {
     for (const order of state.activeOrders) {
       if (order.status !== 'active') continue;
+      if (claimedTaskIds?.has(`${order.id}:delivery`)) continue;
       const storedCount = getStoredPackagesForOrder(state, order.id);
       if (storedCount > 0) {
         return { kind: 'delivery', order, availableCount: storedCount };
@@ -302,7 +347,7 @@ export function selectNextCourierTaskForDay(
  * Evaluates the courier's next highest-priority ready task immediately after picking up
  * the FINAL remaining package of `completedPickupOrderId` at the sender's address
  * (once that ODBIÓR has already been removed from today's `Plan tygodnia`):
- * - Scenario A: next ready task is ROZWÓZKA of the same order -> deliver directly from sender without returning to Base
+ * - Scenario A: next ready task is ROZWÓZKA of the same order (and NOT claimed by another courier) -> deliver directly from sender without returning to Base
  * - Scenario B: next ready task is ODBIÓR of another order -> return to Base, unload carried packages, then head to new ODBIÓR
  * - Scenario C: next ready task is ROZWÓZKA of another order -> return to Base, unload carried packages, load new order, deliver
  */
@@ -311,7 +356,8 @@ export function selectNextTaskAfterFinalPickup(
   currentMinutes: number,
   completedPickupOrderId: string,
   carriedCount: number,
-  vehicleTypeOverride?: ActiveVehicleType
+  vehicleTypeOverride?: ActiveVehicleType,
+  options?: CourierTaskSelectionOptions
 ): PostFinalPickupDecision {
   if (carriedCount <= 0) {
     return { scenario: 'return_to_base_idle' };
@@ -321,12 +367,18 @@ export function selectNextTaskAfterFinalPickup(
   const todayTasks = getScheduledTasksForWeekday(state, clock.dayIndex, clock.gameDay);
   const activeById = new Map(state.activeOrders.map((o) => [o.id, o]));
   const warehouseCapacity = getEffectiveWarehouseCapacity(state);
-  const freeSpaceAfterUnload = Math.max(0, getFreeWarehouseCapacity(state) - carriedCount);
+  const reservedSpace = Math.max(0, options?.reservedWarehouseSpace ?? 0);
+  const freeSpaceAfterUnload = Math.max(
+    0,
+    getFreeWarehouseCapacity(state) - reservedSpace - carriedCount
+  );
+  const claimedTaskIds = options?.claimedTaskIds;
   const activeType: ActiveVehicleType =
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
   const vehicleCapacity = getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
+    if (claimedTaskIds?.has(task.taskId)) continue;
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 
@@ -365,8 +417,13 @@ export function selectNextTaskAfterFinalPickup(
     }
   }
 
+  const sameOrderDeliveryTaskId = `${completedPickupOrderId}:delivery`;
   const completedOrder = activeById.get(completedPickupOrderId);
-  if (completedOrder && completedOrder.status === 'active') {
+  if (
+    completedOrder &&
+    completedOrder.status === 'active' &&
+    !claimedTaskIds?.has(sameOrderDeliveryTaskId)
+  ) {
     return {
       scenario: 'direct_delivery_same_order',
       order: completedOrder,
@@ -377,11 +434,15 @@ export function selectNextTaskAfterFinalPickup(
 }
 
 export function createIdleCourier(
-  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 }
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  courierId = 1
 ): CourierState {
   const vehicleType = vehicle.type;
   const vehicleIndex = Math.max(1, Math.floor(vehicle.index || 1));
   return {
+    courierId: Math.max(1, Math.floor(courierId || 1)),
+    inRoute: false,
+    assignedTaskId: null,
     phase: 'idle',
     active: false,
     arrived: false,
@@ -412,16 +473,135 @@ export function createIdleCourier(
   };
 }
 
+export function createInitialCourierFleet(
+  couriers?: readonly CompanyCourier[]
+): MultiCourierFleetState {
+  const fleet: MultiCourierFleetState = {};
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    const rosterEntry = couriers?.find((c) => c.slotIndex === slotIndex);
+    const vehicle = rosterEntry?.assignedVehicle ?? { type: 'bike' as const, index: 1 };
+    fleet[slotIndex] = {
+      slotIndex,
+      inRoute: false,
+      assignedTaskId: null,
+      courier: createIdleCourier(vehicle, slotIndex),
+      activeRoute: [],
+      targetMarker: null,
+    };
+  }
+  return fleet;
+}
+
+export function getClaimedTaskIdsForFleet(
+  fleet: Readonly<MultiCourierFleetState>,
+  excludeSlotIndex?: number
+): Set<string> {
+  const claimed = new Set<string>();
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    if (slotIndex === excludeSlotIndex) continue;
+    const entry = fleet[slotIndex];
+    if (entry && entry.inRoute && entry.assignedTaskId) {
+      claimed.add(entry.assignedTaskId);
+    }
+  }
+  return claimed;
+}
+
+export function getReservedWarehouseSpaceForFleet(
+  fleet: Readonly<MultiCourierFleetState>,
+  excludeSlotIndex?: number
+): number {
+  let reserved = 0;
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    if (slotIndex === excludeSlotIndex) continue;
+    const entry = fleet[slotIndex];
+    if (!entry || !entry.inRoute || !entry.courier.active) continue;
+    const c = entry.courier;
+    if (c.missionKind !== 'pickup') continue;
+    const carried = getCourierCargoCount(c.cargo);
+    if (carried > 0) {
+      reserved += carried;
+    } else {
+      const pickupStop = c.stops.find((s) => s.kind === 'pickup');
+      if (pickupStop && (pickupStop.plannedPickupCount ?? 0) > 0) {
+        reserved += pickupStop.plannedPickupCount ?? 0;
+      }
+    }
+  }
+  return reserved;
+}
+
+export function getActiveOutVehiclesForFleet(
+  fleet: Readonly<MultiCourierFleetState>
+): { bikeIndices: Set<number>; vanIndices: Set<number> } {
+  const bikeIndices = new Set<number>();
+  const vanIndices = new Set<number>();
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    const entry = fleet[slotIndex];
+    if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
+    if (entry.courier.vehicleType === 'van') {
+      vanIndices.add(entry.courier.vehicleIndex);
+    } else {
+      bikeIndices.add(entry.courier.vehicleIndex);
+    }
+  }
+  return { bikeIndices, vanIndices };
+}
+
+export function isVehicleCurrentlyInRoute(
+  fleet: Readonly<MultiCourierFleetState>,
+  vehicle: ActiveVehicleSelection,
+  excludeSlotIndex?: number
+): boolean {
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    if (slotIndex === excludeSlotIndex) continue;
+    const entry = fleet[slotIndex];
+    if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
+    if (
+      entry.courier.vehicleType === vehicle.type &&
+      entry.courier.vehicleIndex === vehicle.index
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function buildCourierAtBaseBySlot(
+  fleet: Readonly<MultiCourierFleetState>
+): Record<number, boolean> {
+  const result: Record<number, boolean> = {};
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    const entry = fleet[slotIndex];
+    result[slotIndex] = !(entry?.inRoute ?? false);
+  }
+  return result;
+}
+
+export function buildTaskAssignmentsByTaskId(
+  fleet: Readonly<MultiCourierFleetState>
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    const entry = fleet[slotIndex];
+    if (entry && entry.inRoute && entry.assignedTaskId) {
+      result[entry.assignedTaskId] = slotIndex;
+    }
+  }
+  return result;
+}
+
 export function createCourierFromPath(
   outboundPoints: Point[],
   speed?: number,
   deliveryPauseDuration = DELIVERY_PAUSE_SECONDS,
   returnPoints?: Point[],
   targetLabel?: string,
-  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 }
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  courierId = 1
 ): CourierState {
   if (outboundPoints.length < 2) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -436,6 +616,9 @@ export function createCourierFromPath(
   const angle = Math.atan2(dy, dx);
 
   return {
+    courierId: Math.max(1, Math.floor(courierId || 1)),
+    inRoute: true,
+    assignedTaskId: null,
     phase: 'outbound',
     active: true,
     arrived: false,
@@ -980,10 +1163,12 @@ function createMissionCourierFromStops(
   initialCargo: CourierCargoItem[],
   speed?: number,
   deliveryPauseDuration = DELIVERY_PAUSE_SECONDS,
-  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 }
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  courierId = 1,
+  assignedTaskId: string | null = null
 ): CourierState {
   if (stops.length === 0 || stops[0].legPath.length < 2) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -998,6 +1183,9 @@ function createMissionCourierFromStops(
   const dy = firstPath[1].y - firstPath[0].y;
 
   return {
+    courierId: Math.max(1, Math.floor(courierId || 1)),
+    inRoute: true,
+    assignedTaskId,
     phase: 'outbound',
     active: true,
     arrived: false,
@@ -1042,10 +1230,12 @@ export function createPickupMissionCourier(
   startFrom: CourierStartPoint = 'rack',
   speed?: number,
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
-  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  courierId = 1,
+  assignedTaskId: string | null = `${orderId}:pickup`
 ): CourierState {
   if (plannedPickupCount <= 0) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -1054,7 +1244,7 @@ export function createPickupMissionCourier(
   if (vehicle.type === 'van') {
     const stopPlan = resolveVanStopForBuilding(senderBuilding, parkingNavNetworks);
     if (!stopPlan) {
-      return createIdleCourier(vehicle);
+      return createIdleCourier(vehicle, courierId);
     }
 
     const outboundPath = buildVanOutboundLegFromBaseToStop(
@@ -1076,7 +1266,7 @@ export function createPickupMissionCourier(
       !returnToLoadingZone ||
       returnToLoadingZone.length < 2
     ) {
-      return createIdleCourier(vehicle);
+      return createIdleCourier(vehicle, courierId);
     }
 
     const actualStopPoint = outboundPath[outboundPath.length - 1];
@@ -1116,12 +1306,14 @@ export function createPickupMissionCourier(
       [],
       resolvedSpeed,
       DELIVERY_PAUSE_SECONDS,
-      vehicle
+      vehicle,
+      courierId,
+      assignedTaskId
     );
   }
 
   if (!senderBuilding.deliveryStopPoint) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const outboundPath = buildOutboundLegFromBaseToBuilding(
@@ -1141,7 +1333,7 @@ export function createPickupMissionCourier(
     !returnToLoadingZone ||
     returnToLoadingZone.length < 2
   ) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const pickupStop: CourierMissionStop = {
@@ -1175,7 +1367,9 @@ export function createPickupMissionCourier(
     [],
     resolvedSpeed,
     DELIVERY_PAUSE_SECONDS,
-    vehicle
+    vehicle,
+    courierId,
+    assignedTaskId
   );
 }
 
@@ -1234,10 +1428,14 @@ export function createDeliveryMissionCourier(
   startFrom: CourierStartPoint = 'rack',
   speed?: number,
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
-  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  courierId = 1,
+  assignedTaskId: string | null = initialCargo[0]?.orderId
+    ? `${initialCargo[0].orderId}:delivery`
+    : null
 ): CourierState {
   if (stopsInput.length === 0 || initialCargo.length === 0) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -1334,7 +1532,7 @@ export function createDeliveryMissionCourier(
   }
 
   if (deliveryStops.length === 0) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const baseLoadLegPath =
@@ -1368,6 +1566,9 @@ export function createDeliveryMissionCourier(
   if (startFrom === 'loading_zone') {
     // Already parked at the Base loading bay -> load parcels immediately before departing
     return {
+      courierId: Math.max(1, Math.floor(courierId || 1)),
+      inRoute: true,
+      assignedTaskId,
       phase: 'delivering',
       active: true,
       arrived: true,
@@ -1405,7 +1606,9 @@ export function createDeliveryMissionCourier(
     initialCargo.map((it) => ({ ...it })),
     resolvedSpeed,
     DELIVERY_PAUSE_SECONDS,
-    vehicle
+    vehicle,
+    courierId,
+    assignedTaskId
   );
 }
 
@@ -1422,10 +1625,14 @@ export function createDirectDeliveryMissionFromBuilding(
   initialCargo: readonly CourierCargoItem[],
   speed?: number,
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
-  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  courierId = 1,
+  assignedTaskId: string | null = initialCargo[0]?.orderId
+    ? `${initialCargo[0].orderId}:delivery`
+    : null
 ): CourierState {
   if (stopsInput.length === 0 || initialCargo.length === 0) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -1434,7 +1641,7 @@ export function createDirectDeliveryMissionFromBuilding(
   if (vehicle.type === 'van') {
     const senderPlan = resolveVanStopForBuilding(senderBuilding, parkingNavNetworks);
     if (!senderPlan) {
-      return createIdleCourier(vehicle);
+      return createIdleCourier(vehicle, courierId);
     }
 
     const orderedInputs = orderStopsNearestNeighbor(stopsInput, senderPlan.stopPoint);
@@ -1481,7 +1688,7 @@ export function createDirectDeliveryMissionFromBuilding(
     }
   } else {
     if (!senderBuilding.deliveryStopPoint || !senderBuilding.roadApproachPoint) {
-      return createIdleCourier(vehicle);
+      return createIdleCourier(vehicle, courierId);
     }
 
     const startPt: Point = {
@@ -1522,7 +1729,7 @@ export function createDirectDeliveryMissionFromBuilding(
   }
 
   if (deliveryStops.length === 0) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   return createMissionCourierFromStops(
@@ -1531,7 +1738,9 @@ export function createDirectDeliveryMissionFromBuilding(
     initialCargo.map((it) => ({ ...it })),
     resolvedSpeed,
     DELIVERY_PAUSE_SECONDS,
-    vehicle
+    vehicle,
+    courierId,
+    assignedTaskId
   );
 }
 
@@ -1547,7 +1756,8 @@ export function createParkAtRackCourier(
   speed?: number,
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
-  graph?: RoadGraph
+  graph?: RoadGraph,
+  courierId = 1
 ): CourierState {
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
   const parkWaypoints =
@@ -1564,13 +1774,16 @@ export function createParkAtRackCourier(
         : baseDepot.loadingZone.toBikeRackWaypoints.map((p) => ({ x: p.x, y: p.y }));
 
   if (parkWaypoints.length < 2) {
-    return createIdleCourier(vehicle);
+    return createIdleCourier(vehicle, courierId);
   }
 
   const dx = parkWaypoints[1].x - parkWaypoints[0].x;
   const dy = parkWaypoints[1].y - parkWaypoints[0].y;
 
   return {
+    courierId: Math.max(1, Math.floor(courierId || 1)),
+    inRoute: true,
+    assignedTaskId: null,
     phase: 'returning',
     active: true,
     arrived: false,
@@ -1620,7 +1833,9 @@ export function interruptCourierForEndOfWorkday(
   }
 
   if (state.missionKind === 'park_rack') {
-    return state.isForcedReturn ? state : { ...state, isForcedReturn: true };
+    return state.isForcedReturn && state.assignedTaskId === null
+      ? state
+      : { ...state, isForcedReturn: true, assignedTaskId: null };
   }
 
   const currentStop = state.stops[state.currentStopIndex];
@@ -1629,12 +1844,16 @@ export function interruptCourierForEndOfWorkday(
 
   // Already heading to or unloading at the Base loading zone -> just mark forced return
   if (currentStop?.kind === 'base_unload') {
-    return state.isForcedReturn ? state : { ...state, isForcedReturn: true };
+    return state.isForcedReturn && state.assignedTaskId === null
+      ? state
+      : { ...state, isForcedReturn: true, assignedTaskId: null };
   }
 
   // Already on a clean empty return leg back to Base -> let it finish and then park at rack
   if (state.phase === 'returning' && !hasCargo) {
-    return state.isForcedReturn ? state : { ...state, isForcedReturn: true };
+    return state.isForcedReturn && state.assignedTaskId === null
+      ? state
+      : { ...state, isForcedReturn: true, assignedTaskId: null };
   }
 
   const activeVehicle: ActiveVehicleSelection = {
@@ -1665,6 +1884,8 @@ export function interruptCourierForEndOfWorkday(
     };
     return {
       ...state,
+      assignedTaskId: null,
+      inRoute: true,
       phase: 'delivering',
       active: true,
       arrived: true,
@@ -1712,6 +1933,8 @@ export function interruptCourierForEndOfWorkday(
     if (returnToLoadingPath.length < 2) {
       return {
         ...state,
+        assignedTaskId: null,
+        inRoute: true,
         phase: 'delivering',
         active: true,
         arrived: true,
@@ -1736,6 +1959,8 @@ export function interruptCourierForEndOfWorkday(
 
     return {
       ...state,
+      assignedTaskId: null,
+      inRoute: true,
       phase: 'returning',
       active: true,
       arrived: false,
@@ -1771,6 +1996,8 @@ export function interruptCourierForEndOfWorkday(
   if (returnToRackPath.length < 2) {
     return {
       ...state,
+      assignedTaskId: null,
+      inRoute: true,
       missionKind: 'park_rack',
       phase: 'returning',
       riderMounted: true,
@@ -1793,6 +2020,8 @@ export function interruptCourierForEndOfWorkday(
 
   return {
     ...state,
+    assignedTaskId: null,
+    inRoute: true,
     missionKind: 'park_rack',
     phase: 'returning',
     active: true,
@@ -1858,7 +2087,10 @@ function beginLegOnPath(
   overrides: Partial<CourierState> = {}
 ): CourierState {
   if (nextPath.length < 2) {
-    return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
+    return createIdleCourier(
+      { type: state.vehicleType, index: state.vehicleIndex },
+      state.courierId
+    );
   }
 
   const dx = nextPath[1].x - nextPath[0].x;
@@ -1866,6 +2098,7 @@ function beginLegOnPath(
   return {
     ...state,
     ...overrides,
+    inRoute: true,
     phase,
     active: true,
     arrived: false,
@@ -2024,7 +2257,10 @@ function stepCourierBySimDtInternal(
           type: 'arrived_at_loading_zone',
           wasForcedReturn: state.isForcedReturn,
         });
-        return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
+        return createIdleCourier(
+          { type: state.vehicleType, index: state.vehicleIndex },
+          state.courierId
+        );
       }
 
       if (currentStop.kind === 'base_unload') {
@@ -2038,7 +2274,10 @@ function stepCourierBySimDtInternal(
           type: 'arrived_at_loading_zone',
           wasForcedReturn: state.isForcedReturn,
         });
-        return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
+        return createIdleCourier(
+          { type: state.vehicleType, index: state.vehicleIndex },
+          state.courierId
+        );
       }
 
       if (currentStop.kind === 'pickup') {
@@ -2140,7 +2379,10 @@ function stepCourierBySimDtInternal(
         });
       }
     }
-    return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
+    return createIdleCourier(
+      { type: state.vehicleType, index: state.vehicleIndex },
+      state.courierId
+    );
   }
 
   // Smooth acceleration, corner slowdown & stop braking (scales naturally with 1x/2x/4x simDt)
@@ -2281,7 +2523,10 @@ function stepCourierBySimDtInternal(
         cargo: state.cargo.map((c) => ({ ...c })),
         wasForcedReturn: state.isForcedReturn,
       });
-      return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
+      return createIdleCourier(
+        { type: state.vehicleType, index: state.vehicleIndex },
+        state.courierId
+      );
     }
 
     // 3. Completed return leg from delivery mission to Base loading zone
@@ -2295,7 +2540,10 @@ function stepCourierBySimDtInternal(
       type: 'arrived_at_loading_zone',
       wasForcedReturn: state.isForcedReturn,
     });
-    return createIdleCourier({ type: state.vehicleType, index: state.vehicleIndex });
+    return createIdleCourier(
+      { type: state.vehicleType, index: state.vehicleIndex },
+      state.courierId
+    );
   }
 
   const a = state.path[segIdx];
