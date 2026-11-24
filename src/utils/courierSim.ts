@@ -12,6 +12,7 @@ import { BASE_GAME_MINUTES_PER_REAL_SECOND, getGameClockDisplay } from './gameCl
 import {
   BIKE_COURIER_CAPACITY,
   VAN_COURIER_CAPACITY,
+  getEffectiveWarehouseCapacity,
   getFreeWarehouseCapacity,
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
@@ -92,6 +93,22 @@ export type SelectedCourierTask =
       order: ActiveOrder;
       availableCount: number;
       task?: WeeklyScheduleTask;
+    };
+
+export type PostFinalPickupDecision =
+  | {
+      /** Scenario A: next task is ROZWÓZKA of the same order -> deliver carried packages directly from sender */
+      scenario: 'direct_delivery_same_order';
+      order: ActiveOrder;
+      task?: WeeklyScheduleTask;
+    }
+  | {
+      /** Scenario B (next ODBIÓR of another order) or Scenario C (next ROZWÓZKA of another order) -> return to Base & unload first */
+      scenario: 'return_to_base_for_next_task';
+      nextTask: SelectedCourierTask;
+    }
+  | {
+      scenario: 'return_to_base_idle';
     };
 
 export interface CourierState {
@@ -251,9 +268,10 @@ export function selectNextCourierTaskForDay(
         clock.gameDay
       );
       if (remainingToPickup <= 0) continue;
-      // Hold ODBIÓR if the Base warehouse (30 / 70 / 140 / 250 capacity) does not have
-      // enough free slots for this order's remaining pickup packages; proceed to ROZWÓZKA instead.
-      if (!hasEnoughWarehouseSpaceForPickup(state, remainingToPickup)) continue;
+      // Hold ODBIÓR if the Base warehouse does not have enough free slots for the next
+      // single-trip pickup batch (`min(vehicleCapacity, remainingToPickup)`); leave the rest
+      // of this ODBIÓR on the list and run one ROZWÓZKA trip first to free space.
+      if (!hasEnoughWarehouseSpaceForPickup(state, remainingToPickup, vehicleCapacity)) continue;
       const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeWarehouseSpace);
       if (pickupCount > 0) {
         return { kind: 'pickup', order, pickupCount, task };
@@ -278,6 +296,84 @@ export function selectNextCourierTaskForDay(
   }
 
   return null;
+}
+
+/**
+ * Evaluates the courier's next highest-priority ready task immediately after picking up
+ * the FINAL remaining package of `completedPickupOrderId` at the sender's address
+ * (once that ODBIÓR has already been removed from today's `Plan tygodnia`):
+ * - Scenario A: next ready task is ROZWÓZKA of the same order -> deliver directly from sender without returning to Base
+ * - Scenario B: next ready task is ODBIÓR of another order -> return to Base, unload carried packages, then head to new ODBIÓR
+ * - Scenario C: next ready task is ROZWÓZKA of another order -> return to Base, unload carried packages, load new order, deliver
+ */
+export function selectNextTaskAfterFinalPickup(
+  state: OrderEconomyState,
+  currentMinutes: number,
+  completedPickupOrderId: string,
+  carriedCount: number,
+  vehicleTypeOverride?: ActiveVehicleType
+): PostFinalPickupDecision {
+  if (carriedCount <= 0) {
+    return { scenario: 'return_to_base_idle' };
+  }
+
+  const clock = getGameClockDisplay(currentMinutes);
+  const todayTasks = getScheduledTasksForWeekday(state, clock.dayIndex, clock.gameDay);
+  const activeById = new Map(state.activeOrders.map((o) => [o.id, o]));
+  const warehouseCapacity = getEffectiveWarehouseCapacity(state);
+  const freeSpaceAfterUnload = Math.max(0, getFreeWarehouseCapacity(state) - carriedCount);
+  const activeType: ActiveVehicleType =
+    vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
+  const vehicleCapacity = getCourierCapacityForVehicle(activeType);
+
+  for (const task of todayTasks) {
+    const order = activeById.get(task.orderId);
+    if (!order || order.status !== 'active') continue;
+
+    if (task.taskType === 'pickup') {
+      const remainingToPickup = getRemainingPickupPackagesForOrderToday(
+        state,
+        order,
+        clock.dayIndex,
+        clock.gameDay
+      );
+      if (remainingToPickup <= 0) continue;
+      const nextBatchSize = Math.min(vehicleCapacity, remainingToPickup, warehouseCapacity);
+      if (freeSpaceAfterUnload < nextBatchSize) continue;
+      const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeSpaceAfterUnload);
+      if (pickupCount > 0) {
+        return {
+          scenario: 'return_to_base_for_next_task',
+          nextTask: { kind: 'pickup', order, pickupCount, task },
+        };
+      }
+    } else if (task.taskType === 'delivery') {
+      if (order.id === completedPickupOrderId) {
+        return {
+          scenario: 'direct_delivery_same_order',
+          order,
+          task,
+        };
+      }
+      const storedCount = getStoredPackagesForOrder(state, order.id);
+      if (storedCount > 0) {
+        return {
+          scenario: 'return_to_base_for_next_task',
+          nextTask: { kind: 'delivery', order, availableCount: storedCount, task },
+        };
+      }
+    }
+  }
+
+  const completedOrder = activeById.get(completedPickupOrderId);
+  if (completedOrder && completedOrder.status === 'active') {
+    return {
+      scenario: 'direct_delivery_same_order',
+      order: completedOrder,
+    };
+  }
+
+  return { scenario: 'return_to_base_idle' };
 }
 
 export function createIdleCourier(
@@ -1314,6 +1410,132 @@ export function createDeliveryMissionCourier(
 }
 
 /**
+ * Creates a direct Multi-Stop Delivery Mission starting immediately from a sender building
+ * (Scenario A after final pickup: no return to Base, no `base_load` stop):
+ * sender building -> recipient 1 -> recipient 2 -> ... -> recipient N -> Base loading zone.
+ */
+export function createDirectDeliveryMissionFromBuilding(
+  graph: RoadGraph,
+  baseDepot: BaseDepotSpec,
+  senderBuilding: Building,
+  stopsInput: readonly DeliveryStopInput[],
+  initialCargo: readonly CourierCargoItem[],
+  speed?: number,
+  vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS
+): CourierState {
+  if (stopsInput.length === 0 || initialCargo.length === 0) {
+    return createIdleCourier(vehicle);
+  }
+
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
+  const deliveryStops: CourierMissionStop[] = [];
+
+  if (vehicle.type === 'van') {
+    const senderPlan = resolveVanStopForBuilding(senderBuilding, parkingNavNetworks);
+    if (!senderPlan) {
+      return createIdleCourier(vehicle);
+    }
+
+    const orderedInputs = orderStopsNearestNeighbor(stopsInput, senderPlan.stopPoint);
+    const usedSpotIds = new Set<string>();
+    let prevPlan: VanBuildingStopPlan = senderPlan;
+
+    for (const entry of orderedInputs) {
+      const b = entry.building;
+      const stopPlan = resolveVanStopForBuilding(b, parkingNavNetworks, usedSpotIds);
+      if (!stopPlan) continue;
+
+      const legPath = buildVanLegBetweenStops(graph, prevPlan, stopPlan);
+      const returnToLoadingZone = buildVanReturnLegFromStopToLoadingZone(
+        graph,
+        baseDepot,
+        stopPlan
+      );
+
+      if (
+        !legPath ||
+        legPath.length < 2 ||
+        !returnToLoadingZone ||
+        returnToLoadingZone.length < 2
+      ) {
+        continue;
+      }
+
+      if (stopPlan.parkingSpotId) {
+        usedSpotIds.add(stopPlan.parkingSpotId);
+      }
+
+      const actualStopPoint = legPath[legPath.length - 1];
+      deliveryStops.push({
+        kind: 'delivery',
+        buildingId: b.id,
+        label: formatBuildingAddress(b),
+        stopPoint: { x: actualStopPoint.x, y: actualStopPoint.y },
+        pauseDuration: DELIVERY_PAUSE_SECONDS,
+        deliveryItems: entry.items.map((it) => ({ ...it })),
+        legPath,
+        returnToBasePath: returnToLoadingZone,
+      });
+      prevPlan = stopPlan;
+    }
+  } else {
+    if (!senderBuilding.deliveryStopPoint || !senderBuilding.roadApproachPoint) {
+      return createIdleCourier(vehicle);
+    }
+
+    const startPt: Point = {
+      x: senderBuilding.deliveryStopPoint.x,
+      y: senderBuilding.deliveryStopPoint.y,
+    };
+    const orderedInputs = orderStopsNearestNeighbor(stopsInput, startPt);
+    let prevBuilding: Building = senderBuilding;
+
+    for (const entry of orderedInputs) {
+      const b = entry.building;
+      if (!b.deliveryStopPoint || !b.roadApproachPoint) continue;
+
+      const legPath = buildLegBetweenBuildings(graph, prevBuilding, b);
+      const returnToLoadingZone = buildReturnLegFromBuildingToLoadingZone(graph, baseDepot, b);
+
+      if (
+        !legPath ||
+        legPath.length < 2 ||
+        !returnToLoadingZone ||
+        returnToLoadingZone.length < 2
+      ) {
+        continue;
+      }
+
+      deliveryStops.push({
+        kind: 'delivery',
+        buildingId: b.id,
+        label: formatBuildingAddress(b),
+        stopPoint: { x: b.deliveryStopPoint.x, y: b.deliveryStopPoint.y },
+        pauseDuration: DELIVERY_PAUSE_SECONDS,
+        deliveryItems: entry.items.map((it) => ({ ...it })),
+        legPath,
+        returnToBasePath: returnToLoadingZone,
+      });
+      prevBuilding = b;
+    }
+  }
+
+  if (deliveryStops.length === 0) {
+    return createIdleCourier(vehicle);
+  }
+
+  return createMissionCourierFromStops(
+    'delivery',
+    deliveryStops,
+    initialCargo.map((it) => ({ ...it })),
+    resolvedSpeed,
+    DELIVERY_PAUSE_SECONDS,
+    vehicle
+  );
+}
+
+/**
  * Creates a short Base-yard parking ride from the loading zone (or live Base yard position)
  * back to the exterior bike rack (for bicycles) or assigned Base stall `P1–P8` (for vans)
  * when all tasks for the day are finished or night begins.
@@ -1832,7 +2054,7 @@ function stepCourierBySimDtInternal(
         const nextStopIndex = state.currentStopIndex + 1;
         const nextStop = state.stops[nextStopIndex];
         if (nextStop && nextStop.kind === 'base_unload' && nextStop.legPath.length >= 2) {
-          const unloadReturnState = beginLegOnPath(
+          return beginLegOnPath(
             state,
             'returning',
             nextStop.legPath,
@@ -1843,15 +2065,9 @@ function stepCourierBySimDtInternal(
               targetLabel: nextStop.label,
             }
           );
-          return leftoverDt > 1e-6
-            ? stepCourierBySimDtInternal(unloadReturnState, leftoverDt, events)
-            : unloadReturnState;
         }
 
-        const returnState = beginReturnLeg(state, state.wheelPhase);
-        return leftoverDt > 1e-6
-          ? stepCourierBySimDtInternal(returnState, leftoverDt, events)
-          : returnState;
+        return beginReturnLeg(state, state.wheelPhase);
       }
 
       if (currentStop.kind === 'delivery') {

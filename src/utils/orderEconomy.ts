@@ -8,6 +8,7 @@ import type {
   ActiveVehicleType,
   CompanyCourier,
   CompanyEmployee,
+  CourierQualification,
   EmployeeLicenseUpgradeInfo,
   HirableEmployeeRole,
   LongTermDurationMonths,
@@ -61,9 +62,9 @@ export const USED_VAN_INSURANCE_COST = 130;
 /** Monthly fixed cost: delivery van driver & vehicle insurance ($180 / mies. per van driver) */
 export const VAN_DRIVER_INSURANCE_COST = 180;
 
-/** Monthly salaries per employee role */
+/** Monthly salaries per employee qualification profile */
 export const OWNER_COURIER_SALARY = 0;
-export const HIRED_BIKE_COURIER_SALARY = 1650;
+export const HIRED_BIKE_COURIER_SALARY = 1600;
 export const HIRED_VAN_DRIVER_SALARY = 2300;
 
 /** Starter monthly fixed company costs at game start (Base Lv.1 + starter bicycle = $350/mies.) */
@@ -743,19 +744,32 @@ function generateOffersBatch(
 // ============================================================================
 
 /**
- * Returns the monthly salary in USD for a courier slot:
- * - Kurier #1 (Właściciel): $0/mies.
+ * Returns whether a courier is qualified to drive the given vehicle type.
+ * - Bicycles: all couriers (Owner, Rower, Rower + Bus)
+ * - Vans: only Właściciel (#1) and couriers with 'bike_and_van' qualification
+ */
+export function canCourierDriveVehicle(
+  courier: Pick<CompanyCourier, 'isOwner' | 'qualification'>,
+  vehicleType: ActiveVehicleType
+): boolean {
+  if (vehicleType === 'bike') return true;
+  return courier.isOwner || courier.qualification === 'bike_and_van';
+}
+
+/**
+ * Returns the monthly salary in USD for a courier slot based on qualification profile:
+ * - Kurier #1 (Właściciel): $0/mies. (Rower + Bus from start)
  * - Vacant/locked slot: $0/mies.
- * - Hired courier (#2–#6) assigned to a van: $2 300/mies.
- * - Hired courier (#2–#6) assigned to a bicycle or without a vehicle: $1 650/mies.
+ * - Hired courier (#2–#6) with 'bike_only' qualification: $1 600/mies.
+ * - Hired courier (#2–#6) with 'bike_and_van' qualification: $2 300/mies.
  */
 export function getCourierMonthlySalary(
   isOwner: boolean,
   hired: boolean,
-  assignedVehicle: ActiveVehicleSelection | null
+  qualification: CourierQualification = 'bike_only'
 ): number {
   if (isOwner || !hired) return 0;
-  return assignedVehicle?.type === 'van' ? HIRED_VAN_DRIVER_SALARY : HIRED_BIKE_COURIER_SALARY;
+  return qualification === 'bike_and_van' ? HIRED_VAN_DRIVER_SALARY : HIRED_BIKE_COURIER_SALARY;
 }
 
 export function vehiclesEqual(
@@ -810,11 +824,11 @@ function syncEmployeesFromCouriers(couriers: readonly CompanyCourier[]): Company
   const result: CompanyEmployee[] = [];
   for (const c of couriers) {
     if (!c.hired) continue;
-    const isVan = c.assignedVehicle?.type === 'van';
+    const hasVanLicense = c.qualification === 'bike_and_van';
     result.push({
       id: c.isOwner ? 'emp-owner' : c.id,
       name: c.name,
-      role: c.isOwner ? 'owner_bike_courier' : isVan ? 'van_driver' : 'bike_courier',
+      role: c.isOwner ? 'owner_bike_courier' : hasVanLicense ? 'van_driver' : 'bike_courier',
       isOwner: c.isOwner,
       monthlySalary: c.monthlySalary,
       monthlyInsurance: 0,
@@ -838,6 +852,7 @@ function createInitialCouriers(
       isOwner,
       unlocked: isOwner,
       hired: isOwner,
+      qualification: isOwner ? 'bike_and_van' : 'bike_only',
       assignedVehicle: isOwner ? { ...ownerVehicle } : null,
       monthlySalary: 0,
       hiredAtGameDay: isOwner ? startGameDay : null,
@@ -929,7 +944,7 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
       salariesCost += getCourierMonthlySalary(
         courier.isOwner,
         courier.hired,
-        courier.assignedVehicle
+        courier.qualification
       );
     }
   } else {
@@ -1047,6 +1062,9 @@ export function assignCourierVehicle(
     if (vehicle.type === 'van' && vehicle.index > vansCount) {
       return state;
     }
+    if (!canCourierDriveVehicle(target, vehicle.type)) {
+      return state;
+    }
     if (findCourierAssignedToVehicle(state.couriers, vehicle, slotIndex) !== null) {
       return state;
     }
@@ -1065,7 +1083,7 @@ export function assignCourierVehicle(
       ? {
           ...c,
           assignedVehicle: nextAssigned,
-          monthlySalary: getCourierMonthlySalary(c.isOwner, c.hired, nextAssigned),
+          monthlySalary: getCourierMonthlySalary(c.isOwner, c.hired, c.qualification),
         }
       : c
   );
@@ -1091,12 +1109,14 @@ export function setOwnerActiveVehicle(
 
 /**
  * Hires a new courier in an unlocked, vacant license slot (#2–#6) with $0 recruitment fee.
- * Auto-assigns the first free bicycle if available (same $1 650/mies. salary), otherwise starts
- * with `Brak pojazdu` ($1 650/mies.) until the player assigns a bike or van ($2 300/mies.).
+ * Accepts chosen qualification profile:
+ * - `'bike_only'`: $1 600/mies., may only drive bicycles
+ * - `'bike_and_van'`: $2 300/mies., may drive bicycles and delivery vans
  */
 export function hireCourierInSlot(
   state: OrderEconomyState,
   slotIndex: number,
+  qualification: CourierQualification = 'bike_only',
   currentGameDay?: number
 ): { state: OrderEconomyState; hired: boolean; courier?: CompanyCourier } {
   const slot = state.couriers.find((c) => c.slotIndex === slotIndex);
@@ -1108,18 +1128,32 @@ export function hireCourierInSlot(
     INITIAL_BICYCLES,
     state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
   );
+  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
   let defaultVehicle: ActiveVehicleSelection | null = null;
-  for (let i = 1; i <= bikesCount; i++) {
-    const candidate: ActiveVehicleSelection = { type: 'bike', index: i };
-    if (findCourierAssignedToVehicle(state.couriers, candidate) === null) {
-      defaultVehicle = candidate;
-      break;
+
+  if (qualification === 'bike_and_van') {
+    for (let i = 1; i <= vansCount; i++) {
+      const candidate: ActiveVehicleSelection = { type: 'van', index: i };
+      if (findCourierAssignedToVehicle(state.couriers, candidate) === null) {
+        defaultVehicle = candidate;
+        break;
+      }
+    }
+  }
+
+  if (defaultVehicle === null) {
+    for (let i = 1; i <= bikesCount; i++) {
+      const candidate: ActiveVehicleSelection = { type: 'bike', index: i };
+      if (findCourierAssignedToVehicle(state.couriers, candidate) === null) {
+        defaultVehicle = candidate;
+        break;
+      }
     }
   }
 
   const hiredAtGameDay =
     currentGameDay ?? Math.floor(state.lastProcessedMinutes / MINUTES_PER_DAY) + 1;
-  const monthlySalary = getCourierMonthlySalary(false, true, defaultVehicle);
+  const monthlySalary = getCourierMonthlySalary(false, true, qualification);
 
   let updatedCourier: CompanyCourier | undefined;
   const nextCouriers = state.couriers.map((c) => {
@@ -1127,6 +1161,7 @@ export function hireCourierInSlot(
     updatedCourier = {
       ...c,
       hired: true,
+      qualification,
       assignedVehicle: defaultVehicle,
       monthlySalary,
       hiredAtGameDay,
@@ -1141,6 +1176,42 @@ export function hireCourierInSlot(
       employees: syncEmployeesFromCouriers(nextCouriers),
     },
     hired: true,
+    courier: updatedCourier,
+  };
+}
+
+/**
+ * Promotes a hired bike-only courier (#2–#6) to 'bike_and_van' qualification (Rower + Bus),
+ * unlocking van assignments and updating their monthly salary from $1 600 to $2 300/mies.
+ */
+export function promoteCourierInSlot(
+  state: OrderEconomyState,
+  slotIndex: number
+): { state: OrderEconomyState; promoted: boolean; courier?: CompanyCourier } {
+  const slot = state.couriers.find((c) => c.slotIndex === slotIndex);
+  if (!slot || slot.isOwner || !slot.unlocked || !slot.hired || slot.qualification === 'bike_and_van') {
+    return { state, promoted: false };
+  }
+
+  const nextSalary = getCourierMonthlySalary(false, true, 'bike_and_van');
+  let updatedCourier: CompanyCourier | undefined;
+  const nextCouriers = state.couriers.map((c) => {
+    if (c.slotIndex !== slotIndex) return c;
+    updatedCourier = {
+      ...c,
+      qualification: 'bike_and_van',
+      monthlySalary: nextSalary,
+    };
+    return updatedCourier;
+  });
+
+  return {
+    state: {
+      ...state,
+      couriers: nextCouriers,
+      employees: syncEmployeesFromCouriers(nextCouriers),
+    },
+    promoted: true,
     courier: updatedCourier,
   };
 }
@@ -1164,6 +1235,7 @@ export function fireCourierInSlot(
       ? {
           ...c,
           hired: false,
+          qualification: 'bike_only' as const,
           assignedVehicle: null,
           monthlySalary: 0,
           hiredAtGameDay: null,
@@ -1195,7 +1267,8 @@ export function hireEmployee(
     return { state, hired: false };
   }
 
-  const res = hireCourierInSlot(state, vacantSlot.slotIndex, currentGameDay);
+  const qualification: CourierQualification = role === 'van_driver' ? 'bike_and_van' : 'bike_only';
+  const res = hireCourierInSlot(state, vacantSlot.slotIndex, qualification, currentGameDay);
   if (!res.hired || !res.courier) {
     return { state, hired: false };
   }
@@ -1257,24 +1330,25 @@ export function getFreeWarehouseCapacity(state: OrderEconomyState): number {
 }
 
 /**
- * Checks whether the Base warehouse currently has enough free slots to accommodate
- * the remaining packages to pick up for an order. If not, the courier holds off on
- * starting this ODBIÓR until ROZWÓZKA tasks free up space.
- * (If an order exceeds the entire warehouse capacity at a low tier, requires at least
- * a full courier load so deliveries cannot permanently deadlock.)
+ * Checks whether the Base warehouse currently has enough free slots to fit the next
+ * single-trip pickup batch (`min(vehicleCapacity, remainingOrderPackagesToPickup)`).
+ * When the warehouse cannot accommodate the next batch, the courier temporarily leaves
+ * the remaining ODBIÓR on the list and performs a single ROZWÓZKA run to free space.
  */
 export function hasEnoughWarehouseSpaceForPickup(
   state: OrderEconomyState,
-  remainingOrderPackagesToPickup: number
+  remainingOrderPackagesToPickup: number,
+  vehicleCapacity: number = BIKE_COURIER_CAPACITY
 ): boolean {
   if (remainingOrderPackagesToPickup <= 0) return false;
   const capacity = getEffectiveWarehouseCapacity(state);
   const freeSpace = Math.max(0, capacity - state.warehousePackages);
-  const requiredSpace =
-    remainingOrderPackagesToPickup <= capacity
-      ? remainingOrderPackagesToPickup
-      : Math.min(BIKE_COURIER_CAPACITY, remainingOrderPackagesToPickup);
-  return freeSpace >= requiredSpace;
+  const nextBatchSize = Math.min(
+    Math.max(1, Math.floor(vehicleCapacity)),
+    remainingOrderPackagesToPickup,
+    capacity
+  );
+  return freeSpace >= nextBatchSize;
 }
 
 export function getStoredPackagesForOrder(state: OrderEconomyState, orderId: string): number {
@@ -1734,6 +1808,7 @@ export function acceptOrderOffer(
     endGameDay,
     endMinutes,
     satisfaction: INITIAL_ORDER_SATISFACTION,
+    pickedUpPackagesTotal: 0,
     deliveredPackagesTotal: 0,
     totalEarnedPayout: 0,
     totalPenaltiesPaid: 0,
@@ -1860,6 +1935,7 @@ export function recordPackagePickup(
         : {};
     return {
       ...order,
+      pickedUpPackagesTotal: (order.pickedUpPackagesTotal ?? 0) + pickedUpCount,
       weekly: {
         ...order.weekly,
         pickedUpPackagesThisWeek: order.weekly.pickedUpPackagesThisWeek + pickedUpCount,
@@ -1919,6 +1995,7 @@ export function recordPackageDelivery(
         ...order,
         status: 'completed',
         deliveryStops: updatedStops,
+        pickedUpPackagesTotal: Math.max(order.pickedUpPackagesTotal ?? 0, newDeliveredTotal),
         deliveredPackagesTotal: newDeliveredTotal,
         lumpSumPaid: true,
         totalEarnedPayout: roundCurrency(order.totalEarnedPayout + order.totalExpectedPayout),
@@ -1960,6 +2037,7 @@ export function recordPackageDelivery(
     const updatedOrder: ActiveShortTermOrder = {
       ...order,
       deliveryStops: updatedStops,
+      pickedUpPackagesTotal: Math.max(order.pickedUpPackagesTotal ?? 0, newDeliveredTotal),
       deliveredPackagesTotal: newDeliveredTotal,
       weekly: {
         ...order.weekly,
@@ -1980,10 +2058,12 @@ export function recordPackageDelivery(
   const earnedNow = roundCurrency(deliveredCount * order.ratePerPackage);
   const newDeliveredThisWeek = order.weekly.deliveredPackagesThisWeek + deliveredCount;
   const newPickedUpThisWeek = Math.max(order.weekly.pickedUpPackagesThisWeek, newDeliveredThisWeek);
+  const nextLongDeliveredTotal = order.deliveredPackagesTotal + deliveredCount;
   const updatedLongOrder: ActiveLongTermOrder = {
     ...order,
     currentWeekDeliveryStops: updateStops(order.currentWeekDeliveryStops, deliveredCount),
-    deliveredPackagesTotal: order.deliveredPackagesTotal + deliveredCount,
+    pickedUpPackagesTotal: Math.max(order.pickedUpPackagesTotal ?? 0, nextLongDeliveredTotal),
+    deliveredPackagesTotal: nextLongDeliveredTotal,
     accruedMonthlyPayout: roundCurrency(order.accruedMonthlyPayout + earnedNow),
     totalEarnedPayout: roundCurrency(order.totalEarnedPayout + earnedNow),
     weekly: {
@@ -2514,6 +2594,11 @@ export function getScheduledTasksForWeekday(
   for (const order of state.activeOrders) {
     if (order.status !== 'active') continue;
     const storedInWarehouse = getStoredPackagesForOrder(state, order.id);
+    // Packages already picked up from sender and not yet delivered (in Base warehouse or on courier vehicle)
+    const undeliveredInPossession = Math.max(
+      storedInWarehouse,
+      Math.max(0, (order.pickedUpPackagesTotal ?? 0) - order.deliveredPackagesTotal)
+    );
 
     if (order.kind === 'long_term') {
       const withinContract =
@@ -2542,7 +2627,7 @@ export function getScheduledTasksForWeekday(
               packageCount: remainingPickupToday,
             });
           }
-          const deliveryCountToday = storedInWarehouse + remainingPickupToday;
+          const deliveryCountToday = undeliveredInPossession + remainingPickupToday;
           if (deliveryCountToday > 0) {
             unsorted.push({
               taskId: makeWeeklyTaskId(order.id, 'delivery'),
@@ -2568,21 +2653,28 @@ export function getScheduledTasksForWeekday(
             packageCount: dayQuota,
           });
         }
-      } else if (isToday && storedInWarehouse > 0) {
-        // Packages left over in Base warehouse from an earlier pickup day
+      } else if (isToday && undeliveredInPossession > 0) {
+        // Packages awaiting delivery (in Base warehouse or already loaded onto courier vehicle)
         unsorted.push({
           taskId: makeWeeklyTaskId(order.id, 'delivery'),
           taskType: 'delivery',
           order,
           taskLabel: 'Rozwózka',
-          packageCount: storedInWarehouse,
+          packageCount: undeliveredInPossession,
         });
       }
     } else {
       const lastActiveDay = Math.max(order.acceptedAtGameDay, order.endGameDay - 1);
       if (targetGameDay >= order.acceptedAtGameDay && targetGameDay <= lastActiveDay) {
         const remainingToDeliver = Math.max(0, order.totalPackages - order.deliveredPackagesTotal);
-        const remainingToPickup = Math.max(0, remainingToDeliver - storedInWarehouse);
+        const pickedUpTotal = Math.min(
+          order.totalPackages,
+          Math.max(
+            order.pickedUpPackagesTotal ?? 0,
+            order.deliveredPackagesTotal + storedInWarehouse
+          )
+        );
+        const remainingToPickup = Math.max(0, order.totalPackages - pickedUpTotal);
 
         if (remainingToPickup > 0) {
           unsorted.push({
@@ -2704,7 +2796,14 @@ export function getRemainingPickupPackagesForOrderToday(
       return 0;
     }
     const storedInWarehouse = getStoredPackagesForOrder(state, order.id);
-    return Math.max(0, order.totalPackages - order.deliveredPackagesTotal - storedInWarehouse);
+    const pickedUpTotal = Math.min(
+      order.totalPackages,
+      Math.max(
+        order.pickedUpPackagesTotal ?? 0,
+        order.deliveredPackagesTotal + storedInWarehouse
+      )
+    );
+    return Math.max(0, order.totalPackages - pickedUpTotal);
   }
 
   if (

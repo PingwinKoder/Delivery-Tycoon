@@ -13,6 +13,7 @@ import {
 import { buildBaseDepotSpec } from './utils/cityMap';
 import type {
   ActiveVehicleSelection,
+  CourierQualification,
   OrderEconomyState,
   WarehouseLoadedBatch,
 } from './types/orders';
@@ -43,6 +44,7 @@ import {
   loadPackagesFromWarehouseForBike,
   markAllPendingOffersSeen,
   moveWeeklyTaskPriority,
+  promoteCourierInSlot,
   purchaseBicycle,
   purchaseEmployeeLicense,
   purchaseParkingSpot,
@@ -397,9 +399,18 @@ export function App() {
   }, [applyEconomyUpdate]);
 
   const handleHireCourier = useCallback(
-    (slotIndex: number) => {
+    (slotIndex: number, qualification: CourierQualification) => {
       const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
-      applyEconomyUpdate((prev) => hireCourierInSlot(prev, slotIndex, currentGameDay).state);
+      applyEconomyUpdate(
+        (prev) => hireCourierInSlot(prev, slotIndex, qualification, currentGameDay).state
+      );
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handlePromoteCourier = useCallback(
+    (slotIndex: number) => {
+      applyEconomyUpdate((prev) => promoteCourierInSlot(prev, slotIndex).state);
     },
     [applyEconomyUpdate]
   );
@@ -545,6 +556,7 @@ export function App() {
         onSelectActiveVehicle={handleSelectActiveVehicle}
         onBuyEmployeeLicense={handleBuyEmployeeLicense}
         onHireCourier={handleHireCourier}
+        onPromoteCourier={handlePromoteCourier}
         onFireCourier={handleFireCourier}
         onAssignCourierVehicle={handleAssignCourierVehicle}
       />

@@ -54,6 +54,7 @@ import {
   computeScaledSimDt,
   createCourierFromPath,
   createDeliveryMissionCourier,
+  createDirectDeliveryMissionFromBuilding,
   createIdleCourier,
   createParkAtRackCourier,
   createPickupMissionCourier,
@@ -62,6 +63,7 @@ import {
   getCourierSpeedForVehicle,
   interruptCourierForEndOfWorkday,
   selectNextCourierTaskForDay,
+  selectNextTaskAfterFinalPickup,
   stepCourierMissionWithSimDt,
   stitchWaypoints,
 } from '../utils/courierSim';
@@ -72,6 +74,7 @@ import type {
 } from '../types/orders';
 import { type GameSpeed, getGameClockDisplay } from '../utils/gameClock';
 import {
+  getRemainingPickupPackagesForOrderToday,
   isNightHoursForTime,
   pickRandomRecipientBuildingForPackage,
 } from '../utils/orderEconomy';
@@ -727,6 +730,44 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     let fpsWindowStart = lastFrameTick;
     let lastReportedFps = -1;
 
+    const buildDeliveryStopsForBatches = (
+      batches: readonly WarehouseLoadedBatch[],
+      curBuildings: readonly Building[],
+      ecoState: OrderEconomyState
+    ): DeliveryStopInput[] => {
+      const stopByBuildingId = new Map<string, DeliveryStopInput>();
+      const senderLookup = new Map<string, string>();
+      for (const order of ecoState.activeOrders) {
+        senderLookup.set(order.id, order.pickupLocation.buildingId);
+      }
+      for (const order of ecoState.archivedOrders) {
+        if (!senderLookup.has(order.id)) {
+          senderLookup.set(order.id, order.pickupLocation.buildingId);
+        }
+      }
+
+      for (const batch of batches) {
+        const senderBuildingId = senderLookup.get(batch.orderId) ?? null;
+        for (let p = 0; p < batch.count; p++) {
+          const recipient = pickRandomRecipientBuildingForPackage(curBuildings, senderBuildingId);
+          if (!recipient) continue;
+          let entry = stopByBuildingId.get(recipient.id);
+          if (!entry) {
+            entry = { building: recipient, items: [] };
+            stopByBuildingId.set(recipient.id, entry);
+          }
+          const existingItem = entry.items.find((it) => it.orderId === batch.orderId);
+          if (existingItem) {
+            existingItem.count += 1;
+          } else {
+            entry.items.push({ orderId: batch.orderId, count: 1 });
+          }
+        }
+      }
+
+      return Array.from(stopByBuildingId.values());
+    };
+
     const tryDispatchCourier = (
       currentGameMinutes: number,
       startFrom: CourierStartPoint,
@@ -768,40 +809,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         );
         if (loadedBatches.length === 0) return false;
 
-        const stopByBuildingId = new Map<string, DeliveryStopInput>();
-        const senderLookup = new Map<string, string>();
-        for (const order of ecoState.activeOrders) {
-          senderLookup.set(order.id, order.pickupLocation.buildingId);
-        }
-        for (const order of ecoState.archivedOrders) {
-          if (!senderLookup.has(order.id)) {
-            senderLookup.set(order.id, order.pickupLocation.buildingId);
-          }
-        }
-
-        for (const batch of loadedBatches) {
-          const senderBuildingId = senderLookup.get(batch.orderId) ?? null;
-          for (let p = 0; p < batch.count; p++) {
-            const recipient = pickRandomRecipientBuildingForPackage(
-              curBuildings,
-              senderBuildingId
-            );
-            if (!recipient) continue;
-            let entry = stopByBuildingId.get(recipient.id);
-            if (!entry) {
-              entry = { building: recipient, items: [] };
-              stopByBuildingId.set(recipient.id, entry);
-            }
-            const existingItem = entry.items.find((it) => it.orderId === batch.orderId);
-            if (existingItem) {
-              existingItem.count += 1;
-            } else {
-              entry.items.push({ orderId: batch.orderId, count: 1 });
-            }
-          }
-        }
-
-        const groupedStops = Array.from(stopByBuildingId.values());
+        const groupedStops = buildDeliveryStopsForBatches(loadedBatches, curBuildings, ecoState);
         const mission = createDeliveryMissionCourier(
           curGraph,
           curBaseDepot,
@@ -955,15 +963,84 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                 activeMissionCapacity
               ) ?? 0;
             if (actualLoaded > 0) {
-              if (courierRef.current.active) {
-                courierRef.current = {
-                  ...courierRef.current,
-                  cargo: [{ orderId: ev.orderId, count: actualLoaded }],
-                };
-              } else {
-                propsRef.current.onReturnCargoToWarehouse?.([
-                  { orderId: ev.orderId, count: actualLoaded },
-                ]);
+              const carriedBatches: WarehouseLoadedBatch[] = [
+                { orderId: ev.orderId, count: actualLoaded },
+              ];
+              let switchedToDirectDelivery = false;
+
+              // If this was the LAST package of the order's ODBIÓR today, immediately evaluate
+              // the next highest-priority task from Plan tygodnia (Scenarios A / B / C):
+              const latestEco = propsRef.current.economyStateRef?.current;
+              const pickedOrder = latestEco?.activeOrders.find(
+                (o) => o.id === ev.orderId && o.status === 'active'
+              );
+              const remainingAfterPickup =
+                latestEco && pickedOrder
+                  ? getRemainingPickupPackagesForOrderToday(
+                      latestEco,
+                      pickedOrder,
+                      clock.dayIndex,
+                      clock.gameDay
+                    )
+                  : 1;
+
+              if (
+                latestEco &&
+                remainingAfterPickup === 0 &&
+                !isNightNow &&
+                !courierRef.current.isForcedReturn
+              ) {
+                const postPickupDecision = selectNextTaskAfterFinalPickup(
+                  latestEco,
+                  currentGameMinutes,
+                  ev.orderId,
+                  actualLoaded,
+                  activeMissionVehicle.type
+                );
+
+                // Scenario A: next task is ROZWÓZKA of the same order -> deliver directly from sender
+                if (postPickupDecision.scenario === 'direct_delivery_same_order') {
+                  const senderBuilding = propsRef.current.buildings.find(
+                    (b) => b.id === ev.buildingId
+                  );
+                  if (senderBuilding) {
+                    const directStops = buildDeliveryStopsForBatches(
+                      carriedBatches,
+                      propsRef.current.buildings,
+                      latestEco
+                    );
+                    const directMission = createDirectDeliveryMissionFromBuilding(
+                      propsRef.current.graph,
+                      propsRef.current.baseDepot,
+                      senderBuilding,
+                      directStops,
+                      carriedBatches,
+                      getCourierSpeedForVehicle(activeMissionVehicle.type),
+                      activeMissionVehicle,
+                      propsRef.current.parkingNavNetworks
+                    );
+                    if (directMission.active) {
+                      courierRef.current = {
+                        ...directMission,
+                        wheelPhase: courierRef.current.wheelPhase,
+                      };
+                      switchedToDirectDelivery = true;
+                    }
+                  }
+                }
+              }
+
+              // Scenarios B & C (or non-final pickup / fallback): return to Base loading zone,
+              // unload carried packages into warehouse, then dispatch the next task from Base
+              if (!switchedToDirectDelivery) {
+                if (courierRef.current.active) {
+                  courierRef.current = {
+                    ...courierRef.current,
+                    cargo: carriedBatches,
+                  };
+                } else {
+                  propsRef.current.onReturnCargoToWarehouse?.(carriedBatches);
+                }
               }
             }
           } else if (ev.type === 'delivery_completed') {

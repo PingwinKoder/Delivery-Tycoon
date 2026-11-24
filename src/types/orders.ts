@@ -149,6 +149,8 @@ export interface ActiveOrderBase {
   endMinutes: number;
   /** Individual active contract satisfaction bar (starts at 80%, range 0–100%) */
   satisfaction: number;
+  /** Cumulative packages picked up from sender across the entire lifetime of this active order */
+  pickedUpPackagesTotal: number;
   deliveredPackagesTotal: number;
   totalEarnedPayout: number;
   totalPenaltiesPaid: number;
@@ -189,13 +191,16 @@ export type EmployeeRole = 'owner_bike_courier' | 'bike_courier' | 'van_driver';
 
 export type HirableEmployeeRole = Exclude<EmployeeRole, 'owner_bike_courier'>;
 
+/** Courier driving qualification profile ('bike_only' = $1 600/mies., 'bike_and_van' = $2 300/mies.) */
+export type CourierQualification = 'bike_only' | 'bike_and_van';
+
 export interface CompanyEmployee {
   id: string;
   name: string;
   role: EmployeeRole;
   /** True for the starter player-owner courier ($0/mies. salary, starter bicycle included in Base Lv.1 upkeep) */
   isOwner: boolean;
-  /** Monthly salary in USD ($0 owner, $1 650 bike courier, $2 300 van driver) */
+  /** Monthly salary in USD ($0 owner, $1 600 bike courier, $2 300 bike+van courier) */
   monthlySalary: number;
   /** Monthly insurance in USD ($50 additional bike, $130 owned used van, $180 hired van driver) */
   monthlyInsurance: number;
@@ -223,9 +228,11 @@ export interface CompanyCourier {
   unlocked: boolean;
   /** True while a courier is currently employed in this slot */
   hired: boolean;
+  /** Driving qualification profile: Owner starts with 'bike_and_van', hired couriers choose 'bike_only' or 'bike_and_van' */
+  qualification: CourierQualification;
   /** Assigned vehicle from the owned fleet, or null ("Brak pojazdu") */
   assignedVehicle: ActiveVehicleSelection | null;
-  /** Monthly salary in USD ($0 owner, $2 300 with van, $1 650 with bike or no vehicle; $0 if not hired) */
+  /** Monthly salary in USD ($0 owner, $1 600 bike_only, $2 300 bike_and_van; $0 if not hired) */
   monthlySalary: number;
   /** 1-based gameplay day when hired (null when vacant or locked) */
   hiredAtGameDay: number | null;

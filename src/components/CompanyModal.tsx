@@ -1,8 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowUpCircle,
+  Ban,
   Bike,
   Building2,
   Car,
+  Check,
+  ChevronDown,
   Lock,
   ParkingSquare,
   Truck,
@@ -12,7 +16,12 @@ import {
   Warehouse,
   X,
 } from 'lucide-react';
-import type { ActiveVehicleSelection, OrderEconomyState } from '../types/orders';
+import type {
+  ActiveVehicleSelection,
+  CompanyCourier,
+  CourierQualification,
+  OrderEconomyState,
+} from '../types/orders';
 import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
@@ -30,6 +39,7 @@ import {
   VAN_COURIER_CAPACITY,
   WAREHOUSE_TIERS,
   calculateMonthlyCompanyCosts,
+  canCourierDriveVehicle,
   countHiredCouriers,
   findCourierAssignedToVehicle,
   formatCurrencyUsd,
@@ -38,6 +48,7 @@ import {
   getNextWarehouseUpgrade,
   getOwnedFleetVehicles,
   getWarehouseTierConfig,
+  vehiclesEqual,
 } from '../utils/orderEconomy';
 
 type CompanyTabId = 'base' | 'fleet' | 'employees';
@@ -54,25 +65,197 @@ interface CompanyModalProps {
   onBuyUsedVan: () => void;
   onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
   onBuyEmployeeLicense: () => void;
-  onHireCourier: (slotIndex: number) => void;
+  onHireCourier: (slotIndex: number, qualification: CourierQualification) => void;
+  onPromoteCourier: (slotIndex: number) => void;
   onFireCourier: (slotIndex: number) => void;
   onAssignCourierVehicle: (slotIndex: number, vehicle: ActiveVehicleSelection | null) => void;
 }
 
-function serializeVehicleKey(vehicle: ActiveVehicleSelection | null): string {
-  if (!vehicle) return 'none';
-  return `${vehicle.type}:${vehicle.index}`;
+interface CourierVehicleDropdownProps {
+  courier: CompanyCourier;
+  effectiveAssigned: ActiveVehicleSelection | null;
+  availableVehicles: readonly ActiveVehicleSelection[];
+  disabled: boolean;
+  isOpen: boolean;
+  openUpward: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onSelect: (vehicle: ActiveVehicleSelection | null) => void;
 }
 
-function parseVehicleKey(key: string): ActiveVehicleSelection | null {
-  if (key === 'none') return null;
-  const [type, rawIndex] = key.split(':');
-  const index = Number(rawIndex);
-  if ((type === 'bike' || type === 'van') && Number.isInteger(index) && index >= 1) {
-    return { type, index };
-  }
-  return null;
-}
+const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
+  courier,
+  effectiveAssigned,
+  availableVehicles,
+  disabled,
+  isOpen,
+  openUpward,
+  onToggle,
+  onClose,
+  onSelect,
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isOpen, onClose]);
+
+  const triggerLabel = effectiveAssigned
+    ? effectiveAssigned.type === 'van'
+      ? `Bus #${effectiveAssigned.index}`
+      : `Rower #${effectiveAssigned.index}`
+    : 'Brak pojazdu';
+  const triggerCapacity = effectiveAssigned
+    ? effectiveAssigned.type === 'van'
+      ? `${VAN_COURIER_CAPACITY} szt.`
+      : `${BIKE_COURIER_CAPACITY} szt.`
+    : null;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        id={`courier-vehicle-${courier.slotIndex}`}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={`courier-vehicle-menu-${courier.slotIndex}`}
+        onClick={() => {
+          if (!disabled) onToggle();
+        }}
+        className={`w-full rounded-md border px-2.5 py-1.5 text-xs font-mono-nums flex items-center justify-between gap-2 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+          disabled
+            ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
+            : isOpen
+              ? 'bg-slate-950 border-amber-400/80 text-slate-100 cursor-pointer'
+              : 'bg-slate-950 border-slate-700 text-slate-100 hover:border-slate-500 cursor-pointer'
+        }`}
+      >
+        <span className="flex items-center gap-2 min-w-0 truncate">
+          {effectiveAssigned?.type === 'van' ? (
+            <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+          ) : effectiveAssigned?.type === 'bike' ? (
+            <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+          ) : (
+            <Ban className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+          )}
+          <span className="font-semibold truncate">{triggerLabel}</span>
+          {triggerCapacity && (
+            <span className="text-[11px] text-slate-400 shrink-0">({triggerCapacity})</span>
+          )}
+        </span>
+
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${
+            isOpen ? 'rotate-180 text-amber-300' : ''
+          }`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {isOpen && !disabled && (
+        <ul
+          id={`courier-vehicle-menu-${courier.slotIndex}`}
+          role="listbox"
+          aria-label={`Wybierz pojazd dla ${courier.isOwner ? 'Właściciela' : `Kuriera #${courier.slotIndex}`}`}
+          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-2xl py-1 max-h-48 overflow-y-auto overscroll-contain ${
+            openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
+        >
+          {!courier.isOwner && (
+            <li role="option" aria-selected={effectiveAssigned === null}>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect(null);
+                  onClose();
+                }}
+                className={`w-full px-2.5 py-1.5 text-left text-xs font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                  effectiveAssigned === null
+                    ? 'bg-amber-500/15 text-amber-200 font-semibold'
+                    : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-2 min-w-0 truncate">
+                  <Ban className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+                  <span className="truncate">Brak pojazdu</span>
+                </span>
+                {effectiveAssigned === null && (
+                  <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                )}
+              </button>
+            </li>
+          )}
+
+          {availableVehicles.map((vehicle) => {
+            const isSelected = vehiclesEqual(effectiveAssigned, vehicle);
+            const isVan = vehicle.type === 'van';
+            const label = isVan ? `Bus #${vehicle.index}` : `Rower #${vehicle.index}`;
+            const capacityLabel = isVan
+              ? `${VAN_COURIER_CAPACITY} szt.`
+              : `${BIKE_COURIER_CAPACITY} szt.`;
+
+            return (
+              <li
+                key={`${vehicle.type}:${vehicle.index}`}
+                role="option"
+                aria-selected={isSelected}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelect(vehicle);
+                    onClose();
+                  }}
+                  className={`w-full px-2.5 py-1.5 text-left text-xs font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500/15 text-amber-200 font-semibold'
+                      : 'text-slate-200 hover:bg-slate-900 hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2 min-w-0 truncate">
+                    {isVan ? (
+                      <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="truncate">{label}</span>
+                    <span
+                      className={`text-[11px] shrink-0 ${
+                        isSelected ? 'text-amber-300/90' : 'text-slate-400'
+                      }`}
+                    >
+                      ({capacityLabel})
+                    </span>
+                  </span>
+
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                  )}
+                </button>
+              </li>
+            );
+          })}
+
+          {availableVehicles.length === 0 && (
+            <li className="px-2.5 py-1.5 text-[11px] text-slate-500">
+              Brak innych wolnych pojazdów dla tych uprawnień
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+};
 
 export const CompanyModal: React.FC<CompanyModalProps> = ({
   isOpen,
@@ -87,24 +270,37 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onSelectActiveVehicle,
   onBuyEmployeeLicense,
   onHireCourier,
+  onPromoteCourier,
   onFireCourier,
   onAssignCourierVehicle,
 }) => {
   const [activeTab, setActiveTab] = useState<CompanyTabId>('base');
+  const [openVehicleSlot, setOpenVehicleSlot] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setOpenVehicleSlot(null);
+      return;
+    }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        if (openVehicleSlot !== null) {
+          setOpenVehicleSlot(null);
+        } else {
+          onClose();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, openVehicleSlot, onClose]);
+
+  useEffect(() => {
+    setOpenVehicleSlot(null);
+  }, [activeTab]);
 
   const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
   const bikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
@@ -722,7 +918,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </span>
                   <span className="text-slate-600" aria-hidden="true">•</span>
                   <span className="text-slate-400">
-                    Rower/brak: {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)} | Bus:{' '}
+                    Rower: {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)} | Rower + Bus:{' '}
                     {formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}
                   </span>
                 </div>
@@ -741,7 +937,16 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     const roleHeading = courier.isOwner
                       ? '#1 Właściciel'
                       : `#${courier.slotIndex} Kurier`;
-                    const assignedValueKey = serializeVehicleKey(effectiveAssigned);
+                    const hasVanQualification =
+                      courier.isOwner || courier.qualification === 'bike_and_van';
+                    const qualificationLabel = hasVanQualification ? 'Rower + Bus' : 'Rower';
+
+                    // Strictly free vehicles (not assigned to any other courier) matching this courier's qualifications
+                    const availableVehicles = ownedFleet.filter(
+                      (vehicle) =>
+                        canCourierDriveVehicle(courier, vehicle.type) &&
+                        findCourierAssignedToVehicle(couriers, vehicle, courier.slotIndex) === null
+                    );
 
                     return (
                       <article
@@ -750,7 +955,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       >
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                               {effectiveAssigned?.type === 'van' ? (
                                 <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
                               ) : effectiveAssigned?.type === 'bike' ? (
@@ -768,6 +973,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               >
                                 {slotAtBase ? 'W Bazie' : 'W trasie'}
                               </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
+                                  hasVanQualification
+                                    ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
+                                    : 'bg-sky-500/15 border-sky-400/40 text-sky-300'
+                                }`}
+                              >
+                                {qualificationLabel}
+                              </span>
                             </div>
 
                             <span
@@ -781,7 +995,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             </span>
                           </div>
 
-                          {/* Vehicle assignment dropdown */}
+                          {/* Custom filtered dark vehicle selector */}
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-2">
                               <label
@@ -797,87 +1011,80 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               )}
                             </div>
 
-                            <select
-                              id={`courier-vehicle-${courier.slotIndex}`}
-                              value={assignedValueKey}
+                            <CourierVehicleDropdown
+                              courier={courier}
+                              effectiveAssigned={effectiveAssigned}
+                              availableVehicles={availableVehicles}
                               disabled={!slotAtBase}
-                              onChange={(e) => {
-                                const parsed = parseVehicleKey(e.target.value);
-                                if (courier.isOwner && parsed) {
-                                  onSelectActiveVehicle(parsed);
+                              isOpen={openVehicleSlot === courier.slotIndex}
+                              openUpward={courier.slotIndex >= 5}
+                              onToggle={() =>
+                                setOpenVehicleSlot((prev) =>
+                                  prev === courier.slotIndex ? null : courier.slotIndex
+                                )
+                              }
+                              onClose={() =>
+                                setOpenVehicleSlot((prev) =>
+                                  prev === courier.slotIndex ? null : prev
+                                )
+                              }
+                              onSelect={(selectedVehicle) => {
+                                if (courier.isOwner && selectedVehicle) {
+                                  onSelectActiveVehicle(selectedVehicle);
                                 } else {
-                                  onAssignCourierVehicle(courier.slotIndex, parsed);
+                                  onAssignCourierVehicle(courier.slotIndex, selectedVehicle);
                                 }
                               }}
-                              className={`w-full rounded-md border px-2 py-1.5 text-xs font-mono-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                                slotAtBase
-                                  ? 'bg-slate-950/90 border-slate-700 text-slate-100 hover:border-slate-500 cursor-pointer'
-                                  : 'bg-slate-900/70 border-slate-800 text-slate-500 cursor-not-allowed'
-                              }`}
-                            >
-                              {!courier.isOwner && (
-                                <option value="none">Brak pojazdu ($1 650/mies.)</option>
-                              )}
-                              {ownedFleet.map((vehicle) => {
-                                const key = serializeVehicleKey(vehicle);
-                                const occupant = findCourierAssignedToVehicle(
-                                  couriers,
-                                  vehicle,
-                                  courier.slotIndex
-                                );
-                                const isOccupied = occupant !== null;
-                                const baseName =
-                                  vehicle.type === 'van'
-                                    ? `Bus #${vehicle.index} (${VAN_COURIER_CAPACITY} szt.)`
-                                    : `Rower #${vehicle.index} (${BIKE_COURIER_CAPACITY} szt.)`;
-                                const salaryNote = courier.isOwner
-                                  ? ''
-                                  : vehicle.type === 'van'
-                                    ? ' — $2 300/mies.'
-                                    : ' — $1 650/mies.';
-                                const label = isOccupied
-                                  ? `${baseName} — zajęty (#${occupant.slotIndex} ${occupant.isOwner ? 'Właściciel' : 'Kurier'})`
-                                  : `${baseName}${salaryNote}`;
-
-                                return (
-                                  <option key={key} value={key} disabled={isOccupied}>
-                                    {label}
-                                  </option>
-                                );
-                              })}
-                            </select>
+                            />
                           </div>
                         </div>
 
-                        <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                        <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
                           <span className="text-[11px] text-slate-400">
                             {courier.isOwner
-                              ? 'Właściciel firmy — stałe stanowisko'
+                              ? 'Właściciel firmy — uprawnienia Rower + Bus'
                               : effectiveAssigned
                                 ? `Ładowność: ${effectiveAssigned.type === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY} paczek`
-                                : 'Przypisz wolny rower lub busa'}
+                                : hasVanQualification
+                                  ? 'Przypisz wolny rower lub busa'
+                                  : 'Przypisz wolny rower lub awansuj'}
                           </span>
+
                           {!courier.isOwner && (
-                            <button
-                              type="button"
-                              disabled={!slotAtBase}
-                              onClick={() => onFireCourier(courier.slotIndex)}
-                              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                                slotAtBase
-                                  ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/45 text-rose-300 cursor-pointer'
-                                  : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
-                              }`}
-                            >
-                              <UserMinus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                              <span>Zwolnij</span>
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                              {!hasVanQualification && (
+                                <button
+                                  type="button"
+                                  title={`Zmień uprawnienia na Rower + Bus (pensja ${formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}/mies.)`}
+                                  onClick={() => onPromoteCourier(courier.slotIndex)}
+                                  className="px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                                >
+                                  <ArrowUpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>Awansuj (Rower + Bus)</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                disabled={!slotAtBase}
+                                onClick={() => onFireCourier(courier.slotIndex)}
+                                className={`px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                  slotAtBase
+                                    ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/45 text-rose-300 cursor-pointer'
+                                    : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                                }`}
+                              >
+                                <UserMinus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <span>Zwolnij</span>
+                              </button>
+                            </div>
                           )}
                         </div>
                       </article>
                     );
                   }
 
-                  // 2. Unlocked but Vacant Slot (License purchased, ready to hire)
+                  // 2. Unlocked but Vacant Slot (License purchased, choose qualification profile to hire)
                   if (courier.unlocked && !courier.hired) {
                     return (
                       <article
@@ -898,26 +1105,32 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
 
                           <p className="text-[11px] text-slate-400 leading-snug">
-                            Licencja aktywna. Zatrudnienie bez opłaty wstępnej — miesięczna pensja:{' '}
-                            <span className="text-slate-200 font-mono-nums">
-                              {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)}
-                            </span>{' '}
-                            (rower/brak) lub{' '}
-                            <span className="text-slate-200 font-mono-nums">
-                              {formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}
-                            </span>{' '}
-                            (bus).
+                            Licencja aktywna. Wybierz profil uprawnień pracownika (bez opłaty
+                            wstępnej — kuriera rowerowego możesz później awansować):
                           </p>
                         </div>
 
-                        <div className="pt-2 border-t border-slate-800 flex items-center justify-end">
+                        <div className="pt-2 border-t border-slate-800 flex flex-col gap-1.5">
                           <button
                             type="button"
-                            onClick={() => onHireCourier(courier.slotIndex)}
-                            className="w-full px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                            onClick={() => onHireCourier(courier.slotIndex, 'bike_only')}
+                            className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums flex items-center justify-center gap-1.5 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                           >
-                            <UserPlus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            <span>Zatrudnij kuriera</span>
+                            <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>
+                              Zatrudnij: Rower ({formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)}/mies.)
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onHireCourier(courier.slotIndex, 'bike_and_van')}
+                            className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                          >
+                            <Car className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>
+                              Zatrudnij: Rower + Bus ({formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}/mies.)
+                            </span>
                           </button>
                         </div>
                       </article>

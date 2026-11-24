@@ -743,7 +743,11 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
     order.kind === 'short_term'
       ? Math.min(
           order.totalPackages,
-          Math.max(order.deliveredPackagesTotal + storedInWarehouse, pickedUpThisWeek)
+          Math.max(
+            order.pickedUpPackagesTotal ?? 0,
+            order.deliveredPackagesTotal + storedInWarehouse,
+            pickedUpThisWeek
+          )
         )
       : pickedUpThisWeek;
 
