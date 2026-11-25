@@ -115,7 +115,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
 
   const [isSettledVisible, setIsSettledVisible] = useState<boolean>(isVisible);
 
-  // Release will-change-[opacity] cleanly after the 300ms fade-in completes
+  // Release will-change-[opacity] cleanly after the 250ms fade-in completes
   useEffect(() => {
     if (!isVisible) {
       setIsSettledVisible(false);
@@ -123,7 +123,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
     }
     const timer = window.setTimeout(() => {
       setIsSettledVisible(true);
-    }, 340);
+    }, 290);
     return () => window.clearTimeout(timer);
   }, [isVisible]);
 
@@ -139,7 +139,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
           setIsSettledVisible(true);
         }
       }}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 transition-opacity duration-300 ease-out touch-none ${
+      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 transition-opacity duration-[250ms] ease-out touch-none ${
         isVisible
           ? isSettledVisible
             ? 'opacity-100 pointer-events-auto will-change-auto'

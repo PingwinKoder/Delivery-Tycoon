@@ -176,7 +176,7 @@ const OVERVIEW_BASE_OFFSET_Y = -145;
 
 interface CameraIntroTransition {
   direction: 'in' | 'out';
-  phase: 'armed' | 'running';
+  phase: 'armed' | 'running' | 'settled_out';
   started: boolean;
   elapsedSec: number;
   durationSec: number;
@@ -212,6 +212,13 @@ function easeOutCubic(t: number): number {
   const clamped = Math.max(0, Math.min(1, t));
   const inv = 1 - clamped;
   return 1 - inv * inv * inv;
+}
+
+function easeInOutCubic(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  return clamped < 0.5
+    ? 4 * clamped * clamped * clamped
+    : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
 }
 
 function getBaseFocusPoint(baseNode: { x: number; y: number } | null): Point {
@@ -1432,10 +1439,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       // during load never eats into the 2.5s fly-in duration
       ensureStaticCaches();
 
-      // Compute rendered camera transform purely via refs (zero React setState during animation):
-      // 1) Armed or running 2.5s easeOutCubic fly-in from panoramic overview to Base
-      // 2) Moderate panoramic city overview behind Start Screen
-      // 3) Standard interactive gameplay camera physics
+      // Compute rendered camera transform & synchronized fog veil purely via refs (zero React setState during animation):
+      // 1) Armed or running 2.5s easeOutCubic fly-in from panoramic overview to Base (fog 1 -> 0)
+      // 2) Armed or running 1.8s easeInOutCubic fly-out back to panoramic overview (fog 0 -> 1)
+      // 3) Moderate panoramic city overview behind Start Screen (fog 1)
+      // 4) Standard interactive gameplay camera physics (fog 0)
       let renderCamX = cameraRef.current.x;
       let renderCamY = cameraRef.current.y;
       let renderEffectiveZoom = getEffectiveZoom(
@@ -1445,26 +1453,42 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       );
       let renderCacheZoomKey = cameraRef.current.zoom;
       let ambientTrafficAlpha = 0;
+      let fogProgress = 0;
+      let notifyIntroComplete = false;
+      let notifyOutroComplete = false;
 
       const activeIntro = cameraIntroRef.current;
       if (activeIntro) {
-        if (activeIntro.phase === 'armed') {
+        if (activeIntro.phase === 'settled_out') {
+          const panCam = getPanoramicCamera(viewportRef.current, propsRef.current.baseNode);
+          renderCamX = panCam.x;
+          renderCamY = panCam.y;
+          renderEffectiveZoom = panCam.effectiveZoom;
+          renderCacheZoomKey = panCam.effectiveZoom;
+          ambientTrafficAlpha = 1;
+          fogProgress = 1;
+          if (propsRef.current.overviewMode) {
+            cameraIntroRef.current = null;
+          }
+        } else if (activeIntro.phase === 'armed') {
           renderCamX = activeIntro.fromX;
           renderCamY = activeIntro.fromY;
           renderEffectiveZoom = activeIntro.fromEffectiveZoom;
           renderCacheZoomKey = activeIntro.fromEffectiveZoom;
           ambientTrafficAlpha = activeIntro.direction === 'in' ? 1 : 0;
+          fogProgress = activeIntro.direction === 'in' ? 1 : 0;
         } else {
           if (!activeIntro.started) {
             activeIntro.started = true;
             activeIntro.elapsedSec = 0;
           } else {
-            activeIntro.elapsedSec += Math.min(rawDt, 0.05);
+            const maxDtStep = activeIntro.direction === 'out' ? 0.033 : 0.05;
+            activeIntro.elapsedSec += Math.min(rawDt, maxDtStep);
           }
           const rawT = Math.min(1, activeIntro.elapsedSec / activeIntro.durationSec);
-          const eased = easeOutCubic(rawT);
 
           if (activeIntro.direction === 'in') {
+            const eased = easeOutCubic(rawT);
             const baseFocus = getBaseFocusPoint(propsRef.current.baseNode);
             const baseCam = createInitialCamera(viewportRef.current, MAP_SIZE, baseFocus);
             const toEffectiveZoom = getEffectiveZoom(baseCam.zoom, viewportRef.current, MAP_SIZE);
@@ -1483,6 +1507,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             renderCamY = clampedCenter.y;
             renderCacheZoomKey = renderEffectiveZoom;
             ambientTrafficAlpha = Math.max(0, 1 - eased * 1.4);
+            fogProgress = 1 - eased;
 
             if (rawT >= 1) {
               cameraRef.current = baseCam;
@@ -1494,9 +1519,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               renderEffectiveZoom = toEffectiveZoom;
               renderCacheZoomKey = baseCam.zoom;
               ambientTrafficAlpha = 0;
-              propsRef.current.onIntroFlyInComplete?.();
+              fogProgress = 0;
+              notifyIntroComplete = true;
             }
           } else {
+            const eased = easeInOutCubic(rawT);
             const panCam = getPanoramicCamera(viewportRef.current, propsRef.current.baseNode);
             const safeFromZoom = Math.max(0.05, activeIntro.fromEffectiveZoom);
             renderEffectiveZoom =
@@ -1513,16 +1540,18 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             renderCamY = clampedCenter.y;
             renderCacheZoomKey = renderEffectiveZoom;
             ambientTrafficAlpha = Math.min(1, eased * 1.25);
+            fogProgress = eased;
 
             if (rawT >= 1) {
               cameraVelocityRef.current = { vx: 0, vy: 0 };
-              cameraIntroRef.current = null;
+              activeIntro.phase = 'settled_out';
               renderCamX = panCam.x;
               renderCamY = panCam.y;
               renderEffectiveZoom = panCam.effectiveZoom;
               renderCacheZoomKey = panCam.effectiveZoom;
               ambientTrafficAlpha = 1;
-              propsRef.current.onOutroFlyOutComplete?.();
+              fogProgress = 1;
+              notifyOutroComplete = true;
             }
           }
         }
@@ -1533,6 +1562,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         renderEffectiveZoom = panCam.effectiveZoom;
         renderCacheZoomKey = panCam.effectiveZoom;
         ambientTrafficAlpha = 1;
+        fogProgress = 1;
       } else {
         // Frame-rate-independent exponential camera physics + smooth arrow-key velocity + hard snap
         const camStep = stepCameraPhysics(
@@ -2127,6 +2157,22 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       ctx.restore();
+
+      // Render atmospheric fog directly inside <canvas> so no full-screen DOM layer is allocated mid-animation
+      if (fogProgress > 0.001) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = `rgba(15, 23, 42, ${fogProgress * 0.82})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+      }
+
+      if (notifyIntroComplete) {
+        propsRef.current.onIntroFlyInComplete?.();
+      }
+      if (notifyOutroComplete) {
+        propsRef.current.onOutroFlyOutComplete?.();
+      }
 
       if (!hasNotifiedMapReady) {
         hasNotifiedMapReady = true;

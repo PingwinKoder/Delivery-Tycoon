@@ -302,8 +302,6 @@ export function App() {
   const [startScreenOpen, setStartScreenOpen] = useState<boolean>(true);
   const [startScreenMounted, setStartScreenMounted] = useState<boolean>(true);
   const [inStartPanorama, setInStartPanorama] = useState<boolean>(true);
-  const [mistMounted, setMistMounted] = useState<boolean>(true);
-  const [mistVisible, setMistVisible] = useState<boolean>(true);
   const [cameraTransition, setCameraTransition] = useState<'to-game' | 'to-menu' | null>(null);
   const [hudVisible, setHudVisible] = useState<boolean>(false);
   const [mapReady, setMapReady] = useState<boolean>(false);
@@ -356,12 +354,11 @@ export function App() {
   const scheduleCinematicFlyInAfterPaint = useCallback(() => {
     clearIntroRafs();
     // Wait two animation frames so React commit, localStorage write, and first post-save paint
-    // complete completely before starting the 2.5s camera fly-in, mist dissipation, and HUD slide-in
+    // complete completely before starting the 2.5s camera fly-in, canvas fog dissipation, and HUD slide-in
     const raf1 = window.requestAnimationFrame(() => {
       const raf2 = window.requestAnimationFrame(() => {
         introRafIdsRef.current = [];
         canvasControllerRef.current?.beginArmedIntroFlyIn();
-        setMistVisible(false);
         setHudVisible(true);
       });
       introRafIdsRef.current = [raf2];
@@ -406,8 +403,6 @@ export function App() {
   const handleIntroFlyInComplete = useCallback(() => {
     setStartScreenMounted(false);
     setCameraTransition(null);
-    // Completely unmount the full-screen mist DOM layer during normal gameplay for max mobile FPS
-    setMistMounted(false);
   }, []);
 
   const handleOutroFlyOutComplete = useCallback(() => {
@@ -415,15 +410,12 @@ export function App() {
     setCameraTransition(null);
     setStartScreenMounted(true);
     clearIntroRafs();
-    // Wait two animation frames so StartScreenModal paints cleanly at opacity 0 before fading in
-    const raf1 = window.requestAnimationFrame(() => {
-      const raf2 = window.requestAnimationFrame(() => {
-        introRafIdsRef.current = [];
-        setStartScreenOpen(true);
-      });
-      introRafIdsRef.current = [raf2];
+    // Wait 1 animation frame after full canvas fog & modal mount at opacity 0 before fading in (250ms)
+    const rafId = window.requestAnimationFrame(() => {
+      introRafIdsRef.current = [];
+      setStartScreenOpen(true);
     });
-    introRafIdsRef.current = [raf1];
+    introRafIdsRef.current = [rafId];
   }, [clearIntroRafs]);
 
   const handleUpdateSettings = useCallback((patch: Partial<GameSettings>) => {
@@ -554,8 +546,6 @@ export function App() {
       setExitConfirmOpen(false);
       setHudVisible(false);
       setInStartPanorama(false);
-      setMistMounted(true);
-      setMistVisible(true);
       setCameraTransition('to-game');
       setStartScreenOpen(false);
       setGameSpeed(1);
@@ -609,8 +599,6 @@ export function App() {
       setExitConfirmOpen(false);
       setHudVisible(false);
       setInStartPanorama(false);
-      setMistMounted(true);
-      setMistVisible(true);
       setCameraTransition('to-game');
       setStartScreenOpen(false);
       setGameSpeed(1);
@@ -632,6 +620,22 @@ export function App() {
   const beginMirrorReturnToStartScreen = useCallback(
     (shouldSave: boolean) => {
       clearIntroRafs();
+
+      // Step 1: Immediately pause simulation, lock current camera coordinates (no motion yet),
+      // close all modals & hide HUD, then execute localStorage save and refresh save slots.
+      canvasControllerRef.current?.armOutroFlyOut();
+      setGameSpeed(0);
+      setCompanyOpen(false);
+      setOrdersOpen(false);
+      setSkipTimeOpen(false);
+      setSettingsOpen(false);
+      setExitConfirmOpen(false);
+      setHudVisible(false);
+      setInStartPanorama(false);
+      setStartScreenOpen(false);
+      setStartScreenMounted(false);
+      setCameraTransition('to-menu');
+
       if (shouldSave) {
         const slotId = activeSlotIdRef.current;
         if (slotId !== null) {
@@ -643,29 +647,12 @@ export function App() {
         setSaveSlots(getAllSaveSlots());
       }
 
-      // Lock current camera coordinates before mounting mist at opacity 0
-      canvasControllerRef.current?.armOutroFlyOut();
-
-      setGameSpeed(0);
-      setCompanyOpen(false);
-      setOrdersOpen(false);
-      setSkipTimeOpen(false);
-      setSettingsOpen(false);
-      setExitConfirmOpen(false);
-      setHudVisible(false);
-      setInStartPanorama(false);
-      setStartScreenOpen(false);
-      setStartScreenMounted(false);
-      setMistMounted(true);
-      setMistVisible(false);
-      setCameraTransition('to-menu');
-
-      // Wait two frames so mist mounts at opacity 0 before starting synchronized 1.8s fly-out & fog roll-in
+      // Step 2: Decouple animation start by two frames so modals unmount and HUD fades cleanly
+      // before starting the synchronized canvas camera zoom-out & fog roll-in.
       const raf1 = window.requestAnimationFrame(() => {
         const raf2 = window.requestAnimationFrame(() => {
           introRafIdsRef.current = [];
           canvasControllerRef.current?.beginArmedOutroFlyOut();
-          setMistVisible(true);
         });
         introRafIdsRef.current = [raf2];
       });
@@ -1103,24 +1090,6 @@ export function App() {
         onReturnCargoToWarehouse={handleReturnCargoToWarehouse}
         controllerRef={canvasControllerRef}
       />
-
-      {/* Lightweight uniform semi-transparent mist veil — completely unmounted during normal gameplay */}
-      {mistMounted && (
-        <div
-          aria-hidden="true"
-          className={`fixed inset-0 z-10 pointer-events-none bg-[rgba(15,23,42,0.82)] transition-opacity ease-out ${
-            cameraTransition === 'to-menu'
-              ? mistVisible
-                ? 'duration-[1800ms] opacity-100 will-change-[opacity]'
-                : 'duration-0 opacity-0 will-change-[opacity]'
-              : cameraTransition === 'to-game'
-                ? mistVisible
-                  ? 'duration-0 opacity-100 will-change-auto'
-                  : 'duration-[2500ms] opacity-0 will-change-[opacity]'
-                : 'duration-500 opacity-100 will-change-auto'
-          }`}
-        />
-      )}
 
       <Toolbar
         hudVisible={hudVisible}
