@@ -70,7 +70,7 @@ function drawCourierFloatingBadge(
       ? `#${courierSlotIndex} • ${cargoCount}/${cargoCapacity}`
       : `${cargoCount}/${cargoCapacity}`;
   const fontSize = 9.2 * badgeScale;
-  ctx.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.font = `700 ${fontSize}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
   const textW = ctx.measureText(label).width;
   const padX = 4.2 * badgeScale;
   const boxW = textW + padX * 2;

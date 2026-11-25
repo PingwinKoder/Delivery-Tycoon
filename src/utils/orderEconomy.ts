@@ -155,7 +155,9 @@ export const LATE_OFFERS_INTERVAL_DAYS = 2;
 export const LATE_OFFERS_BATCH_MIN = 2;
 export const LATE_OFFERS_BATCH_MAX = 4;
 export const MAX_PENDING_OFFERS = 7;
-export const OFFER_EXPIRY_DAYS = 4;
+export const SHORT_TERM_OFFER_EXPIRY_DAYS = 2;
+export const LONG_TERM_OFFER_EXPIRY_DAYS = 3;
+export const OFFER_EXPIRY_DAYS = SHORT_TERM_OFFER_EXPIRY_DAYS;
 
 /** Individual active contract satisfaction rules */
 export const INITIAL_ORDER_SATISFACTION = 80;
@@ -547,8 +549,6 @@ export function generateSingleOffer(
 
   const createdDate = getCalendarDateFromElapsedDays(Math.floor(currentMinutes / MINUTES_PER_DAY));
   const createdAtGameDay = createdDate.gameDay;
-  const expiresAtGameDay = createdAtGameDay + OFFER_EXPIRY_DAYS;
-  const expiresAtMinutes = (expiresAtGameDay - 1) * MINUTES_PER_DAY;
   const id = `ord-${orderSeq}`;
   const orderNumber = generateUniqueOrderNumber(usedOrderNumbers ?? new Set<number>());
 
@@ -560,6 +560,10 @@ export function generateSingleOffer(
     state = roll.nextState;
     isLongTerm = roll.value < 0.45;
   }
+
+  const expiryDays = isLongTerm ? LONG_TERM_OFFER_EXPIRY_DAYS : SHORT_TERM_OFFER_EXPIRY_DAYS;
+  const expiresAtGameDay = createdAtGameDay + expiryDays;
+  const expiresAtMinutes = (expiresAtGameDay - 1) * MINUTES_PER_DAY;
 
   if (isLongTerm) {
     const monthsPick = rngPick(state, tier.allowedLongTermMonths);
@@ -1645,11 +1649,10 @@ function createEmptyWeeklyPriorityOrder(): Record<number, string[]> {
 }
 
 /**
- * Builds a unique schedule task ID distinguishing independent `pickup` and `delivery` tasks
- * belonging to the same order.
+ * Returns the canonical merged weekly schedule task ID for an order (one row per order per day).
  */
-export function makeWeeklyTaskId(orderId: string, taskType: WeeklyTaskType): string {
-  return `${orderId}:${taskType}`;
+export function makeWeeklyTaskId(orderId: string, _taskType?: WeeklyTaskType): string {
+  return orderId;
 }
 
 function extractOrderIdFromTaskKey(taskKey: string): string {
@@ -1846,9 +1849,8 @@ export function acceptOrderOffer(
     ...state.pendingOffers.slice(offerIndex + 1),
   ];
 
-  // Register accepted order as two independent tasks (Odbiór + Rozwózka) in per-weekday priority queues
-  const pickupTaskId = makeWeeklyTaskId(activeOrder.id, 'pickup');
-  const deliveryTaskId = makeWeeklyTaskId(activeOrder.id, 'delivery');
+  // Register accepted order as a single merged task in per-weekday priority queues
+  const mergedTaskId = makeWeeklyTaskId(activeOrder.id);
   const nextPriorityOrder: Record<number, string[]> = {};
   for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
     const existing = state.weeklyPriorityOrder[wd] ?? [];
@@ -1859,11 +1861,8 @@ export function acceptOrderOffer(
       continue;
     }
     const updated = [...existing];
-    if (!updated.includes(pickupTaskId)) {
-      updated.push(pickupTaskId);
-    }
-    if (!updated.includes(deliveryTaskId)) {
-      updated.push(deliveryTaskId);
+    if (!updated.includes(mergedTaskId)) {
+      updated.push(mergedTaskId);
     }
     nextPriorityOrder[wd] = updated;
   }
@@ -2423,7 +2422,7 @@ function processDailyOfferLifecycle(
   dayStartMinutes: number,
   buildings: readonly Building[]
 ): OrderEconomyState {
-  // 1. Expire unused offers after 4 days
+  // 1. Expire unused offers after 2 days (short-term) / 3 days (long-term)
   const validOffers = state.pendingOffers.filter((offer) => offer.expiresAtGameDay > date.gameDay);
   let nextState: OrderEconomyState =
     validOffers.length !== state.pendingOffers.length
@@ -2543,7 +2542,7 @@ export function advanceOrderEconomy(
         current = processMonthlySettlement(current, date);
       }
 
-      // 4. Expire old offers (4 days) and generate new offers on schedule
+      // 4. Expire old offers (2 days short-term / 3 days long-term) and generate new offers on schedule
       current = processDailyOfferLifecycle(current, date, dayStartMinutes, buildings);
     }
 
@@ -2569,8 +2568,8 @@ export function advanceOrderEconomy(
 }
 
 /**
- * Computes the ordered list of independent scheduled `Odbiór` (pickup) and `Rozwózka` (delivery)
- * tasks for a given weekday (0 = Pon .. 6 = Nd) within the current calendar week,
+ * Computes the ordered list of merged scheduled order tasks (1 tile per order per weekday)
+ * for a given weekday (0 = Pon .. 6 = Nd) within the current calendar week,
  * respecting the player's saved `weeklyPriorityOrder`.
  */
 export function getScheduledTasksForWeekday(
@@ -2589,6 +2588,9 @@ export function getScheduledTasksForWeekday(
     order: ActiveOrder;
     taskLabel: string;
     packageCount: number;
+    pickedUpCount: number;
+    deliveredCount: number;
+    totalPackages: number;
   }> = [];
 
   for (const order of state.activeOrders) {
@@ -2618,80 +2620,108 @@ export function getScheduledTasksForWeekday(
             weekdayIndex,
             currentGameDay
           );
-          if (remainingPickupToday > 0) {
+          const remainingDeliveryToday = undeliveredInPossession + remainingPickupToday;
+          if (remainingDeliveryToday > 0) {
+            const pickedUpToday =
+              order.weekly.lastPickupGameDay === currentGameDay
+                ? (order.weekly.pickedUpOnLastPickupDay ?? 0)
+                : 0;
+            const totalPackages = Math.max(
+              dayQuota,
+              pickedUpToday + remainingPickupToday,
+              remainingDeliveryToday
+            );
+            const pickedUpCount = Math.max(
+              0,
+              Math.min(totalPackages, totalPackages - remainingPickupToday)
+            );
+            const deliveredCount = Math.max(
+              0,
+              Math.min(pickedUpCount, totalPackages - remainingDeliveryToday)
+            );
             unsorted.push({
-              taskId: makeWeeklyTaskId(order.id, 'pickup'),
-              taskType: 'pickup',
+              taskId: makeWeeklyTaskId(order.id),
+              taskType: 'order',
               order,
-              taskLabel: 'Odbiór',
-              packageCount: remainingPickupToday,
-            });
-          }
-          const deliveryCountToday = undeliveredInPossession + remainingPickupToday;
-          if (deliveryCountToday > 0) {
-            unsorted.push({
-              taskId: makeWeeklyTaskId(order.id, 'delivery'),
-              taskType: 'delivery',
-              order,
-              taskLabel: 'Rozwózka',
-              packageCount: deliveryCountToday,
+              taskLabel: 'Realizacja',
+              packageCount: remainingDeliveryToday,
+              pickedUpCount,
+              deliveredCount,
+              totalPackages,
             });
           }
         } else if (dayQuota > 0) {
-          unsorted.push({
-            taskId: makeWeeklyTaskId(order.id, 'pickup'),
-            taskType: 'pickup',
-            order,
-            taskLabel: 'Odbiór',
-            packageCount: dayQuota,
-          });
-          unsorted.push({
-            taskId: makeWeeklyTaskId(order.id, 'delivery'),
-            taskType: 'delivery',
-            order,
-            taskLabel: 'Rozwózka',
-            packageCount: dayQuota,
-          });
+          if (targetGameDay > currentGameDay) {
+            unsorted.push({
+              taskId: makeWeeklyTaskId(order.id),
+              taskType: 'order',
+              order,
+              taskLabel: 'Realizacja',
+              packageCount: dayQuota,
+              pickedUpCount: 0,
+              deliveredCount: 0,
+              totalPackages: dayQuota,
+            });
+          } else {
+            const pickedUpCount = Math.min(dayQuota, order.weekly.pickedUpPackagesThisWeek);
+            const deliveredCount = Math.min(pickedUpCount, order.weekly.deliveredPackagesThisWeek);
+            if (deliveredCount < dayQuota) {
+              unsorted.push({
+                taskId: makeWeeklyTaskId(order.id),
+                taskType: 'order',
+                order,
+                taskLabel: 'Realizacja',
+                packageCount: Math.max(0, dayQuota - deliveredCount),
+                pickedUpCount,
+                deliveredCount,
+                totalPackages: dayQuota,
+              });
+            }
+          }
         }
       } else if (isToday && undeliveredInPossession > 0) {
-        // Packages awaiting delivery (in Base warehouse or already loaded onto courier vehicle)
+        // Carryover packages from an earlier pickup still awaiting delivery today
+        const totalPackages = Math.max(
+          order.weekly.expectedPackagesThisWeek,
+          undeliveredInPossession
+        );
+        const pickedUpCount = Math.min(
+          totalPackages,
+          Math.max(undeliveredInPossession, order.weekly.pickedUpPackagesThisWeek)
+        );
+        const deliveredCount = Math.max(0, pickedUpCount - undeliveredInPossession);
         unsorted.push({
-          taskId: makeWeeklyTaskId(order.id, 'delivery'),
-          taskType: 'delivery',
+          taskId: makeWeeklyTaskId(order.id),
+          taskType: 'order',
           order,
-          taskLabel: 'Rozwózka',
+          taskLabel: 'Realizacja',
           packageCount: undeliveredInPossession,
+          pickedUpCount,
+          deliveredCount,
+          totalPackages,
         });
       }
     } else {
       const lastActiveDay = Math.max(order.acceptedAtGameDay, order.endGameDay - 1);
       if (targetGameDay >= order.acceptedAtGameDay && targetGameDay <= lastActiveDay) {
-        const remainingToDeliver = Math.max(0, order.totalPackages - order.deliveredPackagesTotal);
-        const pickedUpTotal = Math.min(
-          order.totalPackages,
-          Math.max(
-            order.pickedUpPackagesTotal ?? 0,
-            order.deliveredPackagesTotal + storedInWarehouse
-          )
+        const totalPackages = Math.max(0, order.totalPackages);
+        const deliveredCount = Math.min(totalPackages, Math.max(0, order.deliveredPackagesTotal));
+        const remainingToDeliver = Math.max(0, totalPackages - deliveredCount);
+        const pickedUpCount = Math.min(
+          totalPackages,
+          Math.max(order.pickedUpPackagesTotal ?? 0, deliveredCount + storedInWarehouse)
         );
-        const remainingToPickup = Math.max(0, order.totalPackages - pickedUpTotal);
 
-        if (remainingToPickup > 0) {
+        if (totalPackages > 0 && remainingToDeliver > 0) {
           unsorted.push({
-            taskId: makeWeeklyTaskId(order.id, 'pickup'),
-            taskType: 'pickup',
+            taskId: makeWeeklyTaskId(order.id),
+            taskType: 'order',
             order,
-            taskLabel: 'Odbiór',
-            packageCount: remainingToPickup,
-          });
-        }
-        if (remainingToDeliver > 0) {
-          unsorted.push({
-            taskId: makeWeeklyTaskId(order.id, 'delivery'),
-            taskType: 'delivery',
-            order,
-            taskLabel: 'Rozwózka',
+            taskLabel: 'Realizacja',
             packageCount: remainingToDeliver,
+            pickedUpCount,
+            deliveredCount,
+            totalPackages,
           });
         }
       }
@@ -2700,13 +2730,21 @@ export function getScheduledTasksForWeekday(
 
   const savedOrder = state.weeklyPriorityOrder[weekdayIndex] ?? [];
   const rankLookup = new Map<string, number>();
-  savedOrder.forEach((id, idx) => rankLookup.set(id, idx));
+  savedOrder.forEach((id, idx) => {
+    const normalizedId = extractOrderIdFromTaskKey(id);
+    if (!rankLookup.has(id)) {
+      rankLookup.set(id, idx);
+    }
+    if (!rankLookup.has(normalizedId)) {
+      rankLookup.set(normalizedId, idx);
+    }
+  });
 
   const getRank = (item: { taskId: string; order: ActiveOrder }): number => {
     const exact = rankLookup.get(item.taskId);
     if (exact !== undefined) return exact;
-    const legacy = rankLookup.get(item.order.id);
-    if (legacy !== undefined) return legacy;
+    const byOrder = rankLookup.get(item.order.id);
+    if (byOrder !== undefined) return byOrder;
     return Number.MAX_SAFE_INTEGER;
   };
 
@@ -2717,10 +2755,7 @@ export function getScheduledTasksForWeekday(
     if (a.order.acceptedAtMinutes !== b.order.acceptedAtMinutes) {
       return a.order.acceptedAtMinutes - b.order.acceptedAtMinutes;
     }
-    if (a.taskType !== b.taskType) {
-      return a.taskType === 'pickup' ? -1 : 1;
-    }
-    return 0;
+    return a.order.orderNumber - b.order.orderNumber;
   });
 
   return unsorted.map((item, idx) => ({
@@ -2734,15 +2769,17 @@ export function getScheduledTasksForWeekday(
     pickupAddress: item.order.pickupLocation.address,
     taskLabel: item.taskLabel,
     packageCount: item.packageCount,
+    pickedUpCount: item.pickedUpCount,
+    deliveredCount: item.deliveredCount,
+    totalPackages: item.totalPackages,
     satisfaction: item.order.satisfaction,
     priorityRank: idx + 1,
   }));
 }
 
 /**
- * Moves an individual scheduled task (`Odbiór` or `Rozwózka`) up or down in priority
- * within a specific weekday (0 = Pon .. 6 = Nd) and persists the updated sequence in
- * `state.weeklyPriorityOrder` for courier dispatch.
+ * Moves a merged order task up or down in priority within a specific weekday (0 = Pon .. 6 = Nd)
+ * and persists the updated sequence in `state.weeklyPriorityOrder` for courier dispatch.
  */
 export function moveWeeklyTaskPriority(
   state: OrderEconomyState,
@@ -2752,7 +2789,10 @@ export function moveWeeklyTaskPriority(
   currentGameDay: number
 ): OrderEconomyState {
   const visibleTasks = getScheduledTasksForWeekday(state, weekdayIndex, currentGameDay);
-  const currentIdx = visibleTasks.findIndex((t) => t.taskId === taskId);
+  const normalizedTarget = extractOrderIdFromTaskKey(taskId);
+  const currentIdx = visibleTasks.findIndex(
+    (t) => t.taskId === taskId || t.orderId === normalizedTarget
+  );
   if (currentIdx === -1) return state;
 
   const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
@@ -2764,9 +2804,15 @@ export function moveWeeklyTaskPriority(
   reorderedVisibleIds[swapIdx] = tmp;
 
   const visibleSet = new Set(reorderedVisibleIds);
-  const trailingHiddenIds = (state.weeklyPriorityOrder[weekdayIndex] ?? []).filter(
-    (id) => !visibleSet.has(id)
-  );
+  const trailingHiddenIds: string[] = [];
+  const seenHidden = new Set<string>();
+  for (const rawId of state.weeklyPriorityOrder[weekdayIndex] ?? []) {
+    const cleanId = extractOrderIdFromTaskKey(rawId);
+    if (!visibleSet.has(cleanId) && !seenHidden.has(cleanId)) {
+      seenHidden.add(cleanId);
+      trailingHiddenIds.push(cleanId);
+    }
+  }
 
   return {
     ...state,
@@ -2856,7 +2902,7 @@ export function selectNextPickupTaskForCourier(
   const activeById = new Map(state.activeOrders.map((o) => [o.id, o]));
 
   for (const task of scheduledTasks) {
-    if (task.taskType !== 'pickup') continue;
+    if (task.taskType === 'delivery') continue;
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 

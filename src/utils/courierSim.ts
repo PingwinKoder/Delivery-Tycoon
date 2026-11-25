@@ -113,7 +113,7 @@ export type PostFinalPickupDecision =
     };
 
 export interface CourierTaskSelectionOptions {
-  /** Task IDs (`"${orderId}:pickup"` / `"${orderId}:delivery"`) already claimed by other active couriers */
+  /** Merged task IDs (`orderId`) already claimed by other active couriers */
   claimedTaskIds?: ReadonlySet<string>;
   /** Packages currently reserved in-flight by other couriers' active pickup runs (not yet unloaded into Base) */
   reservedWarehouseSpace?: number;
@@ -124,7 +124,7 @@ export interface CourierState {
   courierId: number;
   /** True whenever this courier is out on a route or moving on the Base yard */
   inRoute: boolean;
-  /** Currently claimed WeeklyScheduleTask taskId (e.g. "ord-1:pickup", "ord-1:delivery"), or null */
+  /** Currently claimed merged WeeklyScheduleTask taskId (orderId, e.g. "ord-1"), or null */
   assignedTaskId: string | null;
   phase: CourierPhase;
   /** True while the courier is out on a mission or moving on the Base yard */
@@ -268,12 +268,17 @@ export function prependRackExitToPath(rackWaypoints: Point[], roadPath: Point[])
 }
 
 /**
- * Scans today's `Plan tygodnia` tasks strictly from top to bottom (`#1`, `#2`, ...)
- * and picks the first ready task:
- * - `Odbiór` (`pickup`): order still has packages to pick up today AND Base warehouse has free space
- * - `Rozwózka` (`delivery`): packages for that order are already waiting in Base warehouse
+ * Scans today's merged `Plan tygodnia` tasks strictly from top to bottom (`#1`, `#2`, ...)
+ * and picks the first ready stage for an unclaimed order:
+ * - If the merged task still has unpicked packages (`remainingToPickup > 0`) AND Base warehouse
+ *   has free space for the next pickup batch -> dispatch `pickup` stage.
+ * - If the warehouse is full (cannot fit the next pickup batch) -> skip unfinished pickup and
+ *   dispatch a single `delivery` trip for the highest-priority merged task that already has
+ *   packages waiting in the Base warehouse, freeing space before re-scanning from `#1`.
+ * - If all packages of the merged task are already picked up (`remainingToPickup === 0`) and
+ *   packages are stored in Base warehouse -> dispatch `delivery` stage.
  *
- * Falls back to any active order with stored warehouse packages if none are listed today.
+ * Falls back to any unclaimed active order with stored warehouse packages if none are listed today.
  */
 export function selectNextCourierTaskForDay(
   state: OrderEconomyState,
@@ -293,46 +298,50 @@ export function selectNextCourierTaskForDay(
   const vehicleCapacity = getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
-    if (claimedTaskIds?.has(task.taskId)) continue;
+    if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 
-    if (task.taskType === 'pickup') {
-      if (freeWarehouseSpace <= 0) continue;
-      const remainingToPickup = getRemainingPickupPackagesForOrderToday(
-        state,
-        order,
-        clock.dayIndex,
-        clock.gameDay
-      );
-      if (remainingToPickup <= 0) continue;
-      // Hold ODBIÓR if the Base warehouse does not have enough free slots for the next
-      // single-trip pickup batch (`min(vehicleCapacity, remainingToPickup)`); leave the rest
-      // of this ODBIÓR on the list and run one ROZWÓZKA trip first to free space.
+    const remainingToPickup = getRemainingPickupPackagesForOrderToday(
+      state,
+      order,
+      clock.dayIndex,
+      clock.gameDay
+    );
+    const storedCount = getStoredPackagesForOrder(state, order.id);
+
+    if (remainingToPickup > 0) {
       const requiredSpace = Math.min(vehicleCapacity, remainingToPickup, warehouseCapacity);
-      if (
-        freeWarehouseSpace < requiredSpace ||
-        !hasEnoughWarehouseSpaceForPickup(state, remainingToPickup, vehicleCapacity)
-      ) {
-        continue;
+      const canFitPickup =
+        freeWarehouseSpace > 0 &&
+        freeWarehouseSpace >= requiredSpace &&
+        hasEnoughWarehouseSpaceForPickup(state, remainingToPickup, vehicleCapacity);
+
+      if (canFitPickup) {
+        const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeWarehouseSpace);
+        if (pickupCount > 0) {
+          return { kind: 'pickup', order, pickupCount, task };
+        }
       }
-      const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeWarehouseSpace);
-      if (pickupCount > 0) {
-        return { kind: 'pickup', order, pickupCount, task };
-      }
-    } else if (task.taskType === 'delivery') {
-      const storedCount = getStoredPackagesForOrder(state, order.id);
+
+      // Warehouse full for the next pickup batch: if this order already has packages in Base,
+      // perform one delivery trip to free space; otherwise continue scanning lower-priority orders.
       if (storedCount > 0) {
         return { kind: 'delivery', order, availableCount: storedCount, task };
       }
+      continue;
+    }
+
+    if (storedCount > 0) {
+      return { kind: 'delivery', order, availableCount: storedCount, task };
     }
   }
 
-  // Fallback: deliver any stored packages belonging to an active order even if not listed in today's tasks
+  // Fallback: deliver any stored packages belonging to an unclaimed active order
   if (state.warehousePackages > 0) {
     for (const order of state.activeOrders) {
       if (order.status !== 'active') continue;
-      if (claimedTaskIds?.has(`${order.id}:delivery`)) continue;
+      if (claimedTaskIds?.has(order.id)) continue;
       const storedCount = getStoredPackagesForOrder(state, order.id);
       if (storedCount > 0) {
         return { kind: 'delivery', order, availableCount: storedCount };
@@ -345,11 +354,11 @@ export function selectNextCourierTaskForDay(
 
 /**
  * Evaluates the courier's next highest-priority ready task immediately after picking up
- * the FINAL remaining package of `completedPickupOrderId` at the sender's address
- * (once that ODBIÓR has already been removed from today's `Plan tygodnia`):
- * - Scenario A: next ready task is ROZWÓZKA of the same order (and NOT claimed by another courier) -> deliver directly from sender without returning to Base
- * - Scenario B: next ready task is ODBIÓR of another order -> return to Base, unload carried packages, then head to new ODBIÓR
- * - Scenario C: next ready task is ROZWÓZKA of another order -> return to Base, unload carried packages, load new order, deliver
+ * the FINAL remaining package of `completedPickupOrderId` at the sender's address:
+ * - Scenario A: the same merged order task still has highest priority for this courier
+ *   (and is not claimed by another courier) -> deliver carried packages directly from sender
+ * - Scenario B: a higher-priority merged order task is ready for pickup -> return to Base, unload, then pick up
+ * - Scenario C: a higher-priority merged order task is ready for delivery -> return to Base, unload, load new order, deliver
  */
 export function selectNextTaskAfterFinalPickup(
   state: OrderEconomyState,
@@ -378,51 +387,62 @@ export function selectNextTaskAfterFinalPickup(
   const vehicleCapacity = getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
-    if (claimedTaskIds?.has(task.taskId)) continue;
+    if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 
-    if (task.taskType === 'pickup') {
-      const remainingToPickup = getRemainingPickupPackagesForOrderToday(
-        state,
+    // Scenario A: same merged order is still highest priority for this courier -> deliver directly
+    if (order.id === completedPickupOrderId) {
+      return {
+        scenario: 'direct_delivery_same_order',
         order,
-        clock.dayIndex,
-        clock.gameDay
-      );
-      if (remainingToPickup <= 0) continue;
+        task,
+      };
+    }
+
+    // Another order sits higher in Plan tygodnia: check whether it is ready for pickup (Scenario B)
+    // or delivery (Scenario C) after unloading our carried packages at Base
+    const remainingToPickup = getRemainingPickupPackagesForOrderToday(
+      state,
+      order,
+      clock.dayIndex,
+      clock.gameDay
+    );
+    const storedCount = getStoredPackagesForOrder(state, order.id);
+
+    if (remainingToPickup > 0) {
       const nextBatchSize = Math.min(vehicleCapacity, remainingToPickup, warehouseCapacity);
-      if (freeSpaceAfterUnload < nextBatchSize) continue;
-      const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeSpaceAfterUnload);
-      if (pickupCount > 0) {
-        return {
-          scenario: 'return_to_base_for_next_task',
-          nextTask: { kind: 'pickup', order, pickupCount, task },
-        };
+      if (freeSpaceAfterUnload >= nextBatchSize) {
+        const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeSpaceAfterUnload);
+        if (pickupCount > 0) {
+          return {
+            scenario: 'return_to_base_for_next_task',
+            nextTask: { kind: 'pickup', order, pickupCount, task },
+          };
+        }
       }
-    } else if (task.taskType === 'delivery') {
-      if (order.id === completedPickupOrderId) {
-        return {
-          scenario: 'direct_delivery_same_order',
-          order,
-          task,
-        };
-      }
-      const storedCount = getStoredPackagesForOrder(state, order.id);
       if (storedCount > 0) {
         return {
           scenario: 'return_to_base_for_next_task',
           nextTask: { kind: 'delivery', order, availableCount: storedCount, task },
         };
       }
+      continue;
+    }
+
+    if (storedCount > 0) {
+      return {
+        scenario: 'return_to_base_for_next_task',
+        nextTask: { kind: 'delivery', order, availableCount: storedCount, task },
+      };
     }
   }
 
-  const sameOrderDeliveryTaskId = `${completedPickupOrderId}:delivery`;
   const completedOrder = activeById.get(completedPickupOrderId);
   if (
     completedOrder &&
     completedOrder.status === 'active' &&
-    !claimedTaskIds?.has(sameOrderDeliveryTaskId)
+    !claimedTaskIds?.has(completedPickupOrderId)
   ) {
     return {
       scenario: 'direct_delivery_same_order',
@@ -1251,7 +1271,7 @@ export function createPickupMissionCourier(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  assignedTaskId: string | null = `${orderId}:pickup`
+  assignedTaskId: string | null = orderId
 ): CourierState {
   if (plannedPickupCount <= 0) {
     return createIdleCourier(vehicle, courierId);
@@ -1449,9 +1469,7 @@ export function createDeliveryMissionCourier(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  assignedTaskId: string | null = initialCargo[0]?.orderId
-    ? `${initialCargo[0].orderId}:delivery`
-    : null
+  assignedTaskId: string | null = initialCargo[0]?.orderId ?? null
 ): CourierState {
   if (stopsInput.length === 0 || initialCargo.length === 0) {
     return createIdleCourier(vehicle, courierId);
@@ -1646,9 +1664,7 @@ export function createDirectDeliveryMissionFromBuilding(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  assignedTaskId: string | null = initialCargo[0]?.orderId
-    ? `${initialCargo[0].orderId}:delivery`
-    : null
+  assignedTaskId: string | null = initialCargo[0]?.orderId ?? null
 ): CourierState {
   if (stopsInput.length === 0 || initialCargo.length === 0) {
     return createIdleCourier(vehicle, courierId);

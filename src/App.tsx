@@ -861,27 +861,6 @@ export function App() {
         controllerRef={canvasControllerRef}
       />
 
-      {/* Compact, discreet FPS counter in top-right corner (cleanly below "Zlecenia" + "Firma" column) */}
-      <div
-        aria-label={fps !== null ? `Wydajność: ${fps} klatek na sekundę` : 'Pomiar FPS'}
-        className="fixed right-2 sm:right-3 [@media(max-height:540px)]:right-1.5 top-[152px] sm:top-[160px] [@media(max-height:540px)]:top-[122px] min-[1360px]:top-[116px] z-20 pointer-events-none select-none px-2 py-0.5 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] font-semibold font-mono-nums leading-tight flex items-center gap-1"
-      >
-        <span
-          className={
-            fps === null
-              ? 'text-slate-400'
-              : fps >= 50
-                ? 'text-emerald-400'
-                : fps >= 30
-                  ? 'text-amber-400'
-                  : 'text-rose-400'
-          }
-        >
-          {fps ?? '--'}
-        </span>
-        <span className="text-slate-400 text-[10px]">FPS</span>
-      </div>
-
       <Toolbar
         showGrid={showGrid}
         footprintOnly={footprintOnly}
@@ -893,6 +872,7 @@ export function App() {
         ordersOpen={ordersOpen}
         companyOpen={companyOpen}
         unreadOffersCount={unreadOffersCount}
+        fps={fps}
         onToggleGrid={handleToggleGrid}
         onToggleFootprintOnly={handleToggleFootprintOnly}
         onToggleStreetNames={handleToggleStreetNames}

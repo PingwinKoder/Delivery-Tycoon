@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ClipboardList, Files, X } from 'lucide-react';
+import { Boxes, CalendarDays, Check, ClipboardList, Files, X } from 'lucide-react';
 import type {
   ActiveOrder,
   OrderEconomyState,
@@ -54,17 +54,6 @@ function formatPolishPackages(count: number): string {
   const mod10 = abs % 10;
   const mod100 = abs % 100;
   if (abs === 1) return `${count} paczkę`;
-  if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) {
-    return `${count} paczki`;
-  }
-  return `${count} paczek`;
-}
-
-function formatPolishPackagesNominative(count: number): string {
-  const abs = Math.abs(count);
-  const mod10 = abs % 10;
-  const mod100 = abs % 100;
-  if (abs === 1) return `${count} paczka`;
   if (mod10 >= 2 && mod10 <= 4 && !(mod100 >= 12 && mod100 <= 14)) {
     return `${count} paczki`;
   }
@@ -213,7 +202,8 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       const rawTasks = getScheduledTasksForWeekday(economyState, weekdayIndex, clock.gameDay);
       const tasks: WeeklyScheduleTask[] = isToday
         ? rawTasks.map((task) => {
-            const assignedCourierId = taskAssignmentsByTaskId?.[task.taskId];
+            const assignedCourierId =
+              taskAssignmentsByTaskId?.[task.taskId] ?? taskAssignmentsByTaskId?.[task.orderId];
             return assignedCourierId !== undefined
               ? { ...task, assignedCourierId }
               : task;
@@ -536,7 +526,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     {selectedDay.tasks.map((task, idx) => {
                       const isFirst = idx === 0;
                       const isLast = idx === selectedDay.tasks.length - 1;
-                      const isPickup = task.taskType === 'pickup';
+                      const totalPkgs = Math.max(0, task.totalPackages);
+                      const pickedUp = Math.max(0, Math.min(totalPkgs, task.pickedUpCount));
+                      const delivered = Math.max(0, Math.min(totalPkgs, task.deliveredCount));
+                      const allPickedUp = totalPkgs > 0 && pickedUp >= totalPkgs;
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
@@ -544,20 +537,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         >
                           <span className="font-mono-nums font-bold text-amber-400 min-w-[22px] shrink-0">
                             #{task.priorityRank}
-                          </span>
-
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase border shrink-0 leading-none ${
-                              isPickup
-                                ? 'bg-sky-500/15 text-sky-300 border-sky-400/40'
-                                : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
-                            }`}
-                          >
-                            {isPickup ? 'ODBIÓR' : 'ROZWÓZKA'}
-                          </span>
-
-                          <span className="text-[11px] font-semibold text-slate-200 font-mono-nums whitespace-nowrap shrink-0 min-w-[60px]">
-                            {formatPolishPackagesNominative(task.packageCount)}
                           </span>
 
                           <p
@@ -573,6 +552,34 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             <span className="font-semibold">{task.clientName}</span>
                             <span className="text-slate-400"> ({task.pickupAddress})</span>
                           </p>
+
+                          <div className="flex items-center gap-1 shrink-0 tabular-nums text-[11px]">
+                            <span
+                              title={`Odebrane paczki: ${pickedUp}/${totalPkgs}`}
+                              aria-label={`Odebrane paczki: ${pickedUp} z ${totalPkgs}`}
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none whitespace-nowrap ${
+                                allPickedUp
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
+                                  : 'bg-sky-500/15 text-sky-300 border-sky-400/40'
+                              }`}
+                            >
+                              <Boxes className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <span className="font-semibold">
+                                {pickedUp}/{totalPkgs}
+                              </span>
+                            </span>
+
+                            <span
+                              title={`Dostarczone paczki: ${delivered}/${totalPkgs}`}
+                              aria-label={`Dostarczone paczki: ${delivered} z ${totalPkgs}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none whitespace-nowrap bg-emerald-500/15 text-emerald-400 border-emerald-400/40"
+                            >
+                              <Check className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" aria-hidden="true" />
+                              <span className="font-semibold">
+                                {delivered}/{totalPkgs}
+                              </span>
+                            </span>
+                          </div>
 
                           {task.assignedCourierId !== undefined && (
                             <span
@@ -604,7 +611,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   'up'
                                 )
                               }
-                              aria-label={`Zwiększ priorytet w ${selectedDay.weekdayName}: ${task.taskLabel} – ${task.clientName}`}
+                              aria-label={`Zwiększ priorytet w ${selectedDay.weekdayName}: #${task.orderNumber} ${task.clientName}`}
                               title="Wyżej w kolejności"
                               className={`w-7 h-7 rounded-md text-[11px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isFirst
@@ -624,7 +631,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   'down'
                                 )
                               }
-                              aria-label={`Zmniejsz priorytet w ${selectedDay.weekdayName}: ${task.taskLabel} – ${task.clientName}`}
+                              aria-label={`Zmniejsz priorytet w ${selectedDay.weekdayName}: #${task.orderNumber} ${task.clientName}`}
                               title="Niżej w kolejności"
                               className={`w-7 h-7 rounded-md text-[11px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isLast
@@ -821,6 +828,24 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
           {order.pickupLocation.address}
         </p>
       </div>
+
+      {/* 2b. Scheduled realization weekday(s) for long-term contracts */}
+      {order.kind === 'long_term' && (
+        <div className="flex items-center gap-1 text-[11px] leading-tight">
+          <CalendarDays className="w-3 h-3 text-sky-400 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            <span className="text-slate-400">
+              {order.pickupWeekdays.length > 1 ? 'Dni realizacji: ' : 'Dzień realizacji: '}
+            </span>
+            <span className="font-semibold text-sky-200">
+              {order.pickupWeekdays.length === 1
+                ? (POLISH_WEEKDAYS[order.pickupWeekdays[0]] ??
+                    formatWeekdaysList(order.pickupWeekdays))
+                : formatWeekdaysList(order.pickupWeekdays)}
+            </span>
+          </span>
+        </div>
+      )}
 
       {/* 3. Combined progress & payout row */}
       <div className="flex items-baseline justify-between gap-1.5 text-[11px] font-mono-nums pt-0.5">

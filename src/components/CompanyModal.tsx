@@ -55,6 +55,12 @@ import {
 
 type CompanyTabId = 'base' | 'fleet' | 'employees';
 
+function formatMissingFunds(cost: number, balance: number): string {
+  const missing = Math.round(Math.max(0, cost - balance) * 100) / 100;
+  const hasCents = Math.abs(missing - Math.round(missing)) > 0.001;
+  return `Brakuje ${formatCurrencyUsd(missing, hasCents)}`;
+}
+
 interface CompanyModalProps {
   isOpen: boolean;
   economyState: OrderEconomyState;
@@ -639,19 +645,26 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-slate-400">
-                    {nextWarehouseUpgrade
-                      ? `Koszt: ${formatCurrencyUsd(nextWarehouseUpgrade.cost, false)}`
-                      : 'Osiągnięto maks. poziom'}
-                  </span>
+                  <div className="min-w-0 leading-tight">
+                    <span className="block text-[11px] text-slate-400 font-mono-nums">
+                      {nextWarehouseUpgrade
+                        ? `Koszt: ${formatCurrencyUsd(nextWarehouseUpgrade.cost, false)}`
+                        : 'Osiągnięto maks. poziom'}
+                    </span>
+                    {nextWarehouseUpgrade && !canUpgradeWarehouse && (
+                      <span className="block text-[11px] font-semibold text-rose-300 font-mono-nums">
+                        {formatMissingFunds(nextWarehouseUpgrade.cost, economyState.balance)}
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={!canUpgradeWarehouse}
                     onClick={onUpgradeWarehouse}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                       canUpgradeWarehouse
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                        : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
                     }`}
                   >
                     {nextWarehouseUpgrade
@@ -724,19 +737,26 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-slate-400">
-                    {nextParkingUpgrade
-                      ? `Miejsce #${nextParkingUpgrade.nextSpotNumber} pojawi się na mapie`
-                      : 'Komplet 8 miejsc wykupiony'}
-                  </span>
+                  <div className="min-w-0 leading-tight">
+                    <span className="block text-[11px] text-slate-400">
+                      {nextParkingUpgrade
+                        ? `Miejsce #${nextParkingUpgrade.nextSpotNumber} pojawi się na mapie`
+                        : 'Komplet 8 miejsc wykupiony'}
+                    </span>
+                    {nextParkingUpgrade && !canBuyParkingSpot && (
+                      <span className="block text-[11px] font-semibold text-rose-300 font-mono-nums">
+                        {formatMissingFunds(nextParkingUpgrade.cost, economyState.balance)}
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={!canBuyParkingSpot}
                     onClick={onBuyParkingSpot}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                       canBuyParkingSpot
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                        : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
                     }`}
                   >
                     {nextParkingUpgrade
@@ -798,7 +818,12 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-end">
+                <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                  {!bikesMaxed && !canBuyBicycle && (
+                    <p className="text-[11px] font-semibold text-rose-300 font-mono-nums leading-snug">
+                      {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance)}
+                    </p>
+                  )}
                   <button
                     type="button"
                     disabled={!canBuyBicycle}
@@ -806,7 +831,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     className={`w-full px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                       canBuyBicycle
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                        : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
                     }`}
                   >
                     {bikesMaxed
@@ -819,15 +844,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               {/* Card 2: Używany bus dostawczy 20 paczek (Active Stage 2A) */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 leading-tight">
                         Używany bus dostawczy
                       </h3>
                     </div>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0 whitespace-nowrap">
-                      Busy: {vansCount} / {economyState.parkingSpots}
+                    <span
+                      title="Posiadane busy / miejsca parkingowe"
+                      className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0 whitespace-nowrap"
+                    >
+                      {vansCount} / {economyState.parkingSpots}
                     </span>
                   </div>
 
@@ -859,10 +887,17 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 space-y-1.5">
-                  {!vansMaxed && !hasFreeParkingForVan && (
-                    <p className="text-[11px] text-amber-300/90 leading-snug">
-                      Wymaga wolnego miejsca parkingowego P1–P8
-                    </p>
+                  {!vansMaxed && !canBuyUsedVan && (
+                    <div className="space-y-0.5 text-[11px] font-semibold leading-snug">
+                      {!hasFreeParkingForVan && (
+                        <p className="text-amber-300">Wymaga wolnego parkingu</p>
+                      )}
+                      {economyState.balance < USED_VAN_PURCHASE_COST && (
+                        <p className="text-rose-300 font-mono-nums">
+                          {formatMissingFunds(USED_VAN_PURCHASE_COST, economyState.balance)}
+                        </p>
+                      )}
+                    </div>
                   )}
                   <button
                     type="button"
@@ -871,7 +906,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     className={`w-full px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                       canBuyUsedVan
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                        : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
                     }`}
                   >
                     {vansMaxed
@@ -884,10 +919,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               {/* Card 3: Bus dostawczy 30 paczek (Preview Future) */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5 opacity-85">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Truck className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 leading-tight">
                         Bus dostawczy
                       </h3>
                     </div>
@@ -1196,17 +1231,30 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       </div>
 
                       <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-slate-400 font-mono-nums">
-                          Licencja: {formatCurrencyUsd(licenseCost, false)}
-                        </span>
+                        <div className="min-w-0 leading-tight">
+                          <span className="block text-[11px] text-slate-400 font-mono-nums">
+                            Licencja: {formatCurrencyUsd(licenseCost, false)}
+                          </span>
+                          {!canBuyLicense && (
+                            <span
+                              className={`block text-[11px] font-semibold font-mono-nums ${
+                                !isNextToUnlock ? 'text-amber-300' : 'text-rose-300'
+                              }`}
+                            >
+                              {!isNextToUnlock
+                                ? `Wymaga licencji #${courier.slotIndex - 1}`
+                                : formatMissingFunds(licenseCost, economyState.balance)}
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           disabled={!canBuyLicense}
                           onClick={onBuyEmployeeLicense}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                             canBuyLicense
                               ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                              : 'bg-slate-800 text-slate-500 border border-slate-700/80 cursor-not-allowed'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
                           }`}
                         >
                           Kup licencję ({formatCurrencyUsd(licenseCost, false)})

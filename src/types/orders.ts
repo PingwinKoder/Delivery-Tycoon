@@ -59,7 +59,7 @@ export interface OrderOfferBase {
   /** 1-based gameplay day when offer appeared */
   createdAtGameDay: number;
   createdAtMinutes: number;
-  /** 1-based gameplay day when unused offer expires (createdAtGameDay + 4) */
+  /** 1-based gameplay day when unused offer expires (+2 days short-term, +3 days long-term) */
   expiresAtGameDay: number;
   expiresAtMinutes: number;
   /** False for newly generated offers until the player views the "Nowe oferty" tab */
@@ -117,12 +117,12 @@ export interface ActiveOrderWeeklyTracking {
   pickedUpOnLastPickupDay?: number;
 }
 
-export type WeeklyTaskType = 'pickup' | 'delivery';
+export type WeeklyTaskType = 'order' | 'pickup' | 'delivery';
 
 export interface WeeklyScheduleTask {
-  /** Stable unique identifier for independent priority ordering (e.g. "ord-1:pickup", "ord-1:delivery") */
+  /** Stable unique identifier per order in a weekday priority queue (e.g. "ord-1") */
   taskId: string;
-  /** Fulfillment stage: 'pickup' (sender -> Base warehouse) or 'delivery' (Base warehouse -> recipients) */
+  /** Unified task marker ('order' for merged pickup+delivery rows; 'pickup'/'delivery' kept for legacy saves) */
   taskType: WeeklyTaskType;
   orderId: string;
   /** Unique 3-digit human-readable order number (101–999) */
@@ -131,10 +131,16 @@ export interface WeeklyScheduleTask {
   kind: OrderKind;
   clientName: string;
   pickupAddress: string;
-  /** Short Polish stage label ("Odbiór" or "Rozwózka") */
+  /** Short Polish task label ("Realizacja") */
   taskLabel: string;
-  /** Number of packages scheduled / remaining for this stage */
+  /** Number of packages remaining / scheduled for this task */
   packageCount: number;
+  /** Number of packages already picked up from sender for this task */
+  pickedUpCount: number;
+  /** Number of packages already delivered to recipients for this task */
+  deliveredCount: number;
+  /** Total number of packages for this task */
+  totalPackages: number;
   /** Order's current satisfaction % for quick dispatch awareness */
   satisfaction: number;
   /** 1-based priority rank within this weekday */
@@ -390,7 +396,7 @@ export interface OrderEconomyState {
   deliveryVansCount: number;
   /** Vehicle currently assigned to the owner courier (Kurier #1) */
   activeVehicle: ActiveVehicleSelection;
-  /** Pending offers waiting to be accepted (max 7 at once, expire after 4 days) */
+  /** Pending offers waiting to be accepted (max 7 at once; expire after 2 days short-term / 3 days long-term) */
   pendingOffers: OrderOffer[];
   /** Currently signed & ongoing orders (no upper limit) */
   activeOrders: ActiveOrder[];

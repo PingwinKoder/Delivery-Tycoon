@@ -131,8 +131,50 @@ function normalizeActiveVehicle(value: unknown): ActiveVehicleSelection {
   return { type: 'bike', index: 1 };
 }
 
-function stripAssignedCourierFromWeeklyPlan(
-  rawPlan: unknown
+function stripLegacyTaskSuffix(taskKey: string): string {
+  const sepIdx = taskKey.lastIndexOf(':');
+  if (sepIdx === -1) return taskKey;
+  const suffix = taskKey.slice(sepIdx + 1);
+  if (suffix === 'pickup' || suffix === 'delivery') {
+    return taskKey.slice(0, sepIdx);
+  }
+  return taskKey;
+}
+
+function normalizeWeeklyPriorityOrderMap(
+  rawPriority: unknown
+): Record<number, string[]> {
+  const normalized: Record<number, string[]> = {};
+  for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
+    normalized[wd] = [];
+  }
+  if (!isPlainObject(rawPriority)) {
+    return normalized;
+  }
+
+  for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
+    const rawList = rawPriority[String(wd)] ?? rawPriority[wd];
+    if (!Array.isArray(rawList)) continue;
+    const seen = new Set<string>();
+    const mergedIds: string[] = [];
+    for (const item of rawList) {
+      if (typeof item !== 'string' || item.length === 0) continue;
+      const orderId = stripLegacyTaskSuffix(item);
+      if (!seen.has(orderId)) {
+        seen.add(orderId);
+        mergedIds.push(orderId);
+      }
+    }
+    normalized[wd] = mergedIds;
+  }
+
+  return normalized;
+}
+
+function normalizeAndMergeWeeklyPlan(
+  rawPlan: unknown,
+  activeOrders: readonly ActiveOrder[],
+  warehouseInventory: Readonly<Record<string, number>>
 ): Record<number, WeeklyScheduleTask[]> {
   const normalized: Record<number, WeeklyScheduleTask[]> = {};
   for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
@@ -143,16 +185,156 @@ function stripAssignedCourierFromWeeklyPlan(
     return normalized;
   }
 
+  const activeById = new Map<string, ActiveOrder>();
+  for (const order of activeOrders) {
+    if (order && typeof order.id === 'string') {
+      activeById.set(order.id, order);
+    }
+  }
+
   for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
     const dayList = rawPlan[String(wd)] ?? rawPlan[wd];
     if (!Array.isArray(dayList)) continue;
 
-    normalized[wd] = dayList
-      .filter((item): item is WeeklyScheduleTask => isPlainObject(item) && typeof item.taskId === 'string')
-      .map((task) => {
-        const { assignedCourierId: _dropped, ...cleanTask } = task;
-        return { ...cleanTask };
-      });
+    const mergedByOrderId = new Map<
+      string,
+      {
+        base: WeeklyScheduleTask;
+        pickupRemaining?: number;
+        deliveryRemaining?: number;
+        hasUnifiedCounts: boolean;
+      }
+    >();
+    const orderedOrderIds: string[] = [];
+
+    for (const item of dayList) {
+      if (!isPlainObject(item) || typeof item.taskId !== 'string') continue;
+      const rawTask = item as unknown as Partial<WeeklyScheduleTask> & { taskId: string };
+      const orderId =
+        typeof rawTask.orderId === 'string' && rawTask.orderId.length > 0
+          ? rawTask.orderId
+          : stripLegacyTaskSuffix(rawTask.taskId);
+
+      const { assignedCourierId: _dropped, ...cleanFields } = rawTask;
+      const rawCount = Math.max(0, Math.floor(Number(rawTask.packageCount) || 0));
+      const hasUnifiedCounts =
+        typeof rawTask.totalPackages === 'number' &&
+        Number.isFinite(rawTask.totalPackages) &&
+        typeof rawTask.pickedUpCount === 'number' &&
+        Number.isFinite(rawTask.pickedUpCount) &&
+        typeof rawTask.deliveredCount === 'number' &&
+        Number.isFinite(rawTask.deliveredCount);
+
+      let group = mergedByOrderId.get(orderId);
+      if (!group) {
+        orderedOrderIds.push(orderId);
+        group = {
+          base: {
+            ...(cleanFields as WeeklyScheduleTask),
+            taskId: orderId,
+            taskType: 'order',
+            orderId,
+            weekdayIndex: wd,
+            taskLabel: 'Realizacja',
+            packageCount: rawCount,
+            pickedUpCount: hasUnifiedCounts
+              ? Math.max(0, Math.floor(rawTask.pickedUpCount!))
+              : 0,
+            deliveredCount: hasUnifiedCounts
+              ? Math.max(0, Math.floor(rawTask.deliveredCount!))
+              : 0,
+            totalPackages: hasUnifiedCounts
+              ? Math.max(0, Math.floor(rawTask.totalPackages!))
+              : rawCount,
+          },
+          hasUnifiedCounts,
+        };
+        mergedByOrderId.set(orderId, group);
+      } else if (hasUnifiedCounts && !group.hasUnifiedCounts) {
+        group.base.totalPackages = Math.max(0, Math.floor(rawTask.totalPackages!));
+        group.base.pickedUpCount = Math.max(0, Math.floor(rawTask.pickedUpCount!));
+        group.base.deliveredCount = Math.max(0, Math.floor(rawTask.deliveredCount!));
+        group.hasUnifiedCounts = true;
+      }
+
+      if (rawTask.taskType === 'pickup' || rawTask.taskId.endsWith(':pickup')) {
+        group.pickupRemaining = Math.max(group.pickupRemaining ?? 0, rawCount);
+      } else if (rawTask.taskType === 'delivery' || rawTask.taskId.endsWith(':delivery')) {
+        group.deliveryRemaining = Math.max(group.deliveryRemaining ?? 0, rawCount);
+      }
+    }
+
+    normalized[wd] = orderedOrderIds.map((orderId, idx) => {
+      const group = mergedByOrderId.get(orderId)!;
+      const base = group.base;
+
+      let totalPackages = base.totalPackages;
+      let pickedUpCount = base.pickedUpCount;
+      let deliveredCount = base.deliveredCount;
+      let packageCount = base.packageCount;
+
+      if (!group.hasUnifiedCounts) {
+        const order = activeById.get(orderId);
+        if (order && order.kind === 'short_term') {
+          totalPackages = Math.max(0, order.totalPackages);
+          deliveredCount = Math.min(totalPackages, Math.max(0, order.deliveredPackagesTotal));
+          const stored = Math.max(0, Math.floor(Number(warehouseInventory[orderId]) || 0));
+          pickedUpCount = Math.min(
+            totalPackages,
+            Math.max(order.pickedUpPackagesTotal ?? 0, deliveredCount + stored)
+          );
+          packageCount = Math.max(0, totalPackages - deliveredCount);
+        } else if (order && order.kind === 'long_term') {
+          const idxInPickups = order.pickupWeekdays.indexOf(wd);
+          const basePerDay = Math.floor(order.packagesPerWeek / order.pickupDaysPerWeek);
+          const remainder = order.packagesPerWeek % order.pickupDaysPerWeek;
+          const dayQuota =
+            idxInPickups >= 0 ? basePerDay + (idxInPickups < remainder ? 1 : 0) : 0;
+          const pickupRem = group.pickupRemaining ?? 0;
+          const deliveryRem = group.deliveryRemaining ?? pickupRem;
+          totalPackages = Math.max(dayQuota, pickupRem, deliveryRem, base.packageCount);
+          pickedUpCount = Math.max(0, Math.min(totalPackages, totalPackages - pickupRem));
+          deliveredCount = Math.max(0, Math.min(pickedUpCount, totalPackages - deliveryRem));
+          packageCount = Math.max(0, totalPackages - deliveredCount);
+        } else {
+          const pickupRem = group.pickupRemaining;
+          const deliveryRem = group.deliveryRemaining;
+          totalPackages = Math.max(
+            base.packageCount,
+            pickupRem ?? 0,
+            deliveryRem ?? 0
+          );
+          pickedUpCount =
+            pickupRem !== undefined
+              ? Math.max(0, Math.min(totalPackages, totalPackages - pickupRem))
+              : totalPackages;
+          deliveredCount =
+            deliveryRem !== undefined
+              ? Math.max(0, Math.min(pickedUpCount, totalPackages - deliveryRem))
+              : 0;
+          packageCount = Math.max(0, totalPackages - deliveredCount);
+        }
+      } else {
+        totalPackages = Math.max(0, totalPackages);
+        pickedUpCount = Math.max(0, Math.min(totalPackages, pickedUpCount));
+        deliveredCount = Math.max(0, Math.min(pickedUpCount, deliveredCount));
+        packageCount = Math.max(0, totalPackages - deliveredCount);
+      }
+
+      return {
+        ...base,
+        taskId: orderId,
+        taskType: 'order',
+        orderId,
+        weekdayIndex: wd,
+        taskLabel: 'Realizacja',
+        packageCount,
+        pickedUpCount,
+        deliveredCount,
+        totalPackages,
+        priorityRank: idx + 1,
+      };
+    });
   }
 
   return normalized;
@@ -244,7 +426,6 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
   );
   const safeActiveVehicle = normalizeActiveVehicle(cloned.activeVehicle);
   const safeCouriers = normalizeCouriersForBaseStart(cloned.couriers);
-  const safeWeeklyPlan = stripAssignedCourierFromWeeklyPlan(cloned.weeklyPlan);
 
   const rawInventory = isPlainObject(cloned.warehouseInventory)
     ? (cloned.warehouseInventory as Record<string, number>)
@@ -260,6 +441,11 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
 
   const safeOfferedOrders = Array.isArray(cloned.offeredOrders) ? cloned.offeredOrders : [];
   const safeActiveOrders = Array.isArray(cloned.activeOrders) ? cloned.activeOrders : [];
+  const safeWeeklyPlan = normalizeAndMergeWeeklyPlan(
+    cloned.weeklyPlan,
+    safeActiveOrders,
+    mergedInventory.warehouseInventory
+  );
 
   let normalizedEconomyState: OrderEconomyState | undefined = cloned.economyState;
   if (normalizedEconomyState && isPlainObject(normalizedEconomyState)) {
@@ -287,6 +473,9 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
       activeOrders: safeActiveOrders,
       warehousePackages: safeWarehousePackages,
       warehouseInventory: mergedInventory.warehouseInventory,
+      weeklyPriorityOrder: normalizeWeeklyPriorityOrderMap(
+        normalizedEconomyState.weeklyPriorityOrder
+      ),
     };
   }
 

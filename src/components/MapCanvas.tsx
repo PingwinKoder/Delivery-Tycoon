@@ -918,8 +918,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       );
       if (!selectedTask) return false;
 
-      const assignedTaskId =
-        selectedTask.task?.taskId ?? `${selectedTask.order.id}:${selectedTask.kind}`;
+      const assignedTaskId = selectedTask.task?.taskId ?? selectedTask.order.id;
 
       if (selectedTask.kind === 'delivery') {
         if (!loadFromWarehouse) return false;
@@ -1171,7 +1170,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                         latestEco
                       );
                       const directTaskId =
-                        postPickupDecision.task?.taskId ?? `${ev.orderId}:delivery`;
+                        postPickupDecision.task?.taskId ?? ev.orderId;
                       const directMission = createDirectDeliveryMissionFromBuilding(
                         propsRef.current.graph,
                         propsRef.current.baseDepot,
