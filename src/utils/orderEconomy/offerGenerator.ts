@@ -53,7 +53,11 @@ export const KIOSK_CLIENT_NAMES = [
   'Pracownia Optyczna Fokus',
 ] as const;
 
-const TWO_DAY_WEEKDAY_PAIRS: readonly (readonly [number, number])[] = [
+/** Business weekdays (Poniedziałek–Piątek: 0..4) allowed for long-term pickup schedules */
+export const LONG_TERM_PICKUP_WEEKDAYS: readonly number[] = [0, 1, 2, 3, 4] as const;
+
+/** All 2x/week long-term pickup weekday pairs strictly within Monday–Friday (0..4) */
+export const TWO_DAY_WEEKDAY_PAIRS: readonly (readonly [number, number])[] = [
   [0, 3], // Poniedziałek, Czwartek
   [1, 4], // Wtorek, Piątek
   [0, 4], // Poniedziałek, Piątek
@@ -290,7 +294,7 @@ export function generateSingleOffer(
       state = pkgStep.nextState;
       packagesPerWeek = pkgStep.value;
 
-      const dayStep = rngInt(state, 0, 4); // Poniedziałek–Piątek
+      const dayStep = rngPick(state, LONG_TERM_PICKUP_WEEKDAYS); // Poniedziałek–Piątek (0..4)
       state = dayStep.nextState;
       pickupWeekdays = [dayStep.value];
     }

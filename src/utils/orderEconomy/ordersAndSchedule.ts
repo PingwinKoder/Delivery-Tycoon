@@ -9,6 +9,7 @@ import type {
   OrderOffer,
   WeeklyOrderSettlementResult,
   WeeklyScheduleTask,
+  WeeklyTaskSortMode,
   WeeklyTaskType,
 } from '../../types/orders';
 import { PROCEDURAL_BUILDINGS } from '../buildings';
@@ -42,6 +43,7 @@ import {
   LATE_OFFERS_BATCH_MIN,
   LATE_OFFERS_INTERVAL_DAYS,
   LATE_PICKUP_SATISFACTION_PENALTY,
+  LONG_TERM_DELIVERY_WINDOW_DAYS,
   SUNDAY_SETTLEMENT_MINUTE_OF_DAY,
   SUNDAY_WEEKDAY_INDEX,
   UNDELIVERED_PACKAGE_PENALTY_MULTIPLIER,
@@ -50,6 +52,7 @@ import {
   calculateReputationLevel,
   clampSatisfaction,
   computeAnnualSatisfactionAvg,
+  isNightHoursForTime,
   recordOrderSatisfactionSample,
   rngInt,
   roundCurrency,
@@ -65,6 +68,34 @@ import {
  */
 export function makeWeeklyTaskId(orderId: string, _taskType?: WeeklyTaskType): string {
   return orderId;
+}
+
+/**
+ * Computes the final 1-based game day to finish delivering packages picked up on `pickupGameDay`
+ * under a long-term contract: up to 3 in-game days (`pickupGameDay + 2`), capped at the same
+ * week's Sunday (`23:59` weekly settlement) and the contract's final active day.
+ */
+export function getLongTermDeliveryDeadlineGameDay(
+  pickupGameDay: number,
+  endGameDay?: number
+): number {
+  const safePickupDay = Math.max(1, Math.floor(pickupGameDay));
+  const pickupDate = getCalendarDateFromGameDay(safePickupDay);
+  const sundayGameDay = safePickupDay + (SUNDAY_WEEKDAY_INDEX - pickupDate.dayIndex);
+  const threeDayDeadline = safePickupDay + (LONG_TERM_DELIVERY_WINDOW_DAYS - 1);
+  let deadline = Math.min(threeDayDeadline, sundayGameDay);
+  if (typeof endGameDay === 'number' && Number.isFinite(endGameDay)) {
+    deadline = Math.min(deadline, Math.max(safePickupDay, Math.floor(endGameDay) - 1));
+  }
+  return deadline;
+}
+
+function getLongTermPickupDayQuota(order: ActiveLongTermOrder, weekdayIndex: number): number {
+  const idxInPickups = order.pickupWeekdays.indexOf(weekdayIndex);
+  if (idxInPickups === -1) return 0;
+  const basePerDay = Math.floor(order.packagesPerWeek / order.pickupDaysPerWeek);
+  const remainder = order.packagesPerWeek % order.pickupDaysPerWeek;
+  return basePerDay + (idxInPickups < remainder ? 1 : 0);
 }
 
 function extractOrderIdFromTaskKey(taskKey: string): string {
@@ -737,6 +768,94 @@ export function processMonthlySettlement(
   };
 }
 
+/**
+ * Evaluates end-of-day long-term contract pickup & 3-day delivery-window deadlines
+ * when rolling over into `date` (00:00).
+ * - Missed/incomplete scheduled pickup on `prevGameDay` counts as a late pickup (`latePickupsThisWeek`).
+ * - Picked-up batch still undelivered after its 3-day delivery deadline (`deliveryDeadlineGameDay`)
+ *   before Sunday 23:59 records one overdue incident (`latePickupsThisWeek`) per batch.
+ */
+function evaluateDailyLongTermDeadlines(
+  state: OrderEconomyState,
+  date: GameCalendarDate
+): OrderEconomyState {
+  const prevGameDay = date.gameDay - 1;
+  if (prevGameDay < 1 || state.activeOrders.length === 0) return state;
+
+  const prevWeekdayIndex = (prevGameDay - 1) % DAYS_PER_WEEK;
+  let changed = false;
+
+  const nextActiveOrders = state.activeOrders.map((order) => {
+    if (order.status !== 'active' || order.kind !== 'long_term') return order;
+
+    let lateIncidentsToAdd = 0;
+    let nextPenalizedBatchDay = order.weekly.penalizedDeliveryBatchGameDay;
+
+    // 1. Scheduled pickup day rolled over with unpicked packages
+    if (
+      order.pickupWeekdays.includes(prevWeekdayIndex) &&
+      prevGameDay >= order.acceptedAtGameDay &&
+      prevGameDay < order.endGameDay
+    ) {
+      const acceptedAfterClosingSameDay =
+        order.acceptedAtGameDay === prevGameDay && isNightHoursForTime(order.acceptedAtMinutes);
+      if (!acceptedAfterClosingSameDay) {
+        const dayQuota = getLongTermPickupDayQuota(order, prevWeekdayIndex);
+        const pickedUpOnPrevDay =
+          order.weekly.lastPickupGameDay === prevGameDay
+            ? (order.weekly.pickedUpOnLastPickupDay ?? 0)
+            : 0;
+        const remainingWeeklyUnpicked = Math.max(
+          0,
+          order.weekly.expectedPackagesThisWeek - order.weekly.pickedUpPackagesThisWeek
+        );
+        if (dayQuota - pickedUpOnPrevDay > 0 && remainingWeeklyUnpicked > 0) {
+          lateIncidentsToAdd += 1;
+        }
+      }
+    }
+
+    // 2. 3-day post-pickup delivery window elapsed (prior to Sunday 23:59 settlement) with undelivered packages
+    if (prevWeekdayIndex !== SUNDAY_WEEKDAY_INDEX) {
+      const storedInWarehouse = getStoredPackagesForOrder(state, order.id);
+      const undeliveredInPossession = Math.max(
+        storedInWarehouse,
+        Math.max(0, (order.pickedUpPackagesTotal ?? 0) - order.deliveredPackagesTotal)
+      );
+      const lastPickupDay = order.weekly.lastPickupGameDay;
+      if (
+        undeliveredInPossession > 0 &&
+        lastPickupDay !== undefined &&
+        nextPenalizedBatchDay !== lastPickupDay
+      ) {
+        const deliveryDeadline = getLongTermDeliveryDeadlineGameDay(
+          lastPickupDay,
+          order.endGameDay
+        );
+        if (prevGameDay >= deliveryDeadline) {
+          lateIncidentsToAdd += 1;
+          nextPenalizedBatchDay = lastPickupDay;
+        }
+      }
+    }
+
+    if (lateIncidentsToAdd === 0) return order;
+    changed = true;
+    return {
+      ...order,
+      weekly: {
+        ...order.weekly,
+        latePickupsThisWeek: order.weekly.latePickupsThisWeek + lateIncidentsToAdd,
+        ...(nextPenalizedBatchDay !== undefined
+          ? { penalizedDeliveryBatchGameDay: nextPenalizedBatchDay }
+          : {}),
+      },
+    };
+  });
+
+  return changed ? { ...state, activeOrders: nextActiveOrders } : state;
+}
+
 function concludeDueOrdersOnNewDay(
   state: OrderEconomyState,
   date: GameCalendarDate,
@@ -933,6 +1052,9 @@ export function advanceOrderEconomy(
       const dayStartMinutes = elapsedDay * MINUTES_PER_DAY;
       const date = getCalendarDateFromElapsedDays(elapsedDay);
 
+      // 0. Evaluate missed scheduled pickups & elapsed 3-day delivery windows for long-term contracts
+      current = evaluateDailyLongTermDeadlines(current, date);
+
       // 1. Conclude any orders whose endGameDay was reached
       current = concludeDueOrdersOnNewDay(current, date, dayStartMinutes);
 
@@ -1010,6 +1132,7 @@ export function getScheduledTasksForWeekday(
     repairWaitingForCourier?: boolean;
     repairWaitingReason?: 'no_courier' | 'no_van_license';
     isExpiringOnDay?: boolean;
+    isDeliveryWindowDeadline?: boolean;
   }> = [];
 
   for (const order of state.activeOrders) {
@@ -1030,11 +1153,29 @@ export function getScheduledTasksForWeekday(
       const isContractOrWeekFinalDay =
         targetGameDay === contractLastActiveDay || weekdayIndex === SUNDAY_WEEKDAY_INDEX;
 
+      // Resolve the 3-day delivery window deadline for any already picked-up packages awaiting delivery
+      let deliveryDeadlineGameDay: number | null = null;
+      if (undeliveredInPossession > 0) {
+        let effectivePickupGameDay = order.weekly.lastPickupGameDay;
+        if (
+          effectivePickupGameDay === undefined ||
+          effectivePickupGameDay > currentGameDay ||
+          effectivePickupGameDay < weekMondayGameDay
+        ) {
+          const priorPickups = order.pickupWeekdays.filter((wd) => wd <= currentDate.dayIndex);
+          effectivePickupGameDay =
+            priorPickups.length > 0
+              ? weekMondayGameDay + priorPickups[priorPickups.length - 1]
+              : currentGameDay;
+        }
+        deliveryDeadlineGameDay = getLongTermDeliveryDeadlineGameDay(
+          effectivePickupGameDay,
+          order.endGameDay
+        );
+      }
+
       if (order.pickupWeekdays.includes(weekdayIndex)) {
-        const idxInPickups = order.pickupWeekdays.indexOf(weekdayIndex);
-        const basePerDay = Math.floor(order.packagesPerWeek / order.pickupDaysPerWeek);
-        const remainder = order.packagesPerWeek % order.pickupDaysPerWeek;
-        const dayQuota = basePerDay + (idxInPickups < remainder ? 1 : 0);
+        const dayQuota = getLongTermPickupDayQuota(order, weekdayIndex);
 
         if (isToday) {
           const remainingPickupToday = getRemainingPickupPackagesForOrderToday(
@@ -1062,6 +1203,8 @@ export function getScheduledTasksForWeekday(
               0,
               Math.min(pickedUpCount, totalPackages - remainingDeliveryToday)
             );
+            const isBatchDeliveryDeadline =
+              deliveryDeadlineGameDay !== null && targetGameDay >= deliveryDeadlineGameDay;
             unsorted.push({
               taskId: makeWeeklyTaskId(order.id),
               taskType: 'order',
@@ -1073,11 +1216,16 @@ export function getScheduledTasksForWeekday(
               totalPackages,
               sortTimestamp: order.acceptedAtMinutes,
               sortTieBreaker: order.orderNumber,
-              isExpiringOnDay: isContractOrWeekFinalDay && deliveredCount < totalPackages,
+              isExpiringOnDay:
+                (isContractOrWeekFinalDay || isBatchDeliveryDeadline) &&
+                deliveredCount < totalPackages,
+              isDeliveryWindowDeadline: isBatchDeliveryDeadline && deliveredCount < totalPackages,
             });
           }
         } else if (dayQuota > 0) {
           if (targetGameDay > currentGameDay) {
+            const isBatchDeliveryDeadline =
+              deliveryDeadlineGameDay !== null && targetGameDay === deliveryDeadlineGameDay;
             unsorted.push({
               taskId: makeWeeklyTaskId(order.id),
               taskType: 'order',
@@ -1089,7 +1237,8 @@ export function getScheduledTasksForWeekday(
               totalPackages: dayQuota,
               sortTimestamp: order.acceptedAtMinutes,
               sortTieBreaker: order.orderNumber,
-              isExpiringOnDay: isContractOrWeekFinalDay,
+              isExpiringOnDay: isContractOrWeekFinalDay || isBatchDeliveryDeadline,
+              isDeliveryWindowDeadline: isBatchDeliveryDeadline,
             });
           } else {
             const pickedUpCount = Math.min(dayQuota, order.weekly.pickedUpPackagesThisWeek);
@@ -1111,30 +1260,38 @@ export function getScheduledTasksForWeekday(
             }
           }
         }
-      } else if (isToday && undeliveredInPossession > 0) {
-        // Carryover packages from an earlier pickup still awaiting delivery today
-        const totalPackages = Math.max(
-          order.weekly.expectedPackagesThisWeek,
-          undeliveredInPossession
-        );
-        const pickedUpCount = Math.min(
-          totalPackages,
-          Math.max(undeliveredInPossession, order.weekly.pickedUpPackagesThisWeek)
-        );
-        const deliveredCount = Math.max(0, pickedUpCount - undeliveredInPossession);
-        unsorted.push({
-          taskId: makeWeeklyTaskId(order.id),
-          taskType: 'order',
-          order,
-          taskLabel: 'Realizacja',
-          packageCount: undeliveredInPossession,
-          pickedUpCount,
-          deliveredCount,
-          totalPackages,
-          sortTimestamp: order.acceptedAtMinutes,
-          sortTieBreaker: order.orderNumber,
-          isExpiringOnDay: isContractOrWeekFinalDay && deliveredCount < totalPackages,
-        });
+      } else if (undeliveredInPossession > 0 && deliveryDeadlineGameDay !== null) {
+        // Carryover warehouse delivery tile automatically spans subsequent days up to deliveryDeadlineGameDay
+        // (and remains visible on `isToday` if overdue so couriers still clear stored packages)
+        const withinDeliveryWindow =
+          targetGameDay >= currentGameDay && targetGameDay <= deliveryDeadlineGameDay;
+        const isOverdueToday = isToday && currentGameDay > deliveryDeadlineGameDay;
+        if (withinDeliveryWindow || isOverdueToday) {
+          const batchPicked = Math.max(
+            undeliveredInPossession,
+            order.pickupDaysPerWeek === 1
+              ? order.weekly.pickedUpPackagesThisWeek
+              : (order.weekly.pickedUpOnLastPickupDay ?? undeliveredInPossession)
+          );
+          const totalPackages = batchPicked;
+          const pickedUpCount = batchPicked;
+          const deliveredCount = Math.max(0, totalPackages - undeliveredInPossession);
+          const isBatchDeliveryDeadline = targetGameDay >= deliveryDeadlineGameDay;
+          unsorted.push({
+            taskId: makeWeeklyTaskId(order.id),
+            taskType: 'order',
+            order,
+            taskLabel: 'Realizacja',
+            packageCount: undeliveredInPossession,
+            pickedUpCount,
+            deliveredCount,
+            totalPackages,
+            sortTimestamp: order.acceptedAtMinutes,
+            sortTieBreaker: order.orderNumber,
+            isExpiringOnDay: isBatchDeliveryDeadline || isContractOrWeekFinalDay,
+            isDeliveryWindowDeadline: isBatchDeliveryDeadline,
+          });
+        }
       }
     } else {
       const lastActiveDay = Math.max(order.acceptedAtGameDay, order.endGameDay - 1);
@@ -1276,6 +1433,7 @@ export function getScheduledTasksForWeekday(
       satisfaction: order.satisfaction,
       priorityRank: idx + 1,
       isExpiringOnDay: Boolean(item.isExpiringOnDay),
+      isDeliveryWindowDeadline: Boolean(item.isDeliveryWindowDeadline),
     };
   });
 }
@@ -1305,6 +1463,92 @@ export function moveWeeklyTaskPriority(
   const tmp = reorderedVisibleIds[currentIdx];
   reorderedVisibleIds[currentIdx] = reorderedVisibleIds[swapIdx];
   reorderedVisibleIds[swapIdx] = tmp;
+
+  const visibleSet = new Set(reorderedVisibleIds);
+  const trailingHiddenIds: string[] = [];
+  const seenHidden = new Set<string>();
+  for (const rawId of state.weeklyPriorityOrder[weekdayIndex] ?? []) {
+    const cleanId = extractOrderIdFromTaskKey(rawId);
+    if (!visibleSet.has(cleanId) && !seenHidden.has(cleanId)) {
+      seenHidden.add(cleanId);
+      trailingHiddenIds.push(cleanId);
+    }
+  }
+
+  return {
+    ...state,
+    weeklyPriorityOrder: {
+      ...state.weeklyPriorityOrder,
+      [weekdayIndex]: [...reorderedVisibleIds, ...trailingHiddenIds],
+    },
+  };
+}
+
+/**
+ * Performs a one-shot sort of scheduled tasks for a given weekday (0 = Pon .. 6 = Nd)
+ * and persists the resulting order into `state.weeklyPriorityOrder[weekdayIndex]`.
+ * Vehicle repair tasks are kept pinned at the top of the list so they are never buried,
+ * and the player can freely adjust individual rows afterwards with ▲ / ▼ buttons.
+ */
+export function sortWeeklyTasksPriority(
+  state: OrderEconomyState,
+  weekdayIndex: number,
+  sortMode: WeeklyTaskSortMode,
+  currentGameDay: number
+): OrderEconomyState {
+  const visibleTasks = getScheduledTasksForWeekday(state, weekdayIndex, currentGameDay);
+  if (visibleTasks.length <= 1) return state;
+
+  const repairTasks: WeeklyScheduleTask[] = [];
+  const indexedOrderTasks: Array<{ task: WeeklyScheduleTask; index: number }> = [];
+
+  visibleTasks.forEach((task, index) => {
+    if (task.taskType === 'repair') {
+      repairTasks.push(task);
+    } else {
+      indexedOrderTasks.push({ task, index });
+    }
+  });
+
+  indexedOrderTasks.sort((a, b) => {
+    switch (sortMode) {
+      case 'short_term_first': {
+        const ka = a.task.kind === 'short_term' ? 0 : 1;
+        const kb = b.task.kind === 'short_term' ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        return a.index - b.index;
+      }
+      case 'long_term_first': {
+        const ka = a.task.kind === 'long_term' ? 0 : 1;
+        const kb = b.task.kind === 'long_term' ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        return a.index - b.index;
+      }
+      case 'packages_desc': {
+        if (b.task.packageCount !== a.task.packageCount) {
+          return b.task.packageCount - a.task.packageCount;
+        }
+        if (b.task.totalPackages !== a.task.totalPackages) {
+          return b.task.totalPackages - a.task.totalPackages;
+        }
+        return a.index - b.index;
+      }
+      case 'packages_asc': {
+        if (a.task.packageCount !== b.task.packageCount) {
+          return a.task.packageCount - b.task.packageCount;
+        }
+        if (a.task.totalPackages !== b.task.totalPackages) {
+          return a.task.totalPackages - b.task.totalPackages;
+        }
+        return a.index - b.index;
+      }
+    }
+  });
+
+  const reorderedVisibleIds = [
+    ...repairTasks.map((t) => t.taskId),
+    ...indexedOrderTasks.map((entry) => entry.task.taskId),
+  ];
 
   const visibleSet = new Set(reorderedVisibleIds);
   const trailingHiddenIds: string[] = [];

@@ -23,6 +23,7 @@ import type {
   VanModelId,
   WarehouseLoadedBatch,
   WeeklyScheduleTask,
+  WeeklyTaskSortMode,
 } from './types/orders';
 import {
   DAYS_PER_WEEK,
@@ -68,6 +69,7 @@ import {
   requestVehicleRepair,
   returnPackagesToWarehouse,
   setOwnerActiveVehicle,
+  sortWeeklyTasksPriority,
   unloadPackagesToWarehouse,
 } from './utils/orderEconomy';
 import {
@@ -976,6 +978,16 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleSortWeeklyTasksPriority = useCallback(
+    (weekdayIndex: number, sortMode: WeeklyTaskSortMode) => {
+      const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
+      applyEconomyUpdate((prev) =>
+        sortWeeklyTasksPriority(prev, weekdayIndex, sortMode, currentGameDay)
+      );
+    },
+    [applyEconomyUpdate]
+  );
+
   const handleUpgradeWarehouse = useCallback(() => {
     applyEconomyUpdate((prev) => purchaseWarehouseUpgrade(prev).state);
   }, [applyEconomyUpdate]);
@@ -1160,6 +1172,7 @@ export function App() {
         onAcceptOffer={handleAcceptOffer}
         onRejectOffer={handleRejectOffer}
         onMoveWeeklyTaskPriority={handleMoveWeeklyTaskPriority}
+        onSortWeeklyTasksPriority={handleSortWeeklyTasksPriority}
       />
 
       <CompanyModal

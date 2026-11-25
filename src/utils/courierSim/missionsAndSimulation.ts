@@ -3,6 +3,7 @@ import type { ActiveVehicleSelection } from '../../types/orders';
 import type { Point, RoadGraph } from '../../types/roadGraph';
 import type { BaseDepotSpec } from '../cityMap';
 import { BASE_GAME_MINUTES_PER_REAL_SECOND } from '../gameClock';
+import { BIKE_REPAIR_GAME_MINUTES, VAN_REPAIR_GAME_MINUTES } from '../orderEconomy';
 import {
   ALL_PARKING_NAV_NETWORKS,
   type ParkingNavNetwork,
@@ -32,7 +33,6 @@ import {
   MAX_REAL_FRAME_DT,
   MIN_APPROACH_SPEED,
   MIN_CORNER_SPEED_FACTOR,
-  REPAIR_SERVICE_PAUSE_SECONDS,
   WHEEL_RADIANS_PER_PIXEL,
   type CourierCargoItem,
   type CourierMissionKind,
@@ -283,8 +283,9 @@ export function createPickupMissionCourier(
  * Creates a Mechanic Service Mission:
  * - Courier rides/drives `vehicle` directly from Base (rack / stall P1–P8 or loading bay)
  *   to the Mechanic Garage (`b_mechanic_garage`, entering via ul. Lipowa driveway)
- * - Pauses briefly at the garage service bay (`repair_service`), triggering `repair_completed`
- *   which restores durability to 100%, then drives back to Base loading zone.
+ * - Remains at the garage service bay for 30 in-game minutes (bike -> 24s @ 1x) or
+ *   60 in-game minutes (van -> 48s @ 1x) while the vehicle & courier stay out of Base,
+ *   then triggers `repair_completed` (restoring durability to 100%) and drives back to Base.
  */
 export function createRepairMissionCourier(
   graph: RoadGraph,
@@ -300,6 +301,9 @@ export function createRepairMissionCourier(
 ): CourierState {
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
   const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
+  const repairGameMinutes =
+    vehicle.type === 'van' ? VAN_REPAIR_GAME_MINUTES : BIKE_REPAIR_GAME_MINUTES;
+  const repairPauseSeconds = repairGameMinutes / BASE_GAME_MINUTES_PER_REAL_SECOND;
 
   if (vehicle.type === 'van') {
     const stopPlan = resolveVanStopForBuilding(mechanicBuilding, parkingNavNetworks);
@@ -336,7 +340,7 @@ export function createRepairMissionCourier(
       buildingId: mechanicBuilding.id,
       label: formatBuildingAddress(mechanicBuilding),
       stopPoint: { x: actualStopPoint.x, y: actualStopPoint.y },
-      pauseDuration: REPAIR_SERVICE_PAUSE_SECONDS,
+      pauseDuration: repairPauseSeconds,
       repairVehicle: { ...vehicle },
       legPath: outboundPath,
       returnToBasePath: returnToLoadingZone,
@@ -347,7 +351,7 @@ export function createRepairMissionCourier(
       [repairStop],
       [],
       resolvedSpeed,
-      REPAIR_SERVICE_PAUSE_SECONDS,
+      repairPauseSeconds,
       vehicle,
       courierId,
       assignedTaskId,
@@ -388,7 +392,7 @@ export function createRepairMissionCourier(
       x: mechanicBuilding.deliveryStopPoint.x,
       y: mechanicBuilding.deliveryStopPoint.y,
     },
-    pauseDuration: REPAIR_SERVICE_PAUSE_SECONDS,
+    pauseDuration: repairPauseSeconds,
     repairVehicle: { ...vehicle },
     legPath: outboundPath,
     returnToBasePath: returnToLoadingZone,
@@ -399,7 +403,7 @@ export function createRepairMissionCourier(
     [repairStop],
     [],
     resolvedSpeed,
-    REPAIR_SERVICE_PAUSE_SECONDS,
+    repairPauseSeconds,
     vehicle,
     courierId,
     assignedTaskId,

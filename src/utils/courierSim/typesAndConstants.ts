@@ -8,7 +8,10 @@ import type {
   WeeklyScheduleTask,
 } from '../../types/orders';
 import type { Point } from '../../types/roadGraph';
+import { BASE_GAME_MINUTES_PER_REAL_SECOND } from '../gameClock';
 import {
+  BIKE_REPAIR_GAME_MINUTES,
+  VAN_REPAIR_GAME_MINUTES,
   getVehicleCourierCapacity,
   getVehicleCourierCapacityForSelection,
 } from '../orderEconomy';
@@ -207,8 +210,19 @@ export const VAN_SPEED_MULTIPLIER = 1.65;
 /** Delivery van cruising speed on city roads (~208 world px/s) */
 export const VAN_COURIER_SPEED = Math.round(DEFAULT_COURIER_SPEED * VAN_SPEED_MULTIPLIER);
 export const DELIVERY_PAUSE_SECONDS = 1.8;
-export const REPAIR_SERVICE_PAUSE_SECONDS = 2.4;
+/** Mechanic garage stop durations in simulation seconds (30 game min -> 24s bike, 60 game min -> 48s van at 1x) */
+export const BIKE_REPAIR_SERVICE_PAUSE_SECONDS =
+  BIKE_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
+export const VAN_REPAIR_SERVICE_PAUSE_SECONDS =
+  VAN_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
+export const REPAIR_SERVICE_PAUSE_SECONDS = BIKE_REPAIR_SERVICE_PAUSE_SECONDS;
 export const BASE_TRANSFER_PAUSE_SECONDS = 1.0;
+
+export function getRepairServicePauseSeconds(vehicleType: ActiveVehicleType): number {
+  const repairGameMinutes =
+    vehicleType === 'van' ? VAN_REPAIR_GAME_MINUTES : BIKE_REPAIR_GAME_MINUTES;
+  return repairGameMinutes / BASE_GAME_MINUTES_PER_REAL_SECOND;
+}
 export const MAX_REAL_FRAME_DT = 0.05;
 export const WHEEL_RADIANS_PER_PIXEL = 0.25;
 

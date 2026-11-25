@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Boxes, CalendarDays, Check, ClipboardList, Files, Wrench, X } from 'lucide-react';
+import {
+  ArrowUpDown,
+  Boxes,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ClipboardList,
+  Files,
+  Wrench,
+  X,
+} from 'lucide-react';
 import {
   getMonthName,
   getWeekdayName,
@@ -11,6 +21,7 @@ import type {
   OrderEconomyState,
   OrderOffer,
   WeeklyScheduleTask,
+  WeeklyTaskSortMode,
 } from '../types/orders';
 import {
   DAYS_PER_WEEK,
@@ -45,6 +56,7 @@ interface OrdersModalProps {
     taskId: string,
     direction: 'up' | 'down'
   ) => void;
+  onSortWeeklyTasksPriority: (weekdayIndex: number, sortMode: WeeklyTaskSortMode) => void;
 }
 
 function formatDurationLabel(offer: OrderOffer, lang: SupportedLanguage): string {
@@ -156,8 +168,11 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   onAcceptOffer,
   onRejectOffer,
   onMoveWeeklyTaskPriority,
+  onSortWeeklyTasksPriority,
 }) => {
   const [activeTab, setActiveTab] = useState<OrdersTabId>('offers');
+  const [sortMenuOpen, setSortMenuOpen] = useState<boolean>(false);
+  const sortMenuRef = useRef<HTMLDivElement | null>(null);
 
   const clock = useMemo(() => getGameClockDisplay(gameMinutes), [gameMinutes]);
   const [selectedWeekday, setSelectedWeekday] = useState<number>(clock.dayIndex);
@@ -170,8 +185,26 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSelectedWeekday(latestDayIndexRef.current);
+      setSortMenuOpen(false);
     }
   }, [isOpen]);
+
+  // Close sort menu when switching tabs or selected weekday
+  useEffect(() => {
+    setSortMenuOpen(false);
+  }, [activeTab, selectedWeekday]);
+
+  // Close sort menu on outside pointer press
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setSortMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [sortMenuOpen]);
 
   // Mark all currently listed pending offers as seen immediately when the "New Offers" tab is open
   useEffect(() => {
@@ -180,20 +213,24 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
     }
   }, [isOpen, activeTab, unreadOffersCount, onMarkOffersSeen]);
 
-  // Close modal on Escape key
+  // Close sort menu first, or modal on Escape key
   useEffect(() => {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        if (sortMenuOpen) {
+          setSortMenuOpen(false);
+        } else {
+          onClose();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, sortMenuOpen, onClose]);
 
   const nextMonthName = getMonthName(language, (clock.monthIndex + 1) % 12, false);
   const accruedLongTerm = economyState.pendingMonthlyLongTermPayout;
@@ -554,8 +591,112 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                   weekday: selectedDay.weekdayName,
                   date: selectedDay.dateLabel,
                 })}
-                className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1"
+                className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1.5 min-h-[196px]"
               >
+                <div className="flex items-center justify-between gap-2 px-1 pb-1.5 mb-1 border-b border-slate-800/90">
+                  <div className="flex items-baseline gap-1.5 min-w-0">
+                    <span className="text-xs font-bold text-slate-100 truncate">
+                      {selectedDay.weekdayName}
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-mono-nums shrink-0">
+                      {selectedDay.dateLabel}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-mono-nums shrink-0">
+                      • {t(language, 'orders.tasksCountShort', { count: selectedDay.tasks.length })}
+                    </span>
+                  </div>
+
+                  <div ref={sortMenuRef} className="relative shrink-0">
+                    <button
+                      type="button"
+                      disabled={selectedDay.tasks.length === 0}
+                      aria-haspopup="menu"
+                      aria-expanded={sortMenuOpen}
+                      aria-label={t(language, 'orders.sortAria', {
+                        weekday: selectedDay.weekdayName,
+                      })}
+                      onClick={() => setSortMenuOpen((prev) => !prev)}
+                      className={`px-2 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                        selectedDay.tasks.length === 0
+                          ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                          : sortMenuOpen
+                            ? 'bg-amber-500/15 text-amber-200 border-amber-400/70 cursor-pointer'
+                            : 'bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border-slate-700 cursor-pointer'
+                      }`}
+                    >
+                      <ArrowUpDown className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      <span>{t(language, 'orders.sortBtn')}</span>
+                      <ChevronDown
+                        className={`w-3 h-3 shrink-0 transition-transform duration-150 ${
+                          sortMenuOpen ? 'rotate-180' : ''
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </button>
+
+                    {sortMenuOpen && (
+                      <div
+                        role="menu"
+                        className="absolute right-0 top-full mt-1 z-30 w-56 rounded-lg bg-[#182030] border border-slate-700 shadow-lg py-1 text-xs"
+                      >
+                        <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {t(language, 'orders.sortGroupType')}
+                        </div>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'short_term_first');
+                            setSortMenuOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                        >
+                          {t(language, 'orders.sortShortTermFirst')}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'long_term_first');
+                            setSortMenuOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                        >
+                          {t(language, 'orders.sortLongTermFirst')}
+                        </button>
+
+                        <div className="my-1 border-t border-slate-700/80" />
+
+                        <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {t(language, 'orders.sortGroupPackages')}
+                        </div>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'packages_desc');
+                            setSortMenuOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                        >
+                          {t(language, 'orders.sortPackagesDesc')}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'packages_asc');
+                            setSortMenuOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                        >
+                          {t(language, 'orders.sortPackagesAsc')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {selectedDay.tasks.length === 0 ? (
                   <div className="py-6 px-3 text-center rounded-md bg-slate-900/50 border border-slate-800/80">
                     <p className="text-xs font-semibold text-slate-300">
@@ -691,6 +832,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       const delivered = Math.max(0, Math.min(totalPkgs, task.deliveredCount));
                       const allPickedUp = totalPkgs > 0 && pickedUp >= totalPkgs;
                       const isExpiring = Boolean(task.isExpiringOnDay) && delivered < totalPkgs;
+                      const expiringTooltip = task.isDeliveryWindowDeadline
+                        ? t(language, 'orders.expiringDeliveryWindowTooltip')
+                        : t(language, 'orders.expiringLastDayTooltip');
                       const translatedClient = translateOrderText(language, task.clientName);
                       const translatedAddress = translateOrderText(language, task.pickupAddress);
                       return (
@@ -704,8 +848,8 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         >
                           {isExpiring && (
                             <span
-                              title={t(language, 'orders.expiringLastDayTooltip')}
-                              aria-label={t(language, 'orders.expiringLastDayTooltip')}
+                              title={expiringTooltip}
+                              aria-label={expiringTooltip}
                               className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/25 border border-rose-400/75 text-rose-300 text-[11px] font-extrabold leading-none shrink-0"
                             >
                               !
@@ -929,12 +1073,22 @@ const OfferCard: React.FC<OfferCardProps> = ({
       </div>
 
       {/* 3. Single combined parameters strip */}
-      <p
-        className="text-[11px] text-slate-300 font-mono-nums truncate pt-0.5"
-        title={paramsSummary}
-      >
-        {paramsSummary}
-      </p>
+      <div className="min-w-0 pt-0.5">
+        <p
+          className="text-[11px] text-slate-300 font-mono-nums truncate"
+          title={paramsSummary}
+        >
+          {paramsSummary}
+        </p>
+        {offer.kind === 'long_term' && (
+          <p
+            className="text-[10px] text-sky-300/90 font-mono-nums truncate leading-tight mt-0.5"
+            title={t(language, 'orders.deliveryWindow3DaysHint')}
+          >
+            {t(language, 'orders.deliveryWindow3Days')}
+          </p>
+        )}
+      </div>
 
       {/* 4. Bottom action bar */}
       <div className="flex items-center justify-between gap-1.5 pt-1.5 mt-0.5 border-t border-slate-800">
@@ -1064,20 +1218,27 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
         </p>
       </div>
 
-      {/* 2b. Scheduled realization weekday(s) for long-term contracts */}
+      {/* 2b. Scheduled pickup weekday(s) & 3-day delivery window for long-term contracts */}
       {order.kind === 'long_term' && (
-        <div className="flex items-center gap-1 text-[11px] leading-tight">
+        <div
+          className="flex items-center gap-1 text-[11px] leading-tight"
+          title={t(language, 'orders.deliveryWindow3DaysHint')}
+        >
           <CalendarDays className="w-3 h-3 text-sky-400 shrink-0" aria-hidden="true" />
           <span className="truncate">
             <span className="text-slate-400">
               {order.pickupWeekdays.length > 1
-                ? `${t(language, 'orders.deliveryDayPlural')} `
-                : `${t(language, 'orders.deliveryDaySingle')} `}
+                ? `${t(language, 'orders.pickupDayPlural')} `
+                : `${t(language, 'orders.pickupDaySingle')} `}
             </span>
             <span className="font-semibold text-sky-200">
               {order.pickupWeekdays.length === 1
                 ? getWeekdayName(language, order.pickupWeekdays[0], false)
                 : formatWeekdaysList(order.pickupWeekdays, language)}
+            </span>
+            <span className="text-slate-500 mx-1" aria-hidden="true">•</span>
+            <span className="text-sky-300/90 font-mono-nums">
+              {t(language, 'orders.deliveryWindow3Days')}
             </span>
           </span>
         </div>

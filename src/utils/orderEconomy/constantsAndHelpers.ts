@@ -84,6 +84,11 @@ export const NEW_VAN_WEAR_PER_WORLD_PX = 0.00000625;
 /** Repair pricing multipliers: bike -50% (0.5x), vans -25% (0.75x) */
 export const BIKE_REPAIR_COST_MULTIPLIER = 0.5;
 export const VAN_REPAIR_COST_MULTIPLIER = 0.75;
+/** Mechanic garage service durations in in-game minutes (30 min for bikes, 60 min / 1 h for vans) */
+export const BIKE_REPAIR_GAME_MINUTES = 30;
+export const VAN_REPAIR_GAME_MINUTES = 60;
+/** Number of in-game days (including pickup day) to deliver picked-up packages for long-term contracts (capped at Sunday 23:59) */
+export const LONG_TERM_DELIVERY_WINDOW_DAYS = 3;
 
 /** Preserves full floating-point precision so slow fractional wear never rounds away on short runs. */
 export function clampVehicleDurability(value: number): number {

@@ -115,9 +115,17 @@ export interface ActiveOrderWeeklyTracking {
   lastPickupGameDay?: number;
   /** Number of packages picked up from the sender on `lastPickupGameDay` */
   pickedUpOnLastPickupDay?: number;
+  /** 1-based pickup gameDay of the latest batch that already incurred an overdue 3-day delivery incident */
+  penalizedDeliveryBatchGameDay?: number;
 }
 
 export type WeeklyTaskType = 'order' | 'pickup' | 'delivery' | 'repair';
+
+export type WeeklyTaskSortMode =
+  | 'short_term_first'
+  | 'long_term_first'
+  | 'packages_desc'
+  | 'packages_asc';
 
 export interface WeeklyScheduleTask {
   /** Stable unique identifier per order or repair task in a weekday priority queue (e.g. "ord-1", "repair:van:1") */
@@ -155,8 +163,10 @@ export interface WeeklyScheduleTask {
   repairWaitingForCourier?: boolean;
   /** Present when taskType === 'repair' && repairWaitingForCourier */
   repairWaitingReason?: 'no_courier' | 'no_van_license';
-  /** True when the viewed weekday is the final day to complete this order (short-term expiry or weekly/contract deadline) */
+  /** True when the viewed weekday is the final day to complete this order (short-term expiry or weekly/contract/3-day delivery deadline) */
   isExpiringOnDay?: boolean;
+  /** True specifically when the viewed weekday is the final day of a long-term order's 3-day post-pickup delivery window */
+  isDeliveryWindowDeadline?: boolean;
 }
 
 export interface ActiveOrderBase {
