@@ -56,6 +56,7 @@ import {
   type MultiCourierFleetState,
   buildCourierAtBaseBySlot,
   buildTaskAssignmentsByTaskId,
+  collectInFlightCargoForFleet,
   computeScaledSimDt,
   createCourierFromPath,
   createDeliveryMissionCourier,
@@ -79,6 +80,7 @@ import {
 } from '../utils/courierSim';
 import type {
   ActiveVehicleSelection,
+  CompanyCourier,
   OrderEconomyState,
   WarehouseLoadedBatch,
 } from '../types/orders';
@@ -104,6 +106,8 @@ export interface MapCanvasController {
   centerOnBase: () => void;
   dispatchCourierToBuilding: (building: Building) => boolean;
   recallCourierToBase: () => WarehouseLoadedBatch[];
+  getInFlightCargo: () => WarehouseLoadedBatch[];
+  resetCouriersToBase: (couriers?: readonly CompanyCourier[]) => void;
 }
 
 interface MapCanvasProps {
@@ -120,6 +124,8 @@ interface MapCanvasProps {
   gameMinutesRef?: React.RefObject<number>;
   economyStateRef?: React.RefObject<OrderEconomyState>;
   interactionBlocked?: boolean;
+  /** Incrementing session counter that forces full fleet reinitialization parked at Base */
+  sessionEpoch?: number;
   onFpsChange?: (fps: number) => void;
   onCourierAtBaseChange?: (atBase: boolean) => void;
   onCourierStatusChange?: (status: CourierFleetStatusSnapshot) => void;
@@ -184,6 +190,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   gameMinutesRef,
   economyStateRef,
   interactionBlocked = false,
+  sessionEpoch = 0,
   onFpsChange,
   onCourierAtBaseChange,
   onCourierStatusChange,
@@ -221,6 +228,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     6: true,
   });
   const reportedTaskAssignmentsRef = useRef<Record<string, number>>({});
+  const lastSessionEpochRef = useRef<number>(sessionEpoch);
 
   const baseNode = useMemo(
     () => graph.nodes.find((n) => n.id === 'base' || n.kind === 'base') ?? null,
@@ -335,6 +343,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       pressedArrowKeysRef.current.clear();
     }
   }, [interactionBlocked]);
+
+  // Force full multi-courier fleet reinitialization parked at Base when starting a new game or loading a save
+  useEffect(() => {
+    if (sessionEpoch === lastSessionEpochRef.current) return;
+    lastSessionEpochRef.current = sessionEpoch;
+    const roster = propsRef.current.economyStateRef?.current?.couriers;
+    couriersFleetRef.current = createInitialCourierFleet(roster);
+    syncFleetStatus();
+  }, [sessionEpoch]);
 
   // Expose camera & courier dispatch controls for upcoming order mechanics
   useEffect(() => {
@@ -478,18 +495,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         return true;
       },
       recallCourierToBase: () => {
-        const cargoByOrder = new Map<string, number>();
+        const recoveredCargo = collectInFlightCargoForFleet(couriersFleetRef.current);
         const roster = propsRef.current.economyStateRef?.current?.couriers;
 
         for (const slotIndex of COURIER_SLOT_INDICES) {
-          const entry = couriersFleetRef.current[slotIndex];
-          if (entry) {
-            for (const item of entry.courier.cargo) {
-              if (item.count > 0) {
-                cargoByOrder.set(item.orderId, (cargoByOrder.get(item.orderId) ?? 0) + item.count);
-              }
-            }
-          }
           const assignedVehicle =
             roster?.find((c) => c.slotIndex === slotIndex)?.assignedVehicle ??
             (slotIndex === 1 ? propsRef.current.activeVehicle : { type: 'bike' as const, index: 1 });
@@ -504,10 +513,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
 
         syncFleetStatus();
-        return Array.from(cargoByOrder.entries()).map(([orderId, count]) => ({
-          orderId,
-          count,
-        }));
+        return recoveredCargo;
+      },
+      getInFlightCargo: () => collectInFlightCargoForFleet(couriersFleetRef.current),
+      resetCouriersToBase: (couriers?: readonly CompanyCourier[]) => {
+        const roster = couriers ?? propsRef.current.economyStateRef?.current?.couriers;
+        couriersFleetRef.current = createInitialCourierFleet(roster);
+        syncFleetStatus();
       },
     };
     return () => {

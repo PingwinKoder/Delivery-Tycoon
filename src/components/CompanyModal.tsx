@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   Lock,
+  LogOut,
   ParkingSquare,
   Truck,
   UserMinus,
@@ -22,6 +23,7 @@ import type {
   CourierQualification,
   OrderEconomyState,
 } from '../types/orders';
+import type { SaveSlotId } from '../utils/saveSystem';
 import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
@@ -58,6 +60,8 @@ interface CompanyModalProps {
   economyState: OrderEconomyState;
   isOwnerAtBase: boolean;
   courierAtBaseBySlot?: Readonly<Record<number, boolean>>;
+  activeSlotId?: SaveSlotId | null;
+  onSaveAndExit?: () => void;
   onClose: () => void;
   onUpgradeWarehouse: () => void;
   onBuyParkingSpot: () => void;
@@ -262,6 +266,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   economyState,
   isOwnerAtBase,
   courierAtBaseBySlot,
+  activeSlotId,
+  onSaveAndExit,
   onClose,
   onUpgradeWarehouse,
   onBuyParkingSpot,
@@ -457,14 +463,32 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Zamknij okno Firma"
-            className="min-w-[30px] min-h-[30px] p-1 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
-          >
-            <X className="w-4 h-4" aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onSaveAndExit && (
+              <button
+                type="button"
+                onClick={onSaveAndExit}
+                title={
+                  activeSlotId
+                    ? `Zapisz stan do slotu #${activeSlotId} i wróć do menu zapisów`
+                    : 'Zapisz i wróć do menu zapisów'
+                }
+                className="px-2.5 py-1 min-h-[30px] rounded-lg flex items-center gap-1.5 text-xs font-semibold text-amber-200 hover:text-slate-950 bg-slate-800 hover:bg-amber-500 border border-slate-700 hover:border-amber-400 whitespace-nowrap transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Zapisz i wyjdź</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Zamknij okno Firma"
+              className="min-w-[30px] min-h-[30px] p-1 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         {/* Compact Navigation Tabs Bar */}

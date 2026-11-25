@@ -5,6 +5,7 @@ import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
 import { OrdersModal } from './components/OrdersModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { SkipTimeModal } from './components/SkipTimeModal';
+import { StartScreenModal } from './components/StartScreenModal';
 import { Toolbar } from './components/Toolbar';
 import {
   PROCEDURAL_BUILDINGS,
@@ -14,11 +15,14 @@ import { buildBaseDepotSpec } from './utils/cityMap';
 import type { CourierFleetStatusSnapshot } from './utils/courierSim';
 import type {
   ActiveVehicleSelection,
+  CompanyCourier,
   CourierQualification,
   OrderEconomyState,
   WarehouseLoadedBatch,
+  WeeklyScheduleTask,
 } from './types/orders';
 import {
+  DAYS_PER_WEEK,
   type GameSpeed,
   INITIAL_GAME_MINUTES,
   MINUTES_PER_DAY,
@@ -38,7 +42,9 @@ import {
   getFreeWarehouseCapacity,
   getNextDayMorningMinutes,
   getRemainingPickupPackagesForOrderToday,
+  getScheduledTasksForWeekday,
   getVehicleCourierCapacity,
+  getWarehouseTierConfig,
   hasEconomyBoundaryBetween,
   hireCourierInSlot,
   isNightHoursForTime,
@@ -56,7 +62,18 @@ import {
   rejectOrderOffer,
   returnPackagesToWarehouse,
   setOwnerActiveVehicle,
+  unloadPackagesToWarehouse,
 } from './utils/orderEconomy';
+import {
+  type SaveSlotEntry,
+  type SaveSlotId,
+  type SavedGameState,
+  createSavedGameState,
+  deleteSaveSlot,
+  getAllSaveSlots,
+  loadGameFromSlot,
+  saveGameToSlot,
+} from './utils/saveSystem';
 
 const MAX_CLOCK_REAL_DT = 0.1;
 
@@ -81,26 +98,203 @@ const devModules = import.meta.glob('./devVanTest.ts', { eager: true }) as Recor
 >;
 const devOverride = Object.values(devModules)[0]?.DEV_VAN_OVERRIDE;
 
+function createNewCareerEconomyState(): OrderEconomyState {
+  const initial = createInitialOrderEconomyState(PROCEDURAL_BUILDINGS);
+  if (!devOverride) return initial;
+  return {
+    ...initial,
+    parkingSpots: devOverride.parkingSpots,
+    vansCount: devOverride.vansCount,
+    deliveryVansCount: devOverride.vansCount,
+    activeVehicle: { ...devOverride.activeVehicle },
+    couriers: initial.couriers.map((c) =>
+      c.slotIndex === 1 ? { ...c, assignedVehicle: { ...devOverride.activeVehicle } } : c
+    ),
+  };
+}
+
+/**
+ * Produces a consistent economy state snapshot where any packages currently in transit on
+ * courier vehicles are safely placed back into Base warehouse up to its capacity, and any
+ * overflow beyond warehouse capacity is returned to the respective active order's pending
+ * pickup pool so no package is ever lost or overflows the warehouse after reloading.
+ */
+function buildConsistentEconomyForSave(
+  state: OrderEconomyState,
+  inFlightCargo: readonly WarehouseLoadedBatch[]
+): OrderEconomyState {
+  if (inFlightCargo.length === 0) return state;
+
+  let current = state;
+  const overflowByOrder = new Map<string, number>();
+
+  for (const batch of inFlightCargo) {
+    if (batch.count <= 0) continue;
+    const isActive = current.activeOrders.some(
+      (o) => o.id === batch.orderId && o.status === 'active'
+    );
+    if (!isActive) continue;
+
+    const unloaded = unloadPackagesToWarehouse(current, batch.orderId, batch.count);
+    current = unloaded.state;
+    if (unloaded.overflowCount > 0) {
+      overflowByOrder.set(
+        batch.orderId,
+        (overflowByOrder.get(batch.orderId) ?? 0) + unloaded.overflowCount
+      );
+    }
+  }
+
+  if (overflowByOrder.size === 0) {
+    return current;
+  }
+
+  return {
+    ...current,
+    activeOrders: current.activeOrders.map((order) => {
+      const overflow = overflowByOrder.get(order.id) ?? 0;
+      if (overflow <= 0 || order.status !== 'active') return order;
+
+      const stored = current.warehouseInventory[order.id] ?? 0;
+      const minPickedTotal = order.deliveredPackagesTotal + stored;
+      const nextPickedTotal = Math.max(
+        minPickedTotal,
+        (order.pickedUpPackagesTotal ?? 0) - overflow
+      );
+      const nextPickedThisWeek = Math.max(
+        order.weekly.deliveredPackagesThisWeek,
+        order.weekly.pickedUpPackagesThisWeek - overflow
+      );
+      const nextPickedOnLastDay =
+        typeof order.weekly.pickedUpOnLastPickupDay === 'number'
+          ? Math.max(0, order.weekly.pickedUpOnLastPickupDay - overflow)
+          : order.weekly.pickedUpOnLastPickupDay;
+
+      return {
+        ...order,
+        pickedUpPackagesTotal: nextPickedTotal,
+        weekly: {
+          ...order.weekly,
+          pickedUpPackagesThisWeek: nextPickedThisWeek,
+          pickedUpOnLastPickupDay: nextPickedOnLastDay,
+        },
+      };
+    }),
+  };
+}
+
+function buildWeeklyPlanSnapshot(
+  ecoState: OrderEconomyState,
+  currentMinutes: number
+): Record<number, WeeklyScheduleTask[]> {
+  const gameDay = Math.floor(Math.max(0, currentMinutes) / MINUTES_PER_DAY) + 1;
+  const plan: Record<number, WeeklyScheduleTask[]> = {};
+  for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
+    plan[wd] = getScheduledTasksForWeekday(ecoState, wd, gameDay).map(
+      ({ assignedCourierId: _dropped, ...task }) => task
+    );
+  }
+  return plan;
+}
+
+function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyState {
+  const base = saved.economyState
+    ? saved.economyState
+    : createInitialOrderEconomyState(PROCEDURAL_BUILDINGS);
+
+  const warehouseLevel = saved.warehouseLevel;
+  const warehouseConfig = getWarehouseTierConfig(warehouseLevel);
+  const cleanCouriers: CompanyCourier[] =
+    saved.couriers.length > 0
+      ? saved.couriers.map(({ inRoute: _inRoute, ...courier }) => ({
+          ...courier,
+          assignedVehicle: courier.assignedVehicle ? { ...courier.assignedVehicle } : null,
+        }))
+      : base.couriers;
+
+  const unlockedCount = Math.max(1, cleanCouriers.filter((c) => c.unlocked).length);
+
+  let weeklyPriorityOrder = base.weeklyPriorityOrder;
+  if (!saved.economyState && saved.weeklyPlan) {
+    const derived: Record<number, string[]> = {};
+    for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
+      const tasks = saved.weeklyPlan[wd] ?? [];
+      derived[wd] = tasks.map((t) => t.taskId);
+    }
+    weeklyPriorityOrder = derived;
+  }
+
+  // Clamp restored warehouse inventory against warehouse capacity in case an older save overflowed
+  const clampedInventory: Record<string, number> = {};
+  const overflowBatches: WarehouseLoadedBatch[] = [];
+  let storedTotal = 0;
+  for (const [orderId, rawCount] of Object.entries(saved.warehouseInventory)) {
+    const count = Math.max(0, Math.floor(Number(rawCount) || 0));
+    if (count <= 0) continue;
+    const room = Math.max(0, warehouseConfig.capacity - storedTotal);
+    const keep = Math.min(count, room);
+    if (keep > 0) {
+      clampedInventory[orderId] = keep;
+      storedTotal += keep;
+    }
+    const overflow = count - keep;
+    if (overflow > 0) {
+      overflowBatches.push({ orderId, count: overflow });
+    }
+  }
+
+  const restoredBase: OrderEconomyState = {
+    ...base,
+    balance: saved.cash,
+    completedOrdersCount: saved.completedOrdersCount,
+    annualSatisfactionAvg: saved.annualSatisfactionAvg,
+    reputationLevel: saved.reputationLevel,
+    warehouseLevel,
+    warehouseTier: warehouseLevel,
+    warehouseCapacity: warehouseConfig.capacity,
+    warehousePackages: storedTotal,
+    warehouseInventory: clampedInventory,
+    parkingSpots: saved.parkingSpots,
+    maxEmployees: Math.max(base.maxEmployees, unlockedCount),
+    couriers: cleanCouriers,
+    bikesCount: saved.bikesCount,
+    bicyclesCount: saved.bikesCount,
+    vansCount: saved.vansCount,
+    deliveryVansCount: saved.vansCount,
+    activeVehicle: { ...saved.activeVehicle },
+    pendingOffers: saved.offeredOrders,
+    activeOrders: saved.activeOrders,
+    weeklyPriorityOrder,
+    lastProcessedMinutes: saved.gameMinutes,
+  };
+
+  // Reconcile any residual overflow or legacy inTransitCargo safely without exceeding warehouse capacity
+  const residualCargo: WarehouseLoadedBatch[] = [
+    ...overflowBatches,
+    ...(saved.inTransitCargo ?? []),
+  ];
+  return residualCargo.length > 0
+    ? buildConsistentEconomyForSave(restoredBase, residualCargo)
+    : restoredBase;
+}
+
 export function App() {
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [footprintOnly, setFootprintOnly] = useState<boolean>(false);
   const [showStreetNames, setShowStreetNames] = useState<boolean>(true);
-  const [economyState, setEconomyState] = useState<OrderEconomyState>(() => {
-    const initial = createInitialOrderEconomyState(PROCEDURAL_BUILDINGS);
-    if (!devOverride) return initial;
-    return {
-      ...initial,
-      parkingSpots: devOverride.parkingSpots,
-      vansCount: devOverride.vansCount,
-      deliveryVansCount: devOverride.vansCount,
-      activeVehicle: devOverride.activeVehicle,
-      couriers: initial.couriers.map((c) =>
-        c.slotIndex === 1 ? { ...c, assignedVehicle: { ...devOverride.activeVehicle } } : c
-      ),
-    };
-  });
+  const [economyState, setEconomyState] = useState<OrderEconomyState>(() =>
+    createInitialOrderEconomyState(PROCEDURAL_BUILDINGS)
+  );
   const [gameMinutes, setGameMinutes] = useState<number>(INITIAL_GAME_MINUTES);
-  const [gameSpeed, setGameSpeed] = useState<GameSpeed>(1);
+  // Start paused while StartScreenModal is shown over the map
+  const [gameSpeed, setGameSpeed] = useState<GameSpeed>(0);
+  const [saveSlots, setSaveSlots] = useState<Record<SaveSlotId, SaveSlotEntry | null>>(() =>
+    getAllSaveSlots()
+  );
+  const [activeSlotId, setActiveSlotId] = useState<SaveSlotId | null>(null);
+  const [startScreenOpen, setStartScreenOpen] = useState<boolean>(true);
+  const [sessionEpoch, setSessionEpoch] = useState<number>(0);
+
   // Tracks per-slot courier Base presence (#1–#6) and live Plan tygodnia task assignments
   const [courierAtBaseBySlot, setCourierAtBaseBySlot] = useState<Record<number, boolean>>(
     INITIAL_COURIER_AT_BASE_BY_SLOT
@@ -121,6 +315,9 @@ export function App() {
   const lastEconomyCheckMinutesRef = useRef<number>(INITIAL_GAME_MINUTES);
   const courierAtBaseBySlotRef = useRef<Record<number, boolean>>(courierAtBaseBySlot);
   const allCouriersAtBaseRef = useRef<boolean>(allCouriersAtBase);
+  const activeSlotIdRef = useRef<SaveSlotId | null>(activeSlotId);
+  const lastSavedCompletedOrdersRef = useRef<number>(economyState.completedOrdersCount);
+  const lastAutoSavedMorningDayRef = useRef<number>(1);
 
   const applyEconomyUpdate = useCallback(
     (updater: (prev: OrderEconomyState) => OrderEconomyState): OrderEconomyState => {
@@ -130,6 +327,28 @@ export function App() {
         setEconomyState(next);
       }
       return next;
+    },
+    []
+  );
+
+  const persistGameToSlot = useCallback(
+    (
+      slotId: SaveSlotId,
+      liveEconomy: OrderEconomyState,
+      currentMinutes: number,
+      inFlightCargoOverride?: readonly WarehouseLoadedBatch[]
+    ) => {
+      const inFlightCargo =
+        inFlightCargoOverride ?? canvasControllerRef.current?.getInFlightCargo() ?? [];
+      const consistentEconomy = buildConsistentEconomyForSave(liveEconomy, inFlightCargo);
+      const weeklyPlan = buildWeeklyPlanSnapshot(consistentEconomy, currentMinutes);
+      const savedPayload = createSavedGameState(consistentEconomy, currentMinutes, {
+        inRouteBySlot: { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false },
+        weeklyPlan,
+        inTransitCargo: [],
+      });
+      saveGameToSlot(slotId, savedPayload);
+      setSaveSlots(getAllSaveSlots());
     },
     []
   );
@@ -147,12 +366,136 @@ export function App() {
     setTaskAssignmentsByTaskId(status.taskAssignmentsByTaskId);
   }, []);
 
+  const handleStartNewGame = useCallback(
+    (slotId: SaveSlotId) => {
+      const freshEconomy = createNewCareerEconomyState();
+      economyStateRef.current = freshEconomy;
+      setEconomyState(freshEconomy);
+
+      exactGameMinutesRef.current = INITIAL_GAME_MINUTES;
+      lastEconomyCheckMinutesRef.current = INITIAL_GAME_MINUTES;
+      setGameMinutes(INITIAL_GAME_MINUTES);
+
+      // Reset all couriers safely at Base and clear any stale task claims
+      handleCourierStatusChange({
+        atBaseBySlot: INITIAL_COURIER_AT_BASE_BY_SLOT,
+        allAtBase: true,
+        taskAssignmentsByTaskId: {},
+      });
+      canvasControllerRef.current?.resetCouriersToBase(freshEconomy.couriers);
+      setSessionEpoch((prev) => prev + 1);
+
+      lastSavedCompletedOrdersRef.current = freshEconomy.completedOrdersCount;
+      lastAutoSavedMorningDayRef.current = 1;
+
+      activeSlotIdRef.current = slotId;
+      setActiveSlotId(slotId);
+      setOrdersOpen(false);
+      setCompanyOpen(false);
+      setSkipTimeOpen(false);
+      setStartScreenOpen(false);
+      setGameSpeed(1);
+
+      // Auto-save trigger #1: immediately persist starter state in the chosen slot
+      persistGameToSlot(slotId, freshEconomy, INITIAL_GAME_MINUTES, []);
+    },
+    [handleCourierStatusChange, persistGameToSlot]
+  );
+
+  const handleLoadGame = useCallback(
+    (slotId: SaveSlotId) => {
+      const entry = loadGameFromSlot(slotId);
+      if (!entry) return;
+
+      const restoredEconomy = restoreEconomyStateFromSavedEntry(entry.state);
+      const restoredMinutes = entry.state.gameMinutes;
+      const loadedDay = Math.floor(restoredMinutes / MINUTES_PER_DAY) + 1;
+      const minuteOfDay = restoredMinutes % MINUTES_PER_DAY;
+
+      economyStateRef.current = restoredEconomy;
+      setEconomyState(restoredEconomy);
+
+      exactGameMinutesRef.current = restoredMinutes;
+      lastEconomyCheckMinutesRef.current = restoredMinutes;
+      setGameMinutes(restoredMinutes);
+
+      // Reinitialize all couriers safely parked at Base (inRoute: false) with clean weeklyPlan claims
+      handleCourierStatusChange({
+        atBaseBySlot: INITIAL_COURIER_AT_BASE_BY_SLOT,
+        allAtBase: true,
+        taskAssignmentsByTaskId: {},
+      });
+      canvasControllerRef.current?.resetCouriersToBase(restoredEconomy.couriers);
+      setSessionEpoch((prev) => prev + 1);
+
+      lastSavedCompletedOrdersRef.current = restoredEconomy.completedOrdersCount;
+      lastAutoSavedMorningDayRef.current =
+        minuteOfDay >= WORKDAY_START_MINUTES ? loadedDay : Math.max(0, loadedDay - 1);
+
+      activeSlotIdRef.current = slotId;
+      setActiveSlotId(slotId);
+      setOrdersOpen(false);
+      setCompanyOpen(false);
+      setSkipTimeOpen(false);
+      setStartScreenOpen(false);
+      setGameSpeed(1);
+    },
+    [handleCourierStatusChange]
+  );
+
+  const handleDeleteSaveSlot = useCallback((slotId: SaveSlotId) => {
+    deleteSaveSlot(slotId);
+    if (activeSlotIdRef.current === slotId) {
+      activeSlotIdRef.current = null;
+      setActiveSlotId(null);
+    }
+    setSaveSlots(getAllSaveSlots());
+  }, []);
+
+  const handleSaveAndExit = useCallback(() => {
+    const slotId = activeSlotIdRef.current;
+    if (slotId !== null) {
+      persistGameToSlot(slotId, economyStateRef.current, exactGameMinutesRef.current);
+    } else {
+      setSaveSlots(getAllSaveSlots());
+    }
+    setGameSpeed(0);
+    setCompanyOpen(false);
+    setOrdersOpen(false);
+    setSkipTimeOpen(false);
+    setStartScreenOpen(true);
+  }, [persistGameToSlot]);
+
+  // Auto-save trigger #2: save immediately whenever completedOrdersCount increases
+  useEffect(() => {
+    if (activeSlotId === null || startScreenOpen) return;
+    const completed = economyState.completedOrdersCount;
+    if (completed > lastSavedCompletedOrdersRef.current) {
+      lastSavedCompletedOrdersRef.current = completed;
+      persistGameToSlot(activeSlotId, economyStateRef.current, exactGameMinutesRef.current);
+    }
+  }, [economyState.completedOrdersCount, activeSlotId, startScreenOpen, persistGameToSlot]);
+
+  // Auto-save trigger #3: save once each workday morning when game clock reaches 08:00 of a new day
+  useEffect(() => {
+    if (activeSlotId === null || startScreenOpen) return;
+    const currentDay = Math.floor(gameMinutes / MINUTES_PER_DAY) + 1;
+    const minuteOfDay = gameMinutes % MINUTES_PER_DAY;
+    if (
+      minuteOfDay >= WORKDAY_START_MINUTES &&
+      currentDay > lastAutoSavedMorningDayRef.current
+    ) {
+      lastAutoSavedMorningDayRef.current = currentDay;
+      persistGameToSlot(activeSlotId, economyStateRef.current, gameMinutes);
+    }
+  }, [gameMinutes, activeSlotId, startScreenOpen, persistGameToSlot]);
+
   // Advance world clock smoothly:
-  // - Pause (0x) always stops time completely
+  // - Pause (0x) or StartScreenModal always stops time completely
   // - Daytime runs at user's chosen speed (1x/2x/4x -> 2/4/8 in-game min/s)
   // - Night hours (from seasonal closing time until 08:00) auto-switch to 15x when allCouriersAtBase is true
   useEffect(() => {
-    if (gameSpeed === 0) return;
+    if (startScreenOpen || gameSpeed === 0) return;
 
     let rafId: number | null = null;
     let lastTime = performance.now();
@@ -198,7 +541,7 @@ export function App() {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [gameSpeed, applyEconomyUpdate]);
+  }, [gameSpeed, startScreenOpen, applyEconomyUpdate]);
 
   const handleToggleGrid = useCallback(() => {
     setShowGrid((prev) => !prev);
@@ -462,7 +805,9 @@ export function App() {
   );
 
   const unreadOffersCount = countUnreadOffers(economyState);
-  const isNightMode = allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
+  const effectiveSimSpeed: GameSpeed = startScreenOpen ? 0 : gameSpeed;
+  const isNightMode =
+    !startScreenOpen && allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
   const nextDayMorningMinutes = useMemo(
     () => getNextDayMorningMinutes(gameMinutes),
@@ -501,10 +846,11 @@ export function App() {
         showGrid={showGrid}
         footprintOnly={footprintOnly}
         showStreetNames={showStreetNames}
-        gameSpeed={gameSpeed}
+        gameSpeed={effectiveSimSpeed}
         gameMinutesRef={exactGameMinutesRef}
         economyStateRef={economyStateRef}
-        interactionBlocked={ordersOpen || skipTimeOpen || companyOpen}
+        interactionBlocked={startScreenOpen || ordersOpen || skipTimeOpen || companyOpen}
+        sessionEpoch={sessionEpoch}
         onFpsChange={setFps}
         onCourierAtBaseChange={handleCourierAtBaseChange}
         onCourierStatusChange={handleCourierStatusChange}
@@ -542,7 +888,7 @@ export function App() {
         showStreetNames={showStreetNames}
         balance={economyState.balance}
         gameMinutes={gameMinutes}
-        gameSpeed={gameSpeed}
+        gameSpeed={effectiveSimSpeed}
         isNightMode={isNightMode}
         ordersOpen={ordersOpen}
         companyOpen={companyOpen}
@@ -573,6 +919,8 @@ export function App() {
         economyState={economyState}
         isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
         courierAtBaseBySlot={courierAtBaseBySlot}
+        activeSlotId={activeSlotId}
+        onSaveAndExit={handleSaveAndExit}
         onClose={handleCloseCompany}
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}
@@ -594,6 +942,15 @@ export function App() {
         onSkipDay={handleSkipOneDay}
         onSkipToNextOrder={handleSkipToNextOrder}
       />
+
+      {startScreenOpen && (
+        <StartScreenModal
+          slots={saveSlots}
+          onStartNewGame={handleStartNewGame}
+          onLoadGame={handleLoadGame}
+          onDeleteSlot={handleDeleteSaveSlot}
+        />
+      )}
 
       <PWAInstallButton />
     </main>

@@ -591,6 +591,25 @@ export function buildTaskAssignmentsByTaskId(
   return result;
 }
 
+export function collectInFlightCargoForFleet(
+  fleet: Readonly<MultiCourierFleetState>
+): CourierCargoItem[] {
+  const byOrder = new Map<string, number>();
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    const entry = fleet[slotIndex];
+    if (!entry) continue;
+    for (const item of entry.courier.cargo) {
+      if (item.count > 0) {
+        byOrder.set(item.orderId, (byOrder.get(item.orderId) ?? 0) + item.count);
+      }
+    }
+  }
+  return Array.from(byOrder.entries()).map(([orderId, count]) => ({
+    orderId,
+    count,
+  }));
+}
+
 export function createCourierFromPath(
   outboundPoints: Point[],
   speed?: number,
