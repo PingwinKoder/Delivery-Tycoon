@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Boxes, CalendarDays, Check, ClipboardList, Files, X } from 'lucide-react';
+import { Boxes, CalendarDays, Check, ClipboardList, Files, Wrench, X } from 'lucide-react';
 import {
   getMonthName,
   getWeekdayName,
@@ -570,6 +570,122 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     {selectedDay.tasks.map((task, idx) => {
                       const isFirst = idx === 0;
                       const isLast = idx === selectedDay.tasks.length - 1;
+
+                      if (task.taskType === 'repair' && task.repairVehicle) {
+                        const durabilityPct = Math.round(task.repairDurability ?? 0);
+                        const repairTitle =
+                          task.repairVehicle.type === 'van'
+                            ? t(language, 'orders.repairVanTitle', {
+                                index: task.repairVehicle.index,
+                                durability: durabilityPct,
+                              })
+                            : t(language, 'orders.repairBikeTitle', {
+                                index: task.repairVehicle.index,
+                                durability: durabilityPct,
+                              });
+                        const mechanicLocation = t(language, 'orders.repairMechanicLocation');
+
+                        return (
+                          <li
+                            key={`${selectedDay.weekdayIndex}-${task.taskId}`}
+                            className="rounded-md bg-[#1c2233] border border-amber-500/45 py-1 px-2 flex items-center gap-1.5 text-xs min-w-0"
+                          >
+                            <Wrench
+                              className="w-3.5 h-3.5 text-amber-400 shrink-0"
+                              aria-hidden="true"
+                            />
+                            <p
+                              className="flex-1 min-w-0 truncate text-xs leading-tight text-slate-100"
+                              title={`${repairTitle} (${mechanicLocation})`}
+                            >
+                              <span className="font-semibold text-amber-200 font-mono-nums">
+                                {repairTitle}
+                              </span>
+                              <span className="text-slate-400"> ({mechanicLocation})</span>
+                            </p>
+
+                            {task.assignedCourierId !== undefined ? (
+                              <span
+                                title={
+                                  task.assignedCourierId === 1
+                                    ? t(language, 'orders.inProgressOwner')
+                                    : t(language, 'orders.inProgressCourier', {
+                                        slot: task.assignedCourierId,
+                                      })
+                                }
+                                className={`px-1.5 py-[2px] rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
+                                  task.assignedCourierId === 1
+                                    ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
+                                    : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
+                                }`}
+                              >
+                                {task.assignedCourierId === 1
+                                  ? t(language, 'orders.ownerBadge')
+                                  : t(language, 'orders.courierBadge', {
+                                      slot: task.assignedCourierId,
+                                    })}
+                              </span>
+                            ) : task.repairWaitingForCourier ? (
+                              <span
+                                className="px-1.5 py-[2px] rounded text-[10px] font-semibold border whitespace-nowrap shrink-0 leading-none bg-amber-500/10 text-amber-300/95 border-amber-400/35"
+                                title={t(language, 'orders.repairWaitingCourier')}
+                              >
+                                {t(language, 'orders.repairWaitingCourierShort')}
+                              </span>
+                            ) : null}
+
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button
+                                type="button"
+                                disabled={isFirst}
+                                onClick={() =>
+                                  onMoveWeeklyTaskPriority(
+                                    selectedDay.weekdayIndex,
+                                    task.taskId,
+                                    'up'
+                                  )
+                                }
+                                aria-label={t(language, 'orders.repairMoveUpAria', {
+                                  weekday: selectedDay.weekdayName,
+                                  title: repairTitle,
+                                })}
+                                title={t(language, 'orders.moveUpTitle')}
+                                className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                                  isFirst
+                                    ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                                }`}
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isLast}
+                                onClick={() =>
+                                  onMoveWeeklyTaskPriority(
+                                    selectedDay.weekdayIndex,
+                                    task.taskId,
+                                    'down'
+                                  )
+                                }
+                                aria-label={t(language, 'orders.repairMoveDownAria', {
+                                  weekday: selectedDay.weekdayName,
+                                  title: repairTitle,
+                                })}
+                                title={t(language, 'orders.moveDownTitle')}
+                                className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                                  isLast
+                                    ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                                }`}
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      }
+
                       const totalPkgs = Math.max(0, task.totalPackages);
                       const pickedUp = Math.max(0, Math.min(totalPkgs, task.pickedUpCount));
                       const delivered = Math.max(0, Math.min(totalPkgs, task.deliveredCount));

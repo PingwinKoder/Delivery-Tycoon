@@ -61,6 +61,25 @@ export const MAX_VANS = 8;
 export const DEFAULT_LEGACY_VAN_MODEL_ID: VanModelId = 'used_standard';
 export const USED_VAN_PURCHASE_COST = 7500;
 
+/** Vehicle mechanical durability & wear tuning constants */
+export const DEFAULT_VEHICLE_DURABILITY = 100;
+export const MIN_VEHICLE_DURABILITY = 0;
+export const MAX_VEHICLE_DURABILITY = 100;
+/** Repair button becomes available once vehicle durability drops strictly below 80% */
+export const REPAIR_AVAILABLE_DURABILITY_THRESHOLD = 80;
+/** Below 25% durability, vehicle cruising speed is reduced by 20% until repaired */
+export const LOW_DURABILITY_SPEED_THRESHOLD = 25;
+export const LOW_DURABILITY_SPEED_MULTIPLIER = 0.8;
+/** Durability wear (% lost per 1 world pixel driven while actively moving on route) */
+export const BIKE_WEAR_PER_WORLD_PX = 0.0012;
+export const USED_VAN_WEAR_PER_WORLD_PX = 0.0018;
+export const NEW_VAN_WEAR_PER_WORLD_PX = 0.001;
+
+export function clampVehicleDurability(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_VEHICLE_DURABILITY;
+  return Math.max(MIN_VEHICLE_DURABILITY, Math.min(MAX_VEHICLE_DURABILITY, Math.round(value * 100) / 100));
+}
+
 /** Full catalog of 6 delivery van models (3 Used + 3 New tiers) */
 export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
   used_lite: {
@@ -140,7 +159,11 @@ export function getVanModelSpec(modelId: VanModelId): VanModelSpec {
   return VAN_MODELS[modelId] ?? VAN_MODELS[DEFAULT_LEGACY_VAN_MODEL_ID];
 }
 
-export function createOwnedVan(index: number, modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID): OwnedVan {
+export function createOwnedVan(
+  index: number,
+  modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID,
+  durability: number = DEFAULT_VEHICLE_DURABILITY
+): OwnedVan {
   const spec = getVanModelSpec(modelId);
   const safeIndex = Math.max(1, Math.floor(index));
   return {
@@ -149,6 +172,7 @@ export function createOwnedVan(index: number, modelId: VanModelId = DEFAULT_LEGA
     modelId: spec.id,
     condition: spec.condition,
     tier: spec.tier,
+    durability: clampVehicleDurability(durability),
   };
 }
 
@@ -157,7 +181,9 @@ export function createDefaultOwnedVans(
   modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID
 ): OwnedVan[] {
   const safeCount = Math.max(0, Math.min(MAX_VANS, Math.floor(count)));
-  return Array.from({ length: safeCount }, (_, idx) => createOwnedVan(idx + 1, modelId));
+  return Array.from({ length: safeCount }, (_, idx) =>
+    createOwnedVan(idx + 1, modelId, DEFAULT_VEHICLE_DURABILITY)
+  );
 }
 
 /** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity, monthly upkeep & depot building size */
@@ -552,10 +578,17 @@ export function findNextScheduledOrderDayMinutes(
   state: OrderEconomyState,
   currentMinutes: number
 ): number | null {
-  if (state.activeOrders.length === 0) return null;
+  const hasPendingRepairs =
+    Array.isArray(state.pendingVehicleRepairs) && state.pendingVehicleRepairs.length > 0;
+  if (state.activeOrders.length === 0 && !hasPendingRepairs) return null;
 
   const currentElapsedDay = Math.floor(Math.max(0, currentMinutes) / MINUTES_PER_DAY);
   const currentGameDay = currentElapsedDay + 1;
+
+  // Pending vehicle repairs carry over to tomorrow 08:00 until completed
+  if (hasPendingRepairs) {
+    return (currentElapsedDay + 1) * MINUTES_PER_DAY + WORKDAY_START_MINUTES;
+  }
 
   // If active orders already have packages waiting in Base warehouse, tomorrow 08:00 has immediate delivery work
   const hasWaitingWarehouseWork =

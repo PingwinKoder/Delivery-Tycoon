@@ -17,6 +17,7 @@ import {
   mergeEntitiesIntoBackToFrontOrder,
   packSpritesIntoAtlasSheets,
 } from '../buildings';
+import { isoToCanvas } from '../cityMap';
 import {
   type FenceSpriteAnchorBounds,
   computeCenteredFenceSpriteBounds,
@@ -280,6 +281,639 @@ export function disposeSceneSpriteAtlas(atlas: SceneSpriteAtlas | null) {
   atlas.fences.gatePost = null;
 }
 
+function isoPtZ(u: number, v: number, z: number): { x: number; y: number } {
+  const base = isoToCanvas(u, v);
+  return { x: base.x, y: base.y - z };
+}
+
+function drawIsoQuad(
+  ctx: CanvasRenderingContext2D,
+  pts: Array<{ x: number; y: number }>,
+  fillStyle?: string,
+  strokeStyle?: string,
+  lineWidth = 1
+) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    ctx.lineTo(pts[i].x, pts[i].y);
+  }
+  ctx.closePath();
+  if (fillStyle) {
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+  if (strokeStyle) {
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+}
+
+function drawIsoBox(
+  ctx: CanvasRenderingContext2D,
+  uMin: number,
+  uMax: number,
+  vMin: number,
+  vMax: number,
+  zBottom: number,
+  zTop: number,
+  colors: {
+    roof: string;
+    leftWall: string;
+    rightWall: string;
+    outline?: string;
+    ridge?: string;
+  },
+  invScale: number,
+  outlineWidth = 1.05
+) {
+  const bBack = isoPtZ(uMin, vMax, zBottom);
+  const bLeft = isoPtZ(uMin, vMin, zBottom);
+  const bRight = isoPtZ(uMax, vMax, zBottom);
+  const bFront = isoPtZ(uMax, vMin, zBottom);
+  const tBack = isoPtZ(uMin, vMax, zTop);
+  const tLeft = isoPtZ(uMin, vMin, zTop);
+  const tRight = isoPtZ(uMax, vMax, zTop);
+  const tFront = isoPtZ(uMax, vMin, zTop);
+
+  // Left wall (SW-facing, v = vMin)
+  drawIsoQuad(ctx, [bLeft, bFront, tFront, tLeft], colors.leftWall);
+  // Right wall (SE-facing, u = uMax)
+  drawIsoQuad(ctx, [bFront, bRight, tRight, tFront], colors.rightWall);
+  // Roof top face
+  drawIsoQuad(ctx, [tBack, tRight, tFront, tLeft], colors.roof);
+
+  // Subtle roof edge highlight
+  if (colors.ridge !== 'none') {
+    ctx.strokeStyle = colors.ridge ?? 'rgba(255, 255, 255, 0.32)';
+    ctx.lineWidth = 0.95 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(tLeft.x, tLeft.y);
+    ctx.lineTo(tFront.x, tFront.y);
+    ctx.lineTo(tRight.x, tRight.y);
+    ctx.stroke();
+  }
+
+  // Front vertical crease
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.26)';
+  ctx.lineWidth = 0.9 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(tFront.x, tFront.y);
+  ctx.lineTo(bFront.x, bFront.y);
+  ctx.stroke();
+
+  // Outer silhouette ink contour
+  ctx.strokeStyle = colors.outline ?? 'rgba(15, 23, 42, 0.52)';
+  ctx.lineWidth = outlineWidth * invScale;
+  ctx.beginPath();
+  ctx.moveTo(tBack.x, tBack.y);
+  ctx.lineTo(tRight.x, tRight.y);
+  ctx.lineTo(bRight.x, bRight.y);
+  ctx.lineTo(bFront.x, bFront.y);
+  ctx.lineTo(bLeft.x, bLeft.y);
+  ctx.lineTo(tLeft.x, tLeft.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  return { bBack, bLeft, bRight, bFront, tBack, tLeft, tRight, tFront };
+}
+
+/**
+ * Dedicated 3D isometric vector renderer for the Mechanic Garage (`b_mechanic_garage`).
+ * Industrial steel-graphite service hall with orange-graphite fascia accent, two wide
+ * roll-up service bay doors facing ul. Lipowa, side workshop windows, and roof skylights.
+ */
+function drawMechanicGarage3DVector(
+  ctx: CanvasRenderingContext2D,
+  b: Building,
+  invScale: number
+) {
+  const wallH = Math.max(20, b.height - 3);
+  const { uMin, uMax, vMin, vMax } = b;
+
+  // 1. Main steel-graphite industrial workshop prism
+  drawIsoBox(
+    ctx,
+    uMin,
+    uMax,
+    vMin,
+    vMax,
+    0,
+    wallH,
+    {
+      roof: '#3b4453',
+      leftWall: '#5b6575',
+      rightWall: '#434c5a',
+      outline: 'rgba(15, 23, 42, 0.58)',
+    },
+    invScale,
+    1.15
+  );
+
+  // 2. Signature orange-graphite upper accent fascia stripe on both visible walls
+  const bandZ0 = wallH - 5.2;
+  const bandZ1 = wallH - 1.6;
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMin, vMin, bandZ0),
+      isoPtZ(uMax, vMin, bandZ0),
+      isoPtZ(uMax, vMin, bandZ1),
+      isoPtZ(uMin, vMin, bandZ1),
+    ],
+    '#f97316'
+  );
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMax, vMin, bandZ0),
+      isoPtZ(uMax, vMax, bandZ0),
+      isoPtZ(uMax, vMax, bandZ1),
+      isoPtZ(uMax, vMin, bandZ1),
+    ],
+    '#ea580c'
+  );
+  // Crisp graphite pinstripe below orange fascia
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.0 * invScale;
+  ctx.beginPath();
+  const sL = isoPtZ(uMin, vMin, bandZ0);
+  const sF = isoPtZ(uMax, vMin, bandZ0);
+  const sR = isoPtZ(uMax, vMax, bandZ0);
+  ctx.moveTo(sL.x, sL.y);
+  ctx.lineTo(sF.x, sF.y);
+  ctx.lineTo(sR.x, sR.y);
+  ctx.stroke();
+
+  // 3. Two wide industrial roll-up service bay doors on SE-facing right wall (u = uMax, facing ul. Lipowa)
+  const vSpan = vMax - vMin;
+  const bayHalfV = vSpan * 0.5;
+  const doorH = Math.min(16.5, bandZ0 - 2.2);
+  for (let i = 0; i < 2; i++) {
+    const dv0 = vMin + i * bayHalfV + 9;
+    const dv1 = vMin + (i + 1) * bayHalfV - 9;
+    // Recessed dark frame
+    drawIsoQuad(
+      ctx,
+      [
+        isoPtZ(uMax, dv0 - 1.4, 0),
+        isoPtZ(uMax, dv1 + 1.4, 0),
+        isoPtZ(uMax, dv1 + 1.4, doorH + 1.4),
+        isoPtZ(uMax, dv0 - 1.4, doorH + 1.4),
+      ],
+      '#1e293b'
+    );
+    // Light corrugated aluminum roll-up shutter
+    drawIsoQuad(
+      ctx,
+      [
+        isoPtZ(uMax, dv0, 0.4),
+        isoPtZ(uMax, dv1, 0.4),
+        isoPtZ(uMax, dv1, doorH),
+        isoPtZ(uMax, dv0, doorH),
+      ],
+      '#cbd5e1',
+      '#334155',
+      0.85 * invScale
+    );
+    // Horizontal shutter slats
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.55)';
+    ctx.lineWidth = 0.75 * invScale;
+    ctx.beginPath();
+    for (let z = 3.2; z < doorH - 1; z += 2.8) {
+      const a = isoPtZ(uMax, dv0, z);
+      const c = isoPtZ(uMax, dv1, z);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(c.x, c.y);
+    }
+    ctx.stroke();
+    // Subtle dark rubber bottom seal + warm amber bay lamp above each bay door
+    drawIsoQuad(
+      ctx,
+      [
+        isoPtZ(uMax, dv0, 0.4),
+        isoPtZ(uMax, dv1, 0.4),
+        isoPtZ(uMax, dv1, 2.0),
+        isoPtZ(uMax, dv0, 2.0),
+      ],
+      '#334155'
+    );
+    const lamp = isoPtZ(uMax, (dv0 + dv1) * 0.5, doorH + 2.6);
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(lamp.x, lamp.y, 1.55, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 4. Side workshop windows & personnel office door on SW-facing left wall (v = vMin)
+  const uSpan = uMax - uMin;
+  // Glazed workshop window strip
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMin + 8, vMin, 10),
+      isoPtZ(uMin + uSpan * 0.58, vMin, 10),
+      isoPtZ(uMin + uSpan * 0.58, vMin, 16.5),
+      isoPtZ(uMin + 8, vMin, 16.5),
+    ],
+    '#7dd3fc',
+    '#1e293b',
+    0.95 * invScale
+  );
+  // Window mullion divider
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 0.9 * invScale;
+  ctx.beginPath();
+  const wmU = uMin + 8 + (uSpan * 0.58 - 8) * 0.5;
+  const wmB = isoPtZ(wmU, vMin, 10);
+  const wmT = isoPtZ(wmU, vMin, 16.5);
+  ctx.moveTo(wmB.x, wmB.y);
+  ctx.lineTo(wmT.x, wmT.y);
+  ctx.stroke();
+
+  // Office side door
+  const pDoorU0 = uMax - 18;
+  const pDoorU1 = uMax - 8;
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(pDoorU0, vMin, 0.5),
+      isoPtZ(pDoorU1, vMin, 0.5),
+      isoPtZ(pDoorU1, vMin, 12.5),
+      isoPtZ(pDoorU0, vMin, 12.5),
+    ],
+    '#334155',
+    '#0f172a',
+    0.9 * invScale
+  );
+  // Door glass pane
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(pDoorU0 + 1.8, vMin, 6.8),
+      isoPtZ(pDoorU1 - 1.8, vMin, 6.8),
+      isoPtZ(pDoorU1 - 1.8, vMin, 11.2),
+      isoPtZ(pDoorU0 + 1.8, vMin, 11.2),
+    ],
+    '#93c5fd'
+  );
+
+  // 5. Roof inset deck + corrugated seams + two rooftop skylight vents (staying <= b.height)
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMin + 3.5, vMax - 3.5, wallH),
+      isoPtZ(uMax - 3.5, vMax - 3.5, wallH),
+      isoPtZ(uMax - 3.5, vMin + 3.5, wallH),
+      isoPtZ(uMin + 3.5, vMin + 3.5, wallH),
+    ],
+    '#475569',
+    'rgba(15, 23, 42, 0.35)',
+    0.85 * invScale
+  );
+
+  // Two sleek industrial skylight boxes on the roof (z = wallH..b.height)
+  const skyZTop = b.height - 0.3;
+  drawIsoBox(
+    ctx,
+    uMin + 12,
+    uMax - 12,
+    vMin + 14,
+    vMin + 30,
+    wallH,
+    skyZTop,
+    { roof: '#93c5fd', leftWall: '#64748b', rightWall: '#475569', ridge: 'none' },
+    invScale,
+    0.85
+  );
+  drawIsoBox(
+    ctx,
+    uMin + 12,
+    uMax - 12,
+    vMax - 30,
+    vMax - 14,
+    wallH,
+    skyZTop,
+    { roof: '#93c5fd', leftWall: '#64748b', rightWall: '#475569', ridge: 'none' },
+    invScale,
+    0.85
+  );
+
+  // Crisp centered orange workshop emblem on the flat roof between skylights
+  const emblemCenter = isoPtZ((uMin + uMax) * 0.5, (vMin + vMax) * 0.5, wallH + 0.2);
+  ctx.save();
+  ctx.translate(emblemCenter.x, emblemCenter.y);
+  ctx.fillStyle = '#ea580c';
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.0 * invScale;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 12.5, 6.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // Stylized white wrench bar inside the roof badge
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 2.0 * invScale;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-5.5, 1.8);
+  ctx.lineTo(5.5, -1.8);
+  ctx.stroke();
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  ctx.arc(-5.8, 1.9, 2.2, 0, Math.PI * 2);
+  ctx.arc(5.8, -1.9, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * Dedicated 3D isometric vector renderer for Gas Stations (`b_gas_station_1`, `b_gas_station_2`).
+ * Renders within the building's bounding prism:
+ *  - Back glazed cashier/shop pavilion (lower height, behind canopy for zero occlusion)
+ *  - Raised concrete fuel pump island with 2 fuel dispenser cabinets & 2 steel support pillars
+ *  - Elevated illuminated overhead canopy with bold emerald-green & amber brand fascia
+ */
+function drawGasStation3DVector(
+  ctx: CanvasRenderingContext2D,
+  b: Building,
+  invScale: number
+) {
+  const { uMin, uMax, vMin, vMax } = b;
+  const uSpan = uMax - uMin;
+  const vSpan = vMax - vMin;
+
+  // 1. Back Cashier / Convenience Pavilion along vMax edge (drawn first — behind canopy)
+  const shopVMin = vMax - Math.min(28, vSpan * 0.31);
+  const shopUMin = uMin + 8;
+  const shopUMax = uMax - 8;
+  const shopH = 19;
+
+  drawIsoBox(
+    ctx,
+    shopUMin,
+    shopUMax,
+    shopVMin,
+    vMax,
+    0,
+    shopH,
+    {
+      roof: '#475569',
+      leftWall: '#e2e8f0',
+      rightWall: '#cbd5e1',
+      outline: 'rgba(15, 23, 42, 0.56)',
+    },
+    invScale,
+    1.05
+  );
+
+  // Emerald green accent fascia band around top of cashier pavilion
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(shopUMin, shopVMin, shopH - 3.6),
+      isoPtZ(shopUMax, shopVMin, shopH - 3.6),
+      isoPtZ(shopUMax, shopVMin, shopH - 0.6),
+      isoPtZ(shopUMin, shopVMin, shopH - 0.6),
+    ],
+    '#10b981'
+  );
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(shopUMax, shopVMin, shopH - 3.6),
+      isoPtZ(shopUMax, vMax, shopH - 3.6),
+      isoPtZ(shopUMax, vMax, shopH - 0.6),
+      isoPtZ(shopUMax, shopVMin, shopH - 0.6),
+    ],
+    '#059669'
+  );
+
+  // Wide glazed panoramic storefront windows on cashier front wall (v = shopVMin)
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(shopUMin + 5, shopVMin, 3.2),
+      isoPtZ(shopUMax - 5, shopVMin, 3.2),
+      isoPtZ(shopUMax - 5, shopVMin, 12.8),
+      isoPtZ(shopUMin + 5, shopVMin, 12.8),
+    ],
+    '#7dd3fc',
+    '#1e293b',
+    0.85 * invScale
+  );
+  // Central sliding glass door frame
+  const shopMidU = (shopUMin + shopUMax) * 0.5;
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(shopMidU - 7, shopVMin, 0.6),
+      isoPtZ(shopMidU + 7, shopVMin, 0.6),
+      isoPtZ(shopMidU + 7, shopVMin, 12.8),
+      isoPtZ(shopMidU - 7, shopVMin, 12.8),
+    ],
+    '#bae6fd',
+    '#1e293b',
+    0.9 * invScale
+  );
+
+  // 2. Fuel Pump Island + 2 Fuel Dispensers + 2 Steel Canopy Pillars under the canopy
+  const canopyVMax = Math.min(shopVMin - 6, vMin + vSpan * 0.58);
+  const islandMidV = (vMin + canopyVMax) * 0.5;
+  const islandVMin = islandMidV - 5.5;
+  const islandVMax = islandMidV + 5.5;
+  const islandUMin = uMin + 12;
+  const islandUMax = uMax - 12;
+
+  // Raised concrete pump island curb
+  drawIsoBox(
+    ctx,
+    islandUMin,
+    islandUMax,
+    islandVMin,
+    islandVMax,
+    0,
+    2.4,
+    {
+      roof: '#e2e8f0',
+      leftWall: '#94a3b8',
+      rightWall: '#64748b',
+      ridge: 'none',
+    },
+    invScale,
+    0.85
+  );
+
+  // Canopy underside height
+  const canopyZ0 = Math.max(19, b.height - 7.5);
+  const canopyZ1 = b.height;
+
+  // Draw pillars & fuel dispensers in strict back-to-front order (increasing u)
+  const p1U0 = islandUMin + 3;
+  const p1U1 = p1U0 + 4.4;
+  const d1U0 = uMin + uSpan * 0.31;
+  const d1U1 = d1U0 + 10.5;
+  const d2U0 = uMin + uSpan * 0.58;
+  const d2U1 = d2U0 + 10.5;
+  const p2U1 = islandUMax - 3;
+  const p2U0 = p2U1 - 4.4;
+
+  // Back-left canopy support pillar
+  drawIsoBox(
+    ctx,
+    p1U0,
+    p1U1,
+    islandMidV - 2.2,
+    islandMidV + 2.2,
+    2.4,
+    canopyZ0 + 0.6,
+    { roof: '#475569', leftWall: '#475569', rightWall: '#334155', ridge: 'none' },
+    invScale,
+    0.85
+  );
+
+  // Fuel Dispenser #1 & #2
+  for (const [du0, du1] of [
+    [d1U0, d1U1],
+    [d2U0, d2U1],
+  ]) {
+    drawIsoBox(
+      ctx,
+      du0,
+      du1,
+      islandMidV - 3.2,
+      islandMidV + 3.2,
+      2.4,
+      12.4,
+      {
+        roof: '#10b981',
+        leftWall: '#f8fafc',
+        rightWall: '#e2e8f0',
+        outline: '#1e293b',
+        ridge: 'none',
+      },
+      invScale,
+      0.85
+    );
+    // Dark digital display panel on left face
+    drawIsoQuad(
+      ctx,
+      [
+        isoPtZ(du0 + 1.8, islandMidV - 3.2, 7.6),
+        isoPtZ(du1 - 1.8, islandMidV - 3.2, 7.6),
+        isoPtZ(du1 - 1.8, islandMidV - 3.2, 10.8),
+        isoPtZ(du0 + 1.8, islandMidV - 3.2, 10.8),
+      ],
+      '#0f172a'
+    );
+    // Subtle emerald base stripe
+    drawIsoQuad(
+      ctx,
+      [
+        isoPtZ(du0 + 0.5, islandMidV - 3.2, 2.8),
+        isoPtZ(du1 - 0.5, islandMidV - 3.2, 2.8),
+        isoPtZ(du1 - 0.5, islandMidV - 3.2, 5.2),
+        isoPtZ(du0 + 0.5, islandMidV - 3.2, 5.2),
+      ],
+      '#059669'
+    );
+  }
+
+  // Front-right canopy support pillar
+  drawIsoBox(
+    ctx,
+    p2U0,
+    p2U1,
+    islandMidV - 2.2,
+    islandMidV + 2.2,
+    2.4,
+    canopyZ0 + 0.6,
+    { roof: '#475569', leftWall: '#475569', rightWall: '#334155', ridge: 'none' },
+    invScale,
+    0.85
+  );
+
+  // 3. Elevated Overhead Canopy Deck (z = canopyZ0..canopyZ1)
+  drawIsoBox(
+    ctx,
+    uMin,
+    uMax,
+    vMin,
+    canopyVMax,
+    canopyZ0,
+    canopyZ1,
+    {
+      roof: '#f1f5f9',
+      leftWall: '#059669',
+      rightWall: '#047857',
+      outline: 'rgba(15, 23, 42, 0.62)',
+      ridge: 'rgba(255, 255, 255, 0.65)',
+    },
+    invScale,
+    1.15
+  );
+
+  // Crisp bright amber-gold accent pinstripe wrapping the visible SW & SE canopy fascia
+  const stripeZ0 = canopyZ0 + 1.2;
+  const stripeZ1 = canopyZ0 + 3.0;
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMin, vMin, stripeZ0),
+      isoPtZ(uMax, vMin, stripeZ0),
+      isoPtZ(uMax, vMin, stripeZ1),
+      isoPtZ(uMin, vMin, stripeZ1),
+    ],
+    '#f59e0b'
+  );
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMax, vMin, stripeZ0),
+      isoPtZ(uMax, canopyVMax, stripeZ0),
+      isoPtZ(uMax, canopyVMax, stripeZ1),
+      isoPtZ(uMax, vMin, stripeZ1),
+    ],
+    '#d97706'
+  );
+
+  // Clean recessed roof panel & emerald brand stripe across top of canopy
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMin + 4, canopyVMax - 4, canopyZ1),
+      isoPtZ(uMax - 4, canopyVMax - 4, canopyZ1),
+      isoPtZ(uMax - 4, vMin + 4, canopyZ1),
+      isoPtZ(uMin + 4, vMin + 4, canopyZ1),
+    ],
+    '#e2e8f0',
+    'rgba(100, 116, 139, 0.35)',
+    0.8 * invScale
+  );
+  // Brand green stripe & circular fuel drop badge on canopy roof
+  drawIsoQuad(
+    ctx,
+    [
+      isoPtZ(uMin + 5, islandMidV + 4.5, canopyZ1),
+      isoPtZ(uMax - 5, islandMidV + 4.5, canopyZ1),
+      isoPtZ(uMax - 5, islandMidV - 4.5, canopyZ1),
+      isoPtZ(uMin + 5, islandMidV - 4.5, canopyZ1),
+    ],
+    '#10b981'
+  );
+  const badgeCenter = isoPtZ((uMin + uMax) * 0.5, islandMidV, canopyZ1 + 0.1);
+  ctx.save();
+  ctx.translate(badgeCenter.x, badgeCenter.y);
+  ctx.fillStyle = '#fef08a';
+  ctx.strokeStyle = '#047857';
+  ctx.lineWidth = 1.0 * invScale;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 9.5, 4.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 /**
  * Vector rasterizer for a single 3D isometric building volume (walls, roof, architectural edges).
  * Used once per unique building archetype during atlas baking (and as fallback without an atlas).
@@ -292,6 +926,14 @@ function drawBuilding3DVector(
 ) {
   if (isBaseWarehouseBuilding(b)) {
     drawBaseWarehouse3DVector(ctx, b, p, invScale);
+    return;
+  }
+  if (b.typ === 'mechanik') {
+    drawMechanicGarage3DVector(ctx, b, invScale);
+    return;
+  }
+  if (b.typ === 'stacja_paliw') {
+    drawGasStation3DVector(ctx, b, invScale);
     return;
   }
 

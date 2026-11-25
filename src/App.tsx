@@ -37,7 +37,9 @@ import {
 import {
   acceptOrderOffer,
   advanceOrderEconomy,
+  applyVehicleWearBatch,
   assignCourierVehicle,
+  completeVehicleRepair,
   countUnreadOffers,
   createInitialOrderEconomyState,
   findNextScheduledOrderDayMinutes,
@@ -63,6 +65,7 @@ import {
   recordPackageDelivery,
   recordPackagePickup,
   rejectOrderOffer,
+  requestVehicleRepair,
   returnPackagesToWarehouse,
   setOwnerActiveVehicle,
   unloadPackagesToWarehouse,
@@ -886,6 +889,21 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleApplyVehicleWearBatch = useCallback(
+    (entries: ReadonlyArray<{ vehicle: ActiveVehicleSelection; distancePx: number }>) => {
+      if (entries.length === 0) return;
+      applyEconomyUpdate((prev) => applyVehicleWearBatch(prev, entries));
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handleCompleteVehicleRepair = useCallback(
+    (vehicle: ActiveVehicleSelection) => {
+      applyEconomyUpdate((prev) => completeVehicleRepair(prev, vehicle));
+    },
+    [applyEconomyUpdate]
+  );
+
   const jumpWorldClockTo = useCallback(
     (targetMinutes: number) => {
       // Recall all couriers back to Base and secure any carried packages in Base warehouse before skipping time
@@ -973,6 +991,14 @@ export function App() {
   const handleBuyVan = useCallback(
     (modelId: VanModelId) => {
       applyEconomyUpdate((prev) => purchaseVan(prev, modelId).state);
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handleRequestVehicleRepair = useCallback(
+    (vehicle: ActiveVehicleSelection) => {
+      const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
+      applyEconomyUpdate((prev) => requestVehicleRepair(prev, vehicle, currentGameDay).state);
     },
     [applyEconomyUpdate]
   );
@@ -1093,6 +1119,8 @@ export function App() {
         onPickupPackagesLoaded={handlePickupPackagesLoaded}
         onDeliverPackages={handleDeliverPackages}
         onReturnCargoToWarehouse={handleReturnCargoToWarehouse}
+        onApplyVehicleWearBatch={handleApplyVehicleWearBatch}
+        onCompleteVehicleRepair={handleCompleteVehicleRepair}
         controllerRef={canvasControllerRef}
       />
 
@@ -1145,6 +1173,7 @@ export function App() {
         onBuyParkingSpot={handleBuyParkingSpot}
         onBuyBicycle={handleBuyBicycle}
         onBuyVan={handleBuyVan}
+        onRequestVehicleRepair={handleRequestVehicleRepair}
         onSelectActiveVehicle={handleSelectActiveVehicle}
         onBuyEmployeeLicense={handleBuyEmployeeLicense}
         onHireCourier={handleHireCourier}

@@ -8,11 +8,13 @@ import { getGameClockDisplay } from '../gameClock';
 import {
   getEffectiveWarehouseCapacity,
   getFreeWarehouseCapacity,
+  getPendingRepairForVehicle,
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
   getStoredPackagesForOrder,
   getVehicleCourierCapacityForSelection,
   hasEnoughWarehouseSpaceForPickup,
+  vehiclesEqual,
 } from '../orderEconomy';
 import {
   COURIER_SLOT_INDICES,
@@ -65,8 +67,35 @@ export function selectNextCourierTaskForDay(
         ? getVehicleCourierCapacityForSelection(state, state.activeVehicle)
         : getCourierCapacityForVehicle(activeType);
 
+  const concreteVehicle: ActiveVehicleSelection | undefined = options?.vehicle;
+  const pendingRepairForThisVehicle = concreteVehicle
+    ? getPendingRepairForVehicle(state, concreteVehicle)
+    : null;
+
+  // A vehicle queued for mechanic service cannot be used for ordinary parcel pickups/deliveries;
+  // dispatch its repair trip as soon as its repair task is unclaimed.
+  if (pendingRepairForThisVehicle) {
+    if (claimedTaskIds?.has(pendingRepairForThisVehicle.id)) {
+      return null;
+    }
+    const matchingTask = todayTasks.find(
+      (t) => t.taskType === 'repair' && t.taskId === pendingRepairForThisVehicle.id
+    );
+    if (matchingTask) {
+      return {
+        kind: 'repair',
+        repairTask: pendingRepairForThisVehicle,
+        task: matchingTask,
+      };
+    }
+    return null;
+  }
+
   for (const task of todayTasks) {
     if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
+    // Healthy vehicles skip repair tasks belonging to other vehicles
+    if (task.taskType === 'repair') continue;
+
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 
@@ -161,8 +190,34 @@ export function selectNextTaskAfterFinalPickup(
         ? getVehicleCourierCapacityForSelection(state, state.activeVehicle)
         : getCourierCapacityForVehicle(activeType);
 
+  const concreteVehicle = options?.vehicle;
+  const pendingRepairForThisVehicle = concreteVehicle
+    ? getPendingRepairForVehicle(state, concreteVehicle)
+    : null;
+  if (pendingRepairForThisVehicle) {
+    // Vehicle was queued for repair while out on a pickup: return to Base to unload parcels first, then head to Mechanic
+    const matchingTask = todayTasks.find(
+      (t) =>
+        t.taskType === 'repair' &&
+        t.taskId === pendingRepairForThisVehicle.id &&
+        vehiclesEqual(t.repairVehicle, concreteVehicle)
+    );
+    if (matchingTask) {
+      return {
+        scenario: 'return_to_base_for_next_task',
+        nextTask: {
+          kind: 'repair',
+          repairTask: pendingRepairForThisVehicle,
+          task: matchingTask,
+        },
+      };
+    }
+    return { scenario: 'return_to_base_idle' };
+  }
+
   for (const task of todayTasks) {
     if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
+    if (task.taskType === 'repair') continue;
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 

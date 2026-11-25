@@ -4,6 +4,7 @@ import {
   type HouseYardFence,
   type ParcelLockerSlot,
   type ParkingLot,
+  type ServiceFacilitySpec,
   computeParkingLayout,
 } from '../buildings';
 import {
@@ -636,6 +637,215 @@ export function drawDeliveryZone(ctx: CanvasRenderingContext2D, zone: DeliveryZo
   ctx.lineTo(chevU + entryDir.u * 2.5, chevV + entryDir.v * 2.5);
   ctx.lineTo(chevU - entryDir.u * 2.5 - perpU * 4.2, chevV - entryDir.v * 2.5 - perpV * 4.2);
   ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Draws the static ground yard/forecourt for Mechanic Garage (service apron, cobblestone pad,
+ * marked repair bays & hazard thresholds) and Gas Stations (asphalt forecourt, canopy concrete
+ * apron, refueling lane guides & pedestrian crosswalk to cashier pavilion).
+ * Baked once into the static ground buffer for 0 per-frame cost (60 FPS).
+ */
+export function drawServiceFacilityGround(
+  ctx: CanvasRenderingContext2D,
+  facility: ServiceFacilitySpec,
+  asphaltFill: CanvasPattern | string
+) {
+  const { yard, driveway, buildingRect, kind } = facility;
+  const uW = yard.uMax - yard.uMin;
+  const vW = yard.vMax - yard.vMin;
+  if (uW < 24 || vW < 24) return;
+
+  ctx.save();
+
+  // 1. Warm curb edging around yard perimeter
+  ctx.fillStyle = PARKING_GROUND_STYLE.curbFill;
+  ctx.fillRect(yard.uMin - 2.2, yard.vMin - 2.2, uW + 4.4, vW + 4.4);
+
+  // 2. Curb-step inner shadow + textured slate-graphite asphalt yard
+  ctx.fillStyle = GROUND_PALETTE.asphaltCurbShadow;
+  ctx.fillRect(yard.uMin, yard.vMin, uW, vW);
+
+  ctx.fillStyle = asphaltFill;
+  ctx.fillRect(yard.uMin + 1.4, yard.vMin + 1.4, uW - 2.8, vW - 2.8);
+
+  // 3. Sharp dark ink contours cleanly open at the driveway mouth
+  const gap =
+    driveway.entrySide === 'uMin' || driveway.entrySide === 'uMax'
+      ? { side: driveway.entrySide, min: driveway.vMin, max: driveway.vMax }
+      : { side: driveway.entrySide, min: driveway.uMin, max: driveway.uMax };
+
+  const innerContour = computeRectPerimeterWithGaps(
+    yard.uMin,
+    yard.uMax,
+    yard.vMin,
+    yard.vMax,
+    [gap]
+  );
+  const outerContour = computeRectPerimeterWithGaps(
+    yard.uMin - 2.2,
+    yard.uMax + 2.2,
+    yard.vMin - 2.2,
+    yard.vMax + 2.2,
+    [gap]
+  );
+  strokeContourSegments(ctx, innerContour, PARKING_GROUND_STYLE.inkDark, 1.55);
+  strokeContourSegments(ctx, outerContour, PARKING_GROUND_STYLE.inkOutline, 1.9);
+
+  if (kind === 'mechanik') {
+    // 4a. Interlocking cobblestone/concrete service apron directly in front of workshop bay doors (uMax wall)
+    const apronUMin = buildingRect.uMax - 1;
+    const apronUMax = Math.min(yard.uMax - 12, buildingRect.uMax + 40);
+    const apronVMin = buildingRect.vMin - 4;
+    const apronVMax = buildingRect.vMax + 4;
+    const apronW = apronUMax - apronUMin;
+    const apronH = apronVMax - apronVMin;
+
+    ctx.fillStyle = '#8b939e';
+    ctx.fillRect(apronUMin, apronVMin, apronW, apronH);
+
+    // Crisp cobblestone paver grid lines
+    ctx.strokeStyle = 'rgba(30, 41, 59, 0.24)';
+    ctx.lineWidth = 0.85;
+    ctx.beginPath();
+    for (let u = apronUMin + 6; u < apronUMax; u += 6) {
+      ctx.moveTo(u, apronVMin);
+      ctx.lineTo(u, apronVMax);
+    }
+    for (let v = apronVMin + 6; v < apronVMax; v += 6) {
+      ctx.moveTo(apronUMin, v);
+      ctx.lineTo(apronUMax, v);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = PARKING_GROUND_STYLE.inkOutline;
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(apronUMin, apronVMin, apronW, apronH);
+
+    // Two dedicated service bays directly facing the workshop roll-up doors
+    const baySpanV = (buildingRect.vMax - buildingRect.vMin) * 0.5;
+    const bayPadV = 7;
+    const bayUMin = buildingRect.uMax + 4.5;
+    const bayUMax = apronUMax - 3.5;
+
+    // Yellow-and-graphite hazard threshold strip flush along the garage bay doors
+    drawHazardStripeRect(
+      ctx,
+      buildingRect.uMax + 0.5,
+      buildingRect.vMin + 4,
+      3.4,
+      buildingRect.vMax - buildingRect.vMin - 8,
+      5.2,
+      2.5
+    );
+    ctx.strokeStyle = GROUND_PALETTE.inkOutline;
+    ctx.lineWidth = 0.95;
+    ctx.strokeRect(
+      buildingRect.uMax + 0.5,
+      buildingRect.vMin + 4,
+      3.4,
+      buildingRect.vMax - buildingRect.vMin - 8
+    );
+
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.88)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 2; i++) {
+      const bV0 = buildingRect.vMin + i * baySpanV + bayPadV;
+      const bV1 = buildingRect.vMin + (i + 1) * baySpanV - bayPadV;
+      ctx.strokeRect(bayUMin, bV0, bayUMax - bayUMin, bV1 - bV0);
+    }
+
+    // Service waiting bay along the far side of the asphalt apron (near vMax corner)
+    const waitUMin = apronUMax + 4;
+    const waitUMax = yard.uMax - 6;
+    const waitVMin = yard.vMax - 36;
+    const waitVMax = yard.vMax - 8;
+    if (waitUMax - waitUMin >= 14) {
+      ctx.strokeStyle = PARKING_GROUND_STYLE.stallLine;
+      ctx.lineWidth = 1.45;
+      ctx.beginPath();
+      ctx.moveTo(waitUMin, waitVMin);
+      ctx.lineTo(waitUMax, waitVMin);
+      ctx.lineTo(waitUMax, waitVMax);
+      ctx.lineTo(waitUMin, waitVMax);
+      ctx.stroke();
+    }
+
+    // Subtle yellow dashed approach guide line leading from ul. Lipowa driveway mouth onto the apron
+    const dwMidV = (driveway.vMin + driveway.vMax) * 0.5;
+    ctx.strokeStyle = GROUND_PALETTE.markingYellow;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(yard.uMax - 2, dwMidV);
+    ctx.lineTo(apronUMax + 1, dwMidV);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else {
+    // 4b. Gas station forecourt concrete refueling pad directly beneath the canopy
+    const padUMin = buildingRect.uMin - 8;
+    const padUMax = buildingRect.uMax + 8;
+    const padVMin = buildingRect.vMin - 10;
+    const padVMax = buildingRect.vMax + 4;
+
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.16)';
+    ctx.fillRect(padUMin, padVMin, padUMax - padUMin, padVMax - padVMin);
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.28)';
+    ctx.lineWidth = 1.1;
+    ctx.strokeRect(padUMin, padVMin, padUMax - padUMin, padVMax - padVMin);
+
+    // Crisp white refueling lane guide lines & emerald-accent forecourt trim
+    const laneMidV = buildingRect.vMin - 14;
+    const laneMidU = buildingRect.uMin - 14;
+
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.72)';
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    if (driveway.axis === 'v') {
+      // Driveway enters along vMin -> horizontal refueling lane along u
+      const laneV = Math.max(yard.vMin + 12, laneMidV);
+      ctx.moveTo(yard.uMin + 16, laneV);
+      ctx.lineTo(yard.uMax - 16, laneV);
+      // Entry stem from driveway
+      const dwMidU = (driveway.uMin + driveway.uMax) * 0.5;
+      ctx.moveTo(dwMidU, yard.vMin + 2);
+      ctx.lineTo(dwMidU, laneV);
+    } else {
+      // Driveway enters along uMin -> vertical refueling lane along v
+      const laneU = Math.max(yard.uMin + 14, laneMidU);
+      ctx.moveTo(laneU, yard.vMin + 16);
+      ctx.lineTo(laneU, yard.vMax - 16);
+      // Entry stem from driveway
+      const dwMidV = (driveway.vMin + driveway.vMax) * 0.5;
+      ctx.moveTo(yard.uMin + 2, dwMidV);
+      ctx.lineTo(laneU, dwMidV);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Small crisp white zebra crossing between canopy pump island and back cashier pavilion
+    const crossU = (buildingRect.uMin + buildingRect.uMax) * 0.5;
+    const crossV = buildingRect.vMax - 34;
+    ctx.fillStyle = 'rgba(248, 250, 252, 0.72)';
+    for (let offset = -10; offset <= 10; offset += 5) {
+      ctx.fillRect(crossU + offset - 1.2, crossV - 2.6, 2.4, 5.2);
+    }
+
+    // Subtle green-white safety stop bar near the refueling stop point
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    if (driveway.axis === 'v') {
+      ctx.moveTo(facility.stop.u - 12, facility.stop.v + 5);
+      ctx.lineTo(facility.stop.u + 12, facility.stop.v + 5);
+    } else {
+      ctx.moveTo(facility.stop.u + 5, facility.stop.v - 12);
+      ctx.lineTo(facility.stop.u + 5, facility.stop.v + 12);
+    }
+    ctx.stroke();
+  }
 
   ctx.restore();
 }

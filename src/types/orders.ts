@@ -117,23 +117,23 @@ export interface ActiveOrderWeeklyTracking {
   pickedUpOnLastPickupDay?: number;
 }
 
-export type WeeklyTaskType = 'order' | 'pickup' | 'delivery';
+export type WeeklyTaskType = 'order' | 'pickup' | 'delivery' | 'repair';
 
 export interface WeeklyScheduleTask {
-  /** Stable unique identifier per order in a weekday priority queue (e.g. "ord-1") */
+  /** Stable unique identifier per order or repair task in a weekday priority queue (e.g. "ord-1", "repair:van:1") */
   taskId: string;
-  /** Unified task marker ('order' for merged pickup+delivery rows; 'pickup'/'delivery' kept for legacy saves) */
+  /** Unified task marker ('order' for merged pickup+delivery rows; 'repair' for mechanic trips; 'pickup'/'delivery' kept for legacy saves) */
   taskType: WeeklyTaskType;
   orderId: string;
-  /** Unique 3-digit human-readable order number (101–999) */
+  /** Unique 3-digit human-readable order number (101–999; 0 for service tasks) */
   orderNumber: number;
   weekdayIndex: number;
   kind: OrderKind;
   clientName: string;
   pickupAddress: string;
-  /** Short Polish task label ("Realizacja") */
+  /** Short Polish task label ("Realizacja" or "Serwis") */
   taskLabel: string;
-  /** Number of packages remaining / scheduled for this task */
+  /** Number of packages remaining / scheduled for this task (0 for service tasks) */
   packageCount: number;
   /** Number of packages already picked up from sender for this task */
   pickedUpCount: number;
@@ -147,6 +147,14 @@ export interface WeeklyScheduleTask {
   priorityRank: number;
   /** Optional 1-based courier slot index (#1–#6) currently executing this task */
   assignedCourierId?: number;
+  /** Present when taskType === 'repair': concrete vehicle scheduled for mechanic repair */
+  repairVehicle?: ActiveVehicleSelection;
+  /** Present when taskType === 'repair': current durability % (0–100) */
+  repairDurability?: number;
+  /** Present when taskType === 'repair': true when no qualified courier is currently assigned to this vehicle */
+  repairWaitingForCourier?: boolean;
+  /** Present when taskType === 'repair' && repairWaitingForCourier */
+  repairWaitingReason?: 'no_courier' | 'no_van_license';
 }
 
 export interface ActiveOrderBase {
@@ -251,12 +259,31 @@ export interface OwnedVan {
   modelId: VanModelId;
   condition: VanCondition;
   tier: VanTier;
+  /** Current mechanical durability (0–100%) */
+  durability: number;
 }
 
 export interface ActiveVehicleSelection {
   type: ActiveVehicleType;
   /** 1-based fleet index (e.g. Rower #1, Bus #1, Bus #2) */
   index: number;
+}
+
+export interface VehicleRepairTask {
+  /** Stable task ID matching Plan tygodnia priority list (e.g. "repair:bike:1", "repair:van:2") */
+  id: string;
+  vehicle: ActiveVehicleSelection;
+  /** 1-based gameplay day when the repair was ordered */
+  requestedAtGameDay: number;
+  /** Repair fee already paid upfront when sending the vehicle to the mechanic */
+  costPaid: number;
+}
+
+export interface VehicleRepairRequestResult {
+  state: OrderEconomyState;
+  queued: boolean;
+  cost: number;
+  reason?: 'not_found' | 'above_threshold' | 'already_pending' | 'insufficient_funds';
 }
 
 export interface CompanyCourier {
@@ -426,7 +453,9 @@ export interface OrderEconomyState {
   bikesCount: number;
   /** Alias for bikesCount kept strictly in sync */
   bicyclesCount: number;
-  /** Owned delivery vans with individual models & capacities (limit = parkingSpots <= 8) */
+  /** Mechanical durability (0–100%) per owned bicycle (index 0 = Rower #1 .. index 2 = Rower #3) */
+  bikeDurabilities: number[];
+  /** Owned delivery vans with individual models, capacities & durability (limit = parkingSpots <= 8) */
   vans: OwnedVan[];
   /** Number of owned delivery vans (always equal to vans.length, max = parkingSpots <= 8) */
   vansCount: number;
@@ -434,6 +463,8 @@ export interface OrderEconomyState {
   deliveryVansCount: number;
   /** Vehicle currently assigned to the owner courier (Kurier #1) */
   activeVehicle: ActiveVehicleSelection;
+  /** Vehicles currently queued for or undergoing repair at the Mechanic Garage */
+  pendingVehicleRepairs: VehicleRepairTask[];
   /** Pending offers waiting to be accepted (max 7 at once; expire after 2 days short-term / 3 days long-term) */
   pendingOffers: OrderOffer[];
   /** Currently signed & ongoing orders (no upper limit) */

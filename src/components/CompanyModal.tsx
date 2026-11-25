@@ -13,6 +13,7 @@ import {
   UserPlus,
   Users,
   Warehouse,
+  Wrench,
   X,
 } from 'lucide-react';
 import { t, translateOrderText } from '../i18n/translations';
@@ -33,16 +34,19 @@ import {
   COURIER_INSURANCE_COST,
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
+  LOW_DURABILITY_SPEED_THRESHOLD,
   MAX_BICYCLES,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
+  REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
   VAN_MODELS,
   VAN_MODEL_IDS_BY_CONDITION,
   WAREHOUSE_TIERS,
   calculateMonthlyCompanyCosts,
+  calculateVehicleRepairCost,
   canCourierDriveVehicle,
   countHiredCouriers,
   findCourierAssignedToVehicle,
@@ -53,9 +57,12 @@ import {
   getOwnedFleetVehicles,
   getOwnedVanByIndex,
   getOwnedVans,
+  getRepairCourierReadiness,
   getVanModelSpec,
   getVehicleCourierCapacityForSelection,
+  getVehicleDurability,
   getWarehouseTierConfig,
+  isVehicleRepairPending,
   vehiclesEqual,
 } from '../utils/orderEconomy';
 
@@ -83,6 +90,22 @@ function getVanRoofLabel(lang: SupportedLanguage, tier: VanTier): string {
   if (tier === 'lite') return t(lang, 'company.vanRoofLow');
   if (tier === 'pro') return t(lang, 'company.vanRoofHigh');
   return t(lang, 'company.vanRoofMid');
+}
+
+function getDurabilityTextClass(durability: number): string {
+  if (durability >= 80) return 'text-emerald-300';
+  if (durability >= 35) return 'text-amber-300';
+  return 'text-rose-300';
+}
+
+function getDurabilityBadgeClass(durability: number): string {
+  if (durability >= 80) {
+    return 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300';
+  }
+  if (durability >= 35) {
+    return 'bg-amber-500/15 border-amber-400/40 text-amber-300';
+  }
+  return 'bg-rose-500/15 border-rose-400/45 text-rose-300';
 }
 
 function formatVehicleDisplayLabel(
@@ -290,6 +313,7 @@ interface CompanyModalProps {
   onBuyParkingSpot: () => void;
   onBuyBicycle: () => void;
   onBuyVan: (modelId: VanModelId) => void;
+  onRequestVehicleRepair: (vehicle: ActiveVehicleSelection) => void;
   onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
   onBuyEmployeeLicense: () => void;
   onHireCourier: (slotIndex: number, qualification: CourierQualification) => void;
@@ -348,6 +372,9 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         count: getVehicleCourierCapacityForSelection(economyState, effectiveAssigned),
       })
     : null;
+  const triggerDurability = effectiveAssigned
+    ? Math.round(getVehicleDurability(economyState, effectiveAssigned))
+    : null;
   const courierAriaName = courier.isOwner
     ? t(language, 'orders.ownerBadge')
     : t(language, 'orders.courierBadge', { slot: courier.slotIndex });
@@ -383,6 +410,13 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           <span className="font-semibold truncate">{triggerLabel}</span>
           {triggerCapacity && (
             <span className="text-[11px] text-slate-400 shrink-0">({triggerCapacity})</span>
+          )}
+          {triggerDurability !== null && (
+            <span
+              className={`text-[11px] font-bold shrink-0 ${getDurabilityTextClass(triggerDurability)}`}
+            >
+              {triggerDurability}%
+            </span>
           )}
         </span>
 
@@ -435,6 +469,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
             const capacityLabel = t(language, 'company.pcsShort', {
               count: getVehicleCourierCapacityForSelection(economyState, vehicle),
             });
+            const optionDurability = Math.round(getVehicleDurability(economyState, vehicle));
 
             return (
               <li
@@ -468,6 +503,11 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                     >
                       ({capacityLabel})
                     </span>
+                    <span
+                      className={`text-[11px] font-bold shrink-0 ${getDurabilityTextClass(optionDurability)}`}
+                    >
+                      {optionDurability}%
+                    </span>
                   </span>
 
                   {isSelected && (
@@ -500,6 +540,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onBuyParkingSpot,
   onBuyBicycle,
   onBuyVan,
+  onRequestVehicleRepair,
   onSelectActiveVehicle,
   onBuyEmployeeLicense,
   onHireCourier,
@@ -1280,94 +1321,253 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="space-y-1 max-h-40 overflow-y-auto overscroll-contain pr-0.5">
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto overscroll-contain pr-0.5">
                     {ownedVans.map((van) => {
+                      const vehicleSel: ActiveVehicleSelection = { type: 'van', index: van.index };
                       const spec = getVanModelSpec(van.modelId);
-                      const driver = findCourierAssignedToVehicle(couriers, {
-                        type: 'van',
-                        index: van.index,
-                      });
+                      const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
                       const driverName = driver
                         ? driver.isOwner
                           ? t(language, 'orders.ownerBadge')
                           : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
                         : null;
+                      const durability = getVehicleDurability(economyState, vehicleSel);
+                      const roundedDurability = Math.round(durability);
+                      const isSlowed = durability < LOW_DURABILITY_SPEED_THRESHOLD;
+                      const repairPending = isVehicleRepairPending(economyState, vehicleSel);
+                      const repairEligible =
+                        !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
+                      const repairCost = calculateVehicleRepairCost('van', durability, van.modelId);
+                      const canAffordRepair = economyState.balance >= repairCost;
+                      const repairReadiness = repairPending
+                        ? getRepairCourierReadiness(economyState, vehicleSel)
+                        : null;
 
                       return (
                         <div
                           key={van.id}
-                          className="rounded-md bg-slate-900/75 border border-slate-800 px-2 py-1 flex items-center justify-between gap-2 text-[11px] font-mono-nums"
+                          className="rounded-md bg-slate-900/75 border border-slate-800 px-2 py-1.5 flex flex-col gap-1 text-[11px] font-mono-nums"
                         >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
-                            <span className="font-semibold text-slate-100 truncate">
-                              {t(language, 'company.vehicleVanFull', {
-                                index: van.index,
-                                condition: getVanConditionLabel(language, van.condition),
-                                tier: getVanTierLabel(language, van.tier),
-                              })}
-                            </span>
-                            <span className="text-slate-400 shrink-0">
-                              ({t(language, 'company.packagesCount', { count: spec.capacity })})
-                            </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                              <span className="font-semibold text-slate-100 truncate">
+                                {t(language, 'company.vehicleVanFull', {
+                                  index: van.index,
+                                  condition: getVanConditionLabel(language, van.condition),
+                                  tier: getVanTierLabel(language, van.tier),
+                                })}
+                              </span>
+                              <span className="text-slate-400 shrink-0">
+                                ({t(language, 'company.packagesCount', { count: spec.capacity })})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span
+                                title={
+                                  isSlowed
+                                    ? t(language, 'company.durabilitySlowHint')
+                                    : t(language, 'company.durabilityLabel', {
+                                        percent: roundedDurability,
+                                      })
+                                }
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getDurabilityBadgeClass(durability)}`}
+                              >
+                                {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
+                              </span>
+                              <span className="text-rose-300 hidden sm:inline">
+                                -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                                {perMonth}
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border ${
+                                  driverName
+                                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                                }`}
+                              >
+                                {driverName
+                                  ? t(language, 'company.assignedToLabel', { name: driverName })
+                                  : t(language, 'company.unassignedBadge')}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-rose-300">
-                              -{formatCurrencyUsd(spec.monthlyInsurance, false)}
-                              {perMonth}
-                            </span>
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border ${
-                                driverName
-                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                                  : 'bg-slate-800 border-slate-700 text-slate-400'
-                              }`}
-                            >
-                              {driverName
-                                ? t(language, 'company.assignedToLabel', { name: driverName })
-                                : t(language, 'company.unassignedBadge')}
-                            </span>
-                          </div>
+
+                          {(repairPending || repairEligible) && (
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                              {repairPending ? (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <span>{t(language, 'company.repairQueuedBadge')}</span>
+                                  </span>
+                                  {repairReadiness && !repairReadiness.ready && (
+                                    <span className="text-[10px] font-sans text-amber-300/90">
+                                      {repairReadiness.reason === 'no_van_license'
+                                        ? t(language, 'company.repairNeedsVanLicense')
+                                        : t(language, 'company.repairNeedsCourier')}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <>
+                                  {!canAffordRepair ? (
+                                    <span className="text-[10px] text-rose-300 font-semibold">
+                                      {formatMissingFunds(repairCost, economyState.balance, language)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-sans text-slate-400">
+                                      {isSlowed
+                                        ? t(language, 'company.durabilitySlowHint')
+                                        : t(language, 'company.repairReadyHint')}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={!canAffordRepair}
+                                    onClick={() => onRequestVehicleRepair(vehicleSel)}
+                                    title={
+                                      !canAffordRepair
+                                        ? formatMissingFunds(repairCost, economyState.balance, language)
+                                        : undefined
+                                    }
+                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                      canAffordRepair
+                                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                                        : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <span>
+                                      {t(language, 'company.sendToMechanicBtn', {
+                                        amount: formatCurrencyUsd(repairCost, false),
+                                      })}
+                                    </span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
 
                     {Array.from({ length: bikesCount }, (_, i) => {
                       const bikeIndex = i + 1;
-                      const driver = findCourierAssignedToVehicle(couriers, {
-                        type: 'bike',
-                        index: bikeIndex,
-                      });
+                      const vehicleSel: ActiveVehicleSelection = { type: 'bike', index: bikeIndex };
+                      const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
                       const driverName = driver
                         ? driver.isOwner
                           ? t(language, 'orders.ownerBadge')
                           : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
                         : null;
+                      const durability = getVehicleDurability(economyState, vehicleSel);
+                      const roundedDurability = Math.round(durability);
+                      const isSlowed = durability < LOW_DURABILITY_SPEED_THRESHOLD;
+                      const repairPending = isVehicleRepairPending(economyState, vehicleSel);
+                      const repairEligible =
+                        !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
+                      const repairCost = calculateVehicleRepairCost('bike', durability);
+                      const canAffordRepair = economyState.balance >= repairCost;
+                      const repairReadiness = repairPending
+                        ? getRepairCourierReadiness(economyState, vehicleSel)
+                        : null;
+
                       return (
                         <div
                           key={`bike-${bikeIndex}`}
-                          className="rounded-md bg-slate-900/60 border border-slate-800/80 px-2 py-1 flex items-center justify-between gap-2 text-[11px] font-mono-nums"
+                          className="rounded-md bg-slate-900/60 border border-slate-800/80 px-2 py-1.5 flex flex-col gap-1 text-[11px] font-mono-nums"
                         >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
-                            <span className="font-semibold text-slate-200 truncate">
-                              {t(language, 'company.vehicleBike', { index: bikeIndex })}
-                            </span>
-                            <span className="text-slate-400 shrink-0">
-                              ({t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })})
-                            </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+                              <span className="font-semibold text-slate-200 truncate">
+                                {t(language, 'company.vehicleBike', { index: bikeIndex })}
+                              </span>
+                              <span className="text-slate-400 shrink-0">
+                                ({t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span
+                                title={
+                                  isSlowed
+                                    ? t(language, 'company.durabilitySlowHint')
+                                    : t(language, 'company.durabilityLabel', {
+                                        percent: roundedDurability,
+                                      })
+                                }
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getDurabilityBadgeClass(durability)}`}
+                              >
+                                {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
+                              </span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border shrink-0 ${
+                                  driverName
+                                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                                }`}
+                              >
+                                {driverName
+                                  ? t(language, 'company.assignedToLabel', { name: driverName })
+                                  : t(language, 'company.unassignedBadge')}
+                              </span>
+                            </div>
                           </div>
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border shrink-0 ${
-                              driverName
-                                ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                                : 'bg-slate-800 border-slate-700 text-slate-400'
-                            }`}
-                          >
-                            {driverName
-                              ? t(language, 'company.assignedToLabel', { name: driverName })
-                              : t(language, 'company.unassignedBadge')}
-                          </span>
+
+                          {(repairPending || repairEligible) && (
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                              {repairPending ? (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <span>{t(language, 'company.repairQueuedBadge')}</span>
+                                  </span>
+                                  {repairReadiness && !repairReadiness.ready && (
+                                    <span className="text-[10px] font-sans text-amber-300/90">
+                                      {t(language, 'company.repairNeedsCourier')}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <>
+                                  {!canAffordRepair ? (
+                                    <span className="text-[10px] text-rose-300 font-semibold">
+                                      {formatMissingFunds(repairCost, economyState.balance, language)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-sans text-slate-400">
+                                      {isSlowed
+                                        ? t(language, 'company.durabilitySlowHint')
+                                        : t(language, 'company.repairReadyHint')}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    disabled={!canAffordRepair}
+                                    onClick={() => onRequestVehicleRepair(vehicleSel)}
+                                    title={
+                                      !canAffordRepair
+                                        ? formatMissingFunds(repairCost, economyState.balance, language)
+                                        : undefined
+                                    }
+                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                      canAffordRepair
+                                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                                        : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <span>
+                                      {t(language, 'company.sendToMechanicBtn', {
+                                        amount: formatCurrencyUsd(repairCost, false),
+                                      })}
+                                    </span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

@@ -3,6 +3,7 @@ import {
   PROCEDURAL_DELIVERY_ZONES,
   PROCEDURAL_HOUSE_YARDS,
   PROCEDURAL_PARKING_LOTS,
+  PROCEDURAL_SERVICE_FACILITIES,
 } from './buildings';
 import {
   BASE_DEPOT,
@@ -72,6 +73,7 @@ import {
   drawRoundaboutDetails,
   drawRoundaboutGrassTufts,
   drawRoundaboutSidewalkJoints,
+  drawServiceFacilityGround,
   drawStaticGroundBuffer,
   drawStreetCurbDetails,
   drawStreetMarkings,
@@ -220,6 +222,9 @@ export function renderProceduralCity(
   for (const dz of PROCEDURAL_DELIVERY_ZONES) {
     drawDeliveryZone(ctx, dz);
   }
+  for (const facility of PROCEDURAL_SERVICE_FACILITIES) {
+    drawServiceFacilityGround(ctx, facility, asphaltFill);
+  }
 
   // 2c. 8 reserved parcel locker paver pads on free concrete plazas
   for (const slot of PARCEL_LOCKER_SLOTS) {
@@ -340,6 +345,15 @@ export function renderProceduralCity(
       ctx.fillRect(d.uMin - 1.75, d.vMin, d.uMax - d.uMin + 3.5, d.vMax - d.vMin);
     }
   }
+  // Lateral-only ink curb edges for Service Facility driveways (Mechanic Garage & Gas Stations)
+  for (const facility of PROCEDURAL_SERVICE_FACILITIES) {
+    const d = facility.driveway;
+    if (d.axis === 'u') {
+      ctx.fillRect(d.uMin, d.vMin - 1.75, d.uMax - d.uMin, d.vMax - d.vMin + 3.5);
+    } else {
+      ctx.fillRect(d.uMin - 1.75, d.vMin, d.uMax - d.uMin + 3.5, d.vMax - d.vMin);
+    }
+  }
 
   // 6a. Subtle sunken curb-step drop shadow band along outer asphalt gutters (#2c323c)
   ctx.fillStyle = GROUND_PALETTE.asphaltCurbShadow;
@@ -414,6 +428,39 @@ export function renderProceduralCity(
     ctx.strokeStyle = GROUND_PALETTE.markingYellow;
     ctx.lineWidth = 1.45;
     ctx.setLineDash([4.5, 4.5]);
+    ctx.beginPath();
+    if (d.axis === 'u') {
+      const midV = (d.vMin + d.vMax) * 0.5;
+      ctx.moveTo(d.uMin + 2, midV);
+      ctx.lineTo(d.uMax - 2, midV);
+    } else {
+      const midU = (d.uMin + d.uMax) * 0.5;
+      ctx.moveTo(midU, d.vMin + 2);
+      ctx.lineTo(midU, d.vMax - 2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Service Facility asphalt driveways (Mechanic Garage onto ul. Lipowa, Gas Stations onto bordering streets)
+  for (const facility of PROCEDURAL_SERVICE_FACILITIES) {
+    const d = facility.driveway;
+    ctx.fillStyle = GROUND_PALETTE.asphaltCurbShadow;
+    if (d.axis === 'u') {
+      ctx.fillRect(d.uMin - 2.5, d.vMin, d.uMax - d.uMin + 5, d.vMax - d.vMin);
+      ctx.fillStyle = asphaltFill;
+      ctx.fillRect(d.uMin - 2.5, d.vMin + 1.3, d.uMax - d.uMin + 5, d.vMax - d.vMin - 2.6);
+    } else {
+      ctx.fillRect(d.uMin, d.vMin - 2.5, d.uMax - d.uMin, d.vMax - d.vMin + 5);
+      ctx.fillStyle = asphaltFill;
+      ctx.fillRect(d.uMin + 1.3, d.vMin - 2.5, d.uMax - d.uMin - 2.6, d.vMax - d.vMin + 5);
+    }
+    ctx.save();
+    ctx.strokeStyle =
+      facility.kind === 'mechanik'
+        ? GROUND_PALETTE.markingYellow
+        : 'rgba(248, 250, 252, 0.78)';
+    ctx.lineWidth = 1.45;
+    ctx.setLineDash([5, 5]);
     ctx.beginPath();
     if (d.axis === 'u') {
       const midV = (d.vMin + d.vMax) * 0.5;

@@ -6,6 +6,7 @@ import type {
   OrderOffer,
   OwnedVan,
   ReputationLevel,
+  VehicleRepairTask,
   WarehouseLoadedBatch,
   WarehouseTier,
   WeeklyScheduleTask,
@@ -17,6 +18,8 @@ import {
 } from './gameClock';
 import {
   DEFAULT_LEGACY_VAN_MODEL_ID,
+  DEFAULT_VEHICLE_DURABILITY,
+  clampVehicleDurability,
   createDefaultOwnedVans,
   createOwnedVan,
   isValidVanModelId,
@@ -58,12 +61,16 @@ export interface SavedGameState {
   parkingSpots: number;
   /** Number of owned bicycles (1–3) */
   bikesCount: number;
-  /** Owned delivery vans with individual model IDs (optional in legacy saves) */
+  /** Mechanical durability (0–100%) per owned bicycle (optional in legacy saves -> defaults to 100) */
+  bikeDurabilities?: number[];
+  /** Owned delivery vans with individual model IDs & durability (optional in legacy saves) */
   vans?: OwnedVan[];
   /** Number of owned delivery vans (0–8) */
   vansCount: number;
   /** Active vehicle assigned to the owner courier (#1) */
   activeVehicle: ActiveVehicleSelection;
+  /** Pending mechanic repair tasks (optional in legacy saves -> defaults to []) */
+  pendingVehicleRepairs?: VehicleRepairTask[];
   /** Complete 6-slot company courier roster with licenses, qualifications, vehicles & inRoute status */
   couriers: SavedCourierState[];
   /** Pending order offers waiting for player decision */
@@ -154,13 +161,68 @@ function normalizeOwnedVans(
         isPlainObject(entry) && isValidVanModelId(entry.modelId)
           ? entry.modelId
           : DEFAULT_LEGACY_VAN_MODEL_ID;
-      normalized.push(createOwnedVan(normalized.length + 1, modelId));
+      const durability =
+        isPlainObject(entry) && typeof entry.durability === 'number' && Number.isFinite(entry.durability)
+          ? clampVehicleDurability(entry.durability)
+          : DEFAULT_VEHICLE_DURABILITY;
+      normalized.push(createOwnedVan(normalized.length + 1, modelId, durability));
     }
     return normalized;
   }
 
   const safeFallbackCount = Math.max(0, Math.min(limit, Math.floor(fallbackCount)));
   return createDefaultOwnedVans(safeFallbackCount, DEFAULT_LEGACY_VAN_MODEL_ID);
+}
+
+function normalizeBikeDurabilities(rawDurabilities: unknown, bikesCount: number): number[] {
+  const safeCount = Math.max(1, Math.min(3, Math.floor(bikesCount)));
+  const rawArr = Array.isArray(rawDurabilities) ? rawDurabilities : [];
+  return Array.from({ length: safeCount }, (_, idx) => {
+    const val = rawArr[idx];
+    return typeof val === 'number' && Number.isFinite(val)
+      ? clampVehicleDurability(val)
+      : DEFAULT_VEHICLE_DURABILITY;
+  });
+}
+
+function normalizePendingVehicleRepairs(
+  rawRepairs: unknown,
+  bikesCount: number,
+  vansCount: number,
+  fallbackGameDay: number
+): VehicleRepairTask[] {
+  if (!Array.isArray(rawRepairs)) return [];
+  const seen = new Set<string>();
+  const normalized: VehicleRepairTask[] = [];
+
+  for (const item of rawRepairs) {
+    if (!isPlainObject(item) || !isPlainObject(item.vehicle)) continue;
+    const vehicle = normalizeActiveVehicle(item.vehicle);
+    if (vehicle.type === 'bike' && (vehicle.index < 1 || vehicle.index > bikesCount)) continue;
+    if (vehicle.type === 'van' && (vehicle.index < 1 || vehicle.index > vansCount)) continue;
+
+    const id = `repair:${vehicle.type}:${vehicle.index}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const requestedAtGameDay =
+      typeof item.requestedAtGameDay === 'number' && Number.isFinite(item.requestedAtGameDay) && item.requestedAtGameDay >= 1
+        ? Math.floor(item.requestedAtGameDay)
+        : fallbackGameDay;
+    const costPaid =
+      typeof item.costPaid === 'number' && Number.isFinite(item.costPaid) && item.costPaid >= 0
+        ? item.costPaid
+        : 0;
+
+    normalized.push({
+      id,
+      vehicle,
+      requestedAtGameDay,
+      costPaid,
+    });
+  }
+
+  return normalized;
 }
 
 function stripLegacyTaskSuffix(taskKey: string): string {
@@ -242,6 +304,8 @@ function normalizeAndMergeWeeklyPlan(
     for (const item of dayList) {
       if (!isPlainObject(item) || typeof item.taskId !== 'string') continue;
       const rawTask = item as unknown as Partial<WeeklyScheduleTask> & { taskId: string };
+      // Repair tasks are derived dynamically from pendingVehicleRepairs on today's schedule
+      if (rawTask.taskType === 'repair' || rawTask.taskId.startsWith('repair:')) continue;
       const orderId =
         typeof rawTask.orderId === 'string' && rawTask.orderId.length > 0
           ? rawTask.orderId
@@ -474,6 +538,23 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
         : undefined;
   const safeVans = normalizeOwnedVans(rawVansSource, rawFallbackVansCount, safeParkingSpots);
   const safeVansCount = safeVans.length;
+  const rawBikeDurabilitiesSource = Array.isArray(cloned.bikeDurabilities)
+    ? cloned.bikeDurabilities
+    : isPlainObject(cloned.economyState) && Array.isArray(cloned.economyState.bikeDurabilities)
+      ? cloned.economyState.bikeDurabilities
+      : undefined;
+  const safeBikeDurabilities = normalizeBikeDurabilities(rawBikeDurabilitiesSource, safeBikesCount);
+  const rawRepairsSource = Array.isArray(cloned.pendingVehicleRepairs)
+    ? cloned.pendingVehicleRepairs
+    : isPlainObject(cloned.economyState) && Array.isArray(cloned.economyState.pendingVehicleRepairs)
+      ? cloned.economyState.pendingVehicleRepairs
+      : undefined;
+  const safePendingRepairs = normalizePendingVehicleRepairs(
+    rawRepairsSource,
+    safeBikesCount,
+    safeVansCount,
+    safeGameDay
+  );
   const safeActiveVehicle = normalizeActiveVehicle(cloned.activeVehicle);
   const safeCouriers = normalizeCouriersForBaseStart(cloned.couriers);
 
@@ -515,10 +596,15 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
       parkingSpots: safeParkingSpots,
       bikesCount: safeBikesCount,
       bicyclesCount: safeBikesCount,
+      bikeDurabilities: [...safeBikeDurabilities],
       vans: safeVans.map((v) => ({ ...v })),
       vansCount: safeVansCount,
       deliveryVansCount: safeVansCount,
       activeVehicle: safeActiveVehicle,
+      pendingVehicleRepairs: safePendingRepairs.map((r) => ({
+        ...r,
+        vehicle: { ...r.vehicle },
+      })),
       couriers: cleanCompanyCouriers,
       pendingOffers: safeOfferedOrders,
       activeOrders: safeActiveOrders,
@@ -541,9 +627,11 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     warehouseLevel: safeWarehouseLevel,
     parkingSpots: safeParkingSpots,
     bikesCount: safeBikesCount,
+    bikeDurabilities: safeBikeDurabilities,
     vans: safeVans,
     vansCount: safeVansCount,
     activeVehicle: safeActiveVehicle,
+    pendingVehicleRepairs: safePendingRepairs,
     couriers: safeCouriers,
     offeredOrders: safeOfferedOrders,
     activeOrders: safeActiveOrders,
@@ -615,13 +703,33 @@ export function createSavedGameState(
     weeklyPlan[wd] = tasks.map((task) => ({ ...task }));
   }
 
+  const safeBikesCount = Math.max(
+    1,
+    Math.min(3, economyState.bikesCount ?? economyState.bicyclesCount ?? 1)
+  );
+  const savedBikeDurabilities = normalizeBikeDurabilities(
+    economyState.bikeDurabilities,
+    safeBikesCount
+  );
   const savedVans: OwnedVan[] =
     Array.isArray(economyState.vans) && economyState.vans.length > 0
-      ? economyState.vans.map((v) => ({ ...v }))
+      ? economyState.vans.map((v) => ({
+          ...v,
+          durability:
+            typeof v.durability === 'number' && Number.isFinite(v.durability)
+              ? clampVehicleDurability(v.durability)
+              : DEFAULT_VEHICLE_DURABILITY,
+        }))
       : createDefaultOwnedVans(
           economyState.vansCount ?? economyState.deliveryVansCount ?? 0,
           DEFAULT_LEGACY_VAN_MODEL_ID
         );
+  const savedPendingRepairs = normalizePendingVehicleRepairs(
+    economyState.pendingVehicleRepairs,
+    safeBikesCount,
+    savedVans.length,
+    gameDay
+  );
 
   return {
     gameMinutes: safeMinutes,
@@ -632,10 +740,12 @@ export function createSavedGameState(
     reputationLevel: economyState.reputationLevel,
     warehouseLevel: economyState.warehouseLevel ?? economyState.warehouseTier,
     parkingSpots: economyState.parkingSpots,
-    bikesCount: economyState.bikesCount ?? economyState.bicyclesCount,
+    bikesCount: safeBikesCount,
+    bikeDurabilities: savedBikeDurabilities,
     vans: savedVans,
     vansCount: savedVans.length,
     activeVehicle: { ...economyState.activeVehicle },
+    pendingVehicleRepairs: savedPendingRepairs,
     couriers: savedCouriers,
     offeredOrders: deepCloneJson(economyState.pendingOffers),
     activeOrders: deepCloneJson(economyState.activeOrders),
@@ -649,9 +759,11 @@ export function createSavedGameState(
       : [],
     economyState: deepCloneJson({
       ...economyState,
+      bikeDurabilities: savedBikeDurabilities,
       vans: savedVans,
       vansCount: savedVans.length,
       deliveryVansCount: savedVans.length,
+      pendingVehicleRepairs: savedPendingRepairs,
     }),
   };
 }

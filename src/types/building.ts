@@ -6,7 +6,9 @@ export type BuildingType =
   | 'dom'
   | 'sklep'
   | 'kiosk'
-  | 'dworzec';
+  | 'dworzec'
+  | 'mechanik'
+  | 'stacja_paliw';
 
 export interface BuildingPalette {
   roof: string;
@@ -125,6 +127,18 @@ export const BUILDING_TYPE_META: Record<BuildingType, BuildingTypeMeta> = {
     description:
       'Rozbudowany obiekt publiczny i punkt dostaw kurierskich z dedykowaną strefą dostaw oraz placem postojowym dla autobusów',
     badgeColor: '#0f766e',
+  },
+  mechanik: {
+    label: 'Warsztat / Mechanik',
+    shortLabel: 'Mechanik',
+    description: 'Serwis pojazdów dostawczych z placem manewrowym i bezpośrednim wjazdem od ul. Lipowej',
+    badgeColor: '#ea580c',
+  },
+  stacja_paliw: {
+    label: 'Stacja Paliw',
+    shortLabel: 'Stacja paliw',
+    description: 'Stacja paliw z wiatą, dystrybutorami i pawilonem obsługi',
+    badgeColor: '#059669',
   },
 };
 

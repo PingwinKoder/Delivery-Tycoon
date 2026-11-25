@@ -65,6 +65,7 @@ import {
   createInitialCourierFleet,
   createParkAtRackCourier,
   createPickupMissionCourier,
+  createRepairMissionCourier,
   getActiveOutVehiclesForFleet,
   getClaimedTaskIdsForFleet,
   getCourierCapacityForSelection,
@@ -89,6 +90,8 @@ import {
   getOwnedVanByIndex,
   getOwnedVans,
   getRemainingPickupPackagesForOrderToday,
+  getVehicleDurability,
+  getVehicleDurabilitySpeedMultiplier,
   isNightHoursForTime,
   pickRandomRecipientBuildingForPackage,
 } from '../utils/orderEconomy';
@@ -157,6 +160,10 @@ interface MapCanvasProps {
     currentGameMinutes: number
   ) => void;
   onReturnCargoToWarehouse?: (cargo: readonly WarehouseLoadedBatch[]) => void;
+  onApplyVehicleWearBatch?: (
+    entries: ReadonlyArray<{ vehicle: ActiveVehicleSelection; distancePx: number }>
+  ) => void;
+  onCompleteVehicleRepair?: (vehicle: ActiveVehicleSelection) => void;
   controllerRef: React.MutableRefObject<MapCanvasController | null>;
 }
 
@@ -483,6 +490,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   onPickupPackagesLoaded,
   onDeliverPackages,
   onReturnCargoToWarehouse,
+  onApplyVehicleWearBatch,
+  onCompleteVehicleRepair,
   controllerRef,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -520,6 +529,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     6: true,
   });
   const reportedTaskAssignmentsRef = useRef<Record<string, number>>({});
+  const pendingWearByKeyRef = useRef<
+    Map<string, { vehicle: ActiveVehicleSelection; distancePx: number }>
+  >(new Map());
   const lastSessionEpochRef = useRef<number>(sessionEpoch);
 
   const baseNode = useMemo(
@@ -563,6 +575,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onPickupPackagesLoaded,
     onDeliverPackages,
     onReturnCargoToWarehouse,
+    onApplyVehicleWearBatch,
+    onCompleteVehicleRepair,
   });
   propsRef.current = {
     graph,
@@ -591,6 +605,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onPickupPackagesLoaded,
     onDeliverPackages,
     onReturnCargoToWarehouse,
+    onApplyVehicleWearBatch,
+    onCompleteVehicleRepair,
   };
 
   const syncFleetStatus = () => {
@@ -648,6 +664,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   useEffect(() => {
     if (sessionEpoch === lastSessionEpochRef.current) return;
     lastSessionEpochRef.current = sessionEpoch;
+    pendingWearByKeyRef.current.clear();
     const eco = propsRef.current.economyStateRef?.current;
     couriersFleetRef.current = createInitialCourierFleet(eco?.couriers, eco);
     syncFleetStatus();
@@ -796,9 +813,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             [...curBaseDepot.loadingZone.exitWaypoints].reverse()
           );
           const stopPt = fullOutbound[fullOutbound.length - 1] ?? stopPlan.stopPoint;
+          const eco = propsRef.current.economyStateRef?.current;
+          const manualVanSpeed =
+            getCourierSpeedForVehicle('van') *
+            (eco ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) : 1);
           const manualCourier = createCourierFromPath(
             fullOutbound,
-            getCourierSpeedForVehicle('van'),
+            manualVanSpeed,
             DELIVERY_PAUSE_SECONDS,
             fullReturn,
             address,
@@ -860,9 +881,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const fullOutbound = stitchWaypoints(rackExit, outboundLanePts, approachExtras, [stopPoint]);
         const fullReturn = stitchWaypoints([stopPoint], returnExtras, returnLanePts, rackReturn);
 
+        const eco = propsRef.current.economyStateRef?.current;
+        const manualBikeSpeed =
+          getCourierSpeedForVehicle('bike') *
+          (eco ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) : 1);
         const manualCourier = createCourierFromPath(
           fullOutbound,
-          getCourierSpeedForVehicle('bike'),
+          manualBikeSpeed,
           DELIVERY_PAUSE_SECONDS,
           fullReturn,
           address,
@@ -882,6 +907,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         return true;
       },
       recallCourierToBase: () => {
+        pendingWearByKeyRef.current.clear();
         const recoveredCargo = collectInFlightCargoForFleet(couriersFleetRef.current);
         const eco = propsRef.current.economyStateRef?.current;
         const roster = eco?.couriers;
@@ -908,6 +934,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       },
       getInFlightCargo: () => collectInFlightCargoForFleet(couriersFleetRef.current),
       resetCouriersToBase: (couriers?: readonly CompanyCourier[]) => {
+        pendingWearByKeyRef.current.clear();
         const eco = propsRef.current.economyStateRef?.current;
         const roster = couriers ?? eco?.couriers;
         couriersFleetRef.current = createInitialCourierFleet(roster, eco);
@@ -1229,6 +1256,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     let fpsFrames = 0;
     let fpsWindowStart = lastFrameTick;
     let lastReportedFps = -1;
+    let lastWearFlushMs = lastFrameTick;
+
+    const flushPendingVehicleWear = (nowMs: number, force = false) => {
+      const pendingMap = pendingWearByKeyRef.current;
+      if (pendingMap.size === 0) return;
+      if (!force && nowMs - lastWearFlushMs < 500) return;
+      const batch = Array.from(pendingMap.values());
+      pendingMap.clear();
+      lastWearFlushMs = nowMs;
+      propsRef.current.onApplyVehicleWearBatch?.(batch);
+    };
 
     const buildDeliveryStopsForBatches = (
       batches: readonly WarehouseLoadedBatch[],
@@ -1292,7 +1330,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         return false;
       }
 
-      const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type);
+      const durabilityMult = getVehicleDurabilitySpeedMultiplier(
+        getVehicleDurability(ecoState, dispatchVehicle)
+      );
+      const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type) * durabilityMult;
       const vehicleCapacity = getCourierCapacityForSelection(ecoState, dispatchVehicle);
       const claimedTaskIds = getClaimedTaskIdsForFleet(couriersFleetRef.current, slotIndex);
       const reservedWarehouseSpace = getReservedWarehouseSpaceForFleet(
@@ -1301,7 +1342,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       );
 
       // Strictly scan today's Plan tygodnia from top (#1, #2, ...), skipping tasks already claimed
-      // by other active couriers and respecting free warehouse capacity & available stock
+      // by other active couriers and respecting free warehouse capacity, stock, & pending repairs
       const selectedTask = selectNextCourierTaskForDay(
         ecoState,
         currentGameMinutes,
@@ -1310,9 +1351,40 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           claimedTaskIds,
           reservedWarehouseSpace,
           vehicleCapacity,
+          vehicle: dispatchVehicle,
         }
       );
       if (!selectedTask) return false;
+
+      if (selectedTask.kind === 'repair') {
+        const mechanicBuilding = curBuildings.find((b) => b.id === 'b_mechanic_garage');
+        if (!mechanicBuilding) return false;
+        const repairTaskId = selectedTask.task.taskId;
+        const repairMission = createRepairMissionCourier(
+          curGraph,
+          curBaseDepot,
+          mechanicBuilding,
+          dispatchVehicle,
+          repairTaskId,
+          startFrom,
+          vehicleSpeed,
+          curParkingNav,
+          slotIndex,
+          vehicleCapacity
+        );
+        if (repairMission.active) {
+          couriersFleetRef.current[slotIndex] = {
+            slotIndex,
+            inRoute: true,
+            assignedTaskId: repairTaskId,
+            courier: repairMission,
+            activeRoute: repairMission.path,
+            targetMarker: repairMission.stops[0]?.stopPoint ?? null,
+          };
+          return true;
+        }
+        return false;
+      }
 
       const assignedTaskId = selectedTask.task?.taskId ?? selectedTask.order.id;
 
@@ -1635,7 +1707,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       // Step every active courier (#1–#6) independently at 60 FPS
+      let shouldFlushWearNow = false;
       if (simDt > 0) {
+        const ecoBeforeStep = propsRef.current.economyStateRef?.current;
         for (const slotIndex of COURIER_SLOT_INDICES) {
           const entry = fleet[slotIndex];
           if (!entry || !entry.courier.active) continue;
@@ -1645,9 +1719,41 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             index: entry.courier.vehicleIndex,
           };
           const activeMissionCapacity = entry.courier.cargoCapacity;
+
+          // Keep speed responsive if durability drops below 25% mid-route (restored vehicles return at full speed)
+          const isReturningFromRepair =
+            entry.courier.missionKind === 'repair' && entry.courier.phase === 'returning';
+          const expectedBaseSpeed = getCourierSpeedForVehicle(activeMissionVehicle.type);
+          const expectedSpeed =
+            isReturningFromRepair || !ecoBeforeStep
+              ? expectedBaseSpeed
+              : expectedBaseSpeed *
+                getVehicleDurabilitySpeedMultiplier(
+                  getVehicleDurability(ecoBeforeStep, activeMissionVehicle)
+                );
+          if (Math.abs(entry.courier.speed - expectedSpeed) > 0.01) {
+            entry.courier = {
+              ...entry.courier,
+              speed: expectedSpeed,
+            };
+          }
+
           const stepRes = stepCourierMissionWithSimDt(entry.courier, simDt);
           entry.courier = stepRes.state;
           entry.inRoute = stepRes.state.active;
+
+          if (stepRes.distanceMoved > 0 && !isReturningFromRepair) {
+            const wearKey = `${activeMissionVehicle.type}:${activeMissionVehicle.index}`;
+            const existingWear = pendingWearByKeyRef.current.get(wearKey);
+            if (existingWear) {
+              existingWear.distancePx += stepRes.distanceMoved;
+            } else {
+              pendingWearByKeyRef.current.set(wearKey, {
+                vehicle: activeMissionVehicle,
+                distancePx: stepRes.distanceMoved,
+              });
+            }
+          }
 
           for (const ev of stepRes.events) {
             if (ev.type === 'pickup_loaded') {
@@ -1706,6 +1812,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                       claimedTaskIds: getClaimedTaskIdsForFleet(fleet, slotIndex),
                       reservedWarehouseSpace: getReservedWarehouseSpaceForFleet(fleet, slotIndex),
                       vehicleCapacity: activeMissionCapacity,
+                      vehicle: activeMissionVehicle,
                     }
                   );
 
@@ -1722,13 +1829,18 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                       );
                       const directTaskId =
                         postPickupDecision.task?.taskId ?? ev.orderId;
+                      const directSpeed =
+                        getCourierSpeedForVehicle(activeMissionVehicle.type) *
+                        getVehicleDurabilitySpeedMultiplier(
+                          getVehicleDurability(latestEco, activeMissionVehicle)
+                        );
                       const directMission = createDirectDeliveryMissionFromBuilding(
                         propsRef.current.graph,
                         propsRef.current.baseDepot,
                         senderBuilding,
                         directStops,
                         carriedBatches,
-                        getCourierSpeedForVehicle(activeMissionVehicle.type),
+                        directSpeed,
                         activeMissionVehicle,
                         propsRef.current.parkingNavNetworks,
                         slotIndex,
@@ -1769,11 +1881,21 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               }
             } else if (ev.type === 'delivery_completed') {
               propsRef.current.onDeliverPackages?.(ev.items, currentGameMinutes);
+            } else if (ev.type === 'repair_completed') {
+              pendingWearByKeyRef.current.delete(`${ev.vehicle.type}:${ev.vehicle.index}`);
+              propsRef.current.onCompleteVehicleRepair?.(ev.vehicle);
+              entry.assignedTaskId = null;
+              entry.courier = {
+                ...entry.courier,
+                assignedTaskId: null,
+                speed: getCourierSpeedForVehicle(ev.vehicle.type),
+              };
             } else if (ev.type === 'base_unloaded') {
               if (ev.cargo.length > 0) {
                 propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
               }
             } else if (ev.type === 'arrived_at_loading_zone') {
+              shouldFlushWearNow = true;
               // Release current task claim before scanning Plan tygodnia from the top
               entry.assignedTaskId = null;
               entry.courier = {
@@ -1795,11 +1917,19 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
               if (!chained) {
                 // All free tasks done or workday ended -> park vehicle at Base bike rack or assigned stall P1–P8
+                const latestEcoForPark = propsRef.current.economyStateRef?.current;
+                const parkSpeed =
+                  getCourierSpeedForVehicle(activeMissionVehicle.type) *
+                  (latestEcoForPark
+                    ? getVehicleDurabilitySpeedMultiplier(
+                        getVehicleDurability(latestEcoForPark, activeMissionVehicle)
+                      )
+                    : 1);
                 const parkMission = createParkAtRackCourier(
                   propsRef.current.baseDepot,
                   undefined,
                   ev.wasForcedReturn || isNightNow,
-                  getCourierSpeedForVehicle(activeMissionVehicle.type),
+                  parkSpeed,
                   activeMissionVehicle,
                   propsRef.current.parkingNavNetworks,
                   propsRef.current.graph,
@@ -1825,6 +1955,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                 }
               }
             } else if (ev.type === 'parked_at_rack') {
+              shouldFlushWearNow = true;
               if (ev.cargo.length > 0) {
                 propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
               }
@@ -1871,6 +2002,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             latestEntry.targetMarker = null;
           }
         }
+        flushPendingVehicleWear(now, shouldFlushWearNow);
       }
 
       // During seasonal workday hours, automatically dispatch ALL idle hired couriers (#1–#6)

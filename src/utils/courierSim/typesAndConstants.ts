@@ -4,6 +4,7 @@ import type {
   ActiveVehicleSelection,
   ActiveVehicleType,
   OrderEconomyState,
+  VehicleRepairTask,
   WeeklyScheduleTask,
 } from '../../types/orders';
 import type { Point } from '../../types/roadGraph';
@@ -14,7 +15,7 @@ import {
 
 export type CourierPhase = 'idle' | 'outbound' | 'delivering' | 'returning';
 
-export type CourierMissionKind = 'none' | 'manual' | 'pickup' | 'delivery' | 'park_rack';
+export type CourierMissionKind = 'none' | 'manual' | 'pickup' | 'delivery' | 'park_rack' | 'repair';
 
 export type CourierStartPoint = 'rack' | 'loading_zone';
 
@@ -23,7 +24,13 @@ export interface CourierCargoItem {
   count: number;
 }
 
-export type CourierStopKind = 'base_load' | 'pickup' | 'delivery' | 'base_unload' | 'park_rack';
+export type CourierStopKind =
+  | 'base_load'
+  | 'pickup'
+  | 'delivery'
+  | 'base_unload'
+  | 'park_rack'
+  | 'repair_service';
 
 export interface CourierMissionStop {
   kind: CourierStopKind;
@@ -37,6 +44,8 @@ export interface CourierMissionStop {
   plannedPickupCount?: number;
   /** For delivery stops: packages handed off at this building */
   deliveryItems?: CourierCargoItem[];
+  /** For repair_service stops: concrete vehicle being serviced */
+  repairVehicle?: ActiveVehicleSelection;
   /** Right-hand road + pull-in polyline from the previous point (Base or previous stop) to this stop */
   legPath: Point[];
   /** Directed right-hand road + Base loading-zone return polyline from this stop */
@@ -46,6 +55,7 @@ export interface CourierMissionStop {
 export type CourierSimEvent =
   | { type: 'pickup_loaded'; orderId: string; plannedCount: number; buildingId: string }
   | { type: 'delivery_completed'; items: CourierCargoItem[]; buildingId: string }
+  | { type: 'repair_completed'; vehicle: ActiveVehicleSelection; buildingId: string }
   | { type: 'base_unloaded'; cargo: CourierCargoItem[] }
   | { type: 'arrived_at_loading_zone'; wasForcedReturn: boolean }
   | { type: 'parked_at_rack'; cargo: CourierCargoItem[]; wasForcedReturn: boolean };
@@ -53,6 +63,8 @@ export type CourierSimEvent =
 export interface CourierStepResult {
   state: CourierState;
   events: CourierSimEvent[];
+  /** World pixels actively driven during this simulation step (0 while stopped/loading/delivering) */
+  distanceMoved: number;
 }
 
 export type SelectedCourierTask =
@@ -67,6 +79,11 @@ export type SelectedCourierTask =
       order: ActiveOrder;
       availableCount: number;
       task?: WeeklyScheduleTask;
+    }
+  | {
+      kind: 'repair';
+      repairTask: VehicleRepairTask;
+      task: WeeklyScheduleTask;
     };
 
 export type PostFinalPickupDecision =
@@ -86,12 +103,14 @@ export type PostFinalPickupDecision =
     };
 
 export interface CourierTaskSelectionOptions {
-  /** Merged task IDs (`orderId`) already claimed by other active couriers */
+  /** Merged task IDs (`orderId` or `repair:type:index`) already claimed by other active couriers */
   claimedTaskIds?: ReadonlySet<string>;
   /** Packages currently reserved in-flight by other couriers' active pickup runs (not yet unloaded into Base) */
   reservedWarehouseSpace?: number;
   /** Exact carrying capacity for the concrete vehicle being dispatched (e.g. 5 for bike, 10/12/14/15/17/20 for van) */
   vehicleCapacity?: number;
+  /** Concrete vehicle selection being dispatched (used to match repair tasks and block normal parcels while pending repair) */
+  vehicle?: ActiveVehicleSelection;
 }
 
 export interface CourierState {
@@ -188,6 +207,7 @@ export const VAN_SPEED_MULTIPLIER = 1.65;
 /** Delivery van cruising speed on city roads (~208 world px/s) */
 export const VAN_COURIER_SPEED = Math.round(DEFAULT_COURIER_SPEED * VAN_SPEED_MULTIPLIER);
 export const DELIVERY_PAUSE_SECONDS = 1.8;
+export const REPAIR_SERVICE_PAUSE_SECONDS = 2.4;
 export const BASE_TRANSFER_PAUSE_SECONDS = 1.0;
 export const MAX_REAL_FRAME_DT = 0.05;
 export const WHEEL_RADIANS_PER_PIXEL = 0.25;

@@ -119,6 +119,38 @@ export interface ParcelLockerSlot {
   occupied: boolean;
 }
 
+export interface ServiceFacilityDriveway {
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  /** Axis along which the asphalt driveway extends from yard to street */
+  axis: StreetAxis;
+  /** Yard side opened by this driveway */
+  entrySide: ParkingEdgeSide;
+  /** Street id the driveway connects onto (e.g. 'u_3' for ul. Lipowa, 'u_5' for ul. Słoneczna) */
+  streetId: string;
+}
+
+export interface ServiceFacilitySpec {
+  id: string;
+  buildingId: string;
+  kind: 'mechanik' | 'stacja_paliw';
+  quarterId: string;
+  /** Asphalt/cobblestone forecourt or service apron rectangle (iso coordinates) */
+  yard: { uMin: number; uMax: number; vMin: number; vMax: number };
+  /** Asphalt driveway connecting yard directly onto the adjacent street */
+  driveway: ServiceFacilityDriveway;
+  /** Street-edge mouth center where vehicles turn off the road onto the facility driveway */
+  mouth: { u: number; v: number; x: number; y: number };
+  /** Exact vehicle service/refueling stop point inside the facility yard */
+  stop: { u: number; v: number; x: number; y: number };
+  /** Optional intermediate point at yard entrance for smooth turn-in */
+  yardEntry?: { u: number; v: number; x: number; y: number };
+  /** Footprint of the 3D facility building (iso coordinates) */
+  buildingRect: { uMin: number; uMax: number; vMin: number; vMax: number };
+}
+
 type PaletteFootprintBase = Pick<BuildingPalette, 'footprintFill' | 'footprintStroke' | 'accent'>;
 type PaletteVariantSpec = Pick<BuildingPalette, 'roof' | 'leftWall' | 'rightWall'> &
   Partial<PaletteFootprintBase>;
@@ -163,6 +195,16 @@ const BUILDING_FOOTPRINT_STYLES: Record<BuildingType, PaletteFootprintBase> = {
     footprintFill: 'rgba(220, 38, 38, 0.28)',
     footprintStroke: '#b91c1c',
     accent: '#f87171',
+  },
+  mechanik: {
+    footprintFill: 'rgba(234, 88, 12, 0.42)',
+    footprintStroke: '#c2410c',
+    accent: '#fb923c',
+  },
+  stacja_paliw: {
+    footprintFill: 'rgba(5, 150, 105, 0.42)',
+    footprintStroke: '#047857',
+    accent: '#34d399',
   },
 };
 
@@ -295,6 +337,13 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
     { roof: '#cf9e6e', leftWall: '#e8dcc9', rightWall: '#c2b29b' },
     { roof: '#8f695a', leftWall: '#e4ded5', rightWall: '#bdb6ac' },
   ]),
+  mechanik: buildPalettes('mechanik', [
+    { roof: '#374151', leftWall: '#5c6674', rightWall: '#434c59' },
+  ]),
+  stacja_paliw: buildPalettes('stacja_paliw', [
+    { roof: '#f1f5f9', leftWall: '#059669', rightWall: '#047857' },
+    { roof: '#f1f5f9', leftWall: '#0d9488', rightWall: '#0f766e' },
+  ]),
 };
 
 function round1(value: number): number {
@@ -348,6 +397,10 @@ export function getBuildingHeight(typ: BuildingType, pietra: number): number {
       return 114;
     case 'blok_wysoki':
       return 162;
+    case 'mechanik':
+      return 30;
+    case 'stacja_paliw':
+      return 28;
   }
 }
 
@@ -1446,6 +1499,7 @@ export interface ProceduralCityStructures {
   deliveryZones: DeliveryZone[];
   parcelLockerSlots: ParcelLockerSlot[];
   houseYards: HouseYardFence[];
+  serviceFacilities: ServiceFacilitySpec[];
 }
 
 /**
@@ -2375,6 +2429,163 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     };
   });
 
+  // ---------------------------------------------------------------------------
+  // 2G. REWORK INFRASTRUKTURY SERWISOWEJ (Krok 2A - Część 1):
+  //     Usuń 6 wskazanych parkingów (po wygenerowaniu kiosków i paczkomatów, aby
+  //     w 100% zachować istniejące kioski/pawilony) i wstaw w miejsce 3 z nich:
+  //       1. Stacja Paliw #1 (q_1_5, ul. Kolejowa / al. Północna — zachowany b_kiosk_14)
+  //       2. Stacja Paliw #2 (q_4_2, kwartał przy rondzie R1 u zbiegu ul. Słonecznej, al. Zachodniej i al. Głównej — zachowany b_kiosk_1)
+  //       3. Garaż Mechanika (q_2_1, z bezpośrednim wjazdem od ul. Lipowej u_3)
+  //     Pozostałe 3 peryferyjne / mniejsze parkingi (q_1_6 [0 bloków], q_0_5 [4 bloki],
+  //     q_4_6 [mały 96x94]) zostają całkowicie zlikwidowane.
+  // ---------------------------------------------------------------------------
+  const REMOVED_PARKING_QUARTERS = new Set<string>([
+    'q_1_5', // park_2  -> Stacja Paliw #1
+    'q_4_2', // park_12 -> Stacja Paliw #2 (bliżej ronda R1, wjazd z al. Zachodniej)
+    'q_2_1', // park_4  -> Garaż Mechanika (wjazd od ul. Lipowej)
+    'q_1_6', // park_3  -> usunięty całkowicie (0 bloków, peryferyjny NE)
+    'q_0_5', // park_1  -> usunięty całkowicie (4 bloki, peryferyjny N)
+    'q_4_6', // park_16 -> usunięty całkowicie (mały 96x94, peryferyjny E)
+  ]);
+
+  const filteredParkingLots = parkingLots.filter(
+    (lot) => !REMOVED_PARKING_QUARTERS.has(lot.quarterId)
+  );
+  parkingLots.length = 0;
+  parkingLots.push(...filteredParkingLots);
+
+  const serviceFacilities: ServiceFacilitySpec[] = [];
+
+  // 1) Garaż Mechanika w kwartale q_2_1 (ul. Lipowa / al. Zachodnia / ul. Spacerowa)
+  //    Wjazd asfaltowy poprowadzony WYŁĄCZNIE bezpośrednio na ul. Lipową (u_3, u = -360).
+  const mechanicBuilding = tryPush({
+    id: 'b_mechanic_garage',
+    typ: 'mechanik',
+    pietra: 1,
+    mieszkania: 0,
+    uMin: -582,
+    uMax: -516,
+    vMin: -966,
+    vMax: -868,
+    colorVariant: 0,
+    forcedStreetId: 'u_3',
+    dostepnyDlaDostaw: false,
+  });
+  if (mechanicBuilding) {
+    serviceFacilities.push({
+      id: 'sf_mechanic_garage',
+      buildingId: mechanicBuilding.id,
+      kind: 'mechanik',
+      quarterId: 'q_2_1',
+      yard: { uMin: -590, uMax: -452, vMin: -982, vMax: -852 },
+      driveway: {
+        uMin: -454,
+        uMax: -374,
+        vMin: -928,
+        vMax: -906,
+        axis: 'u',
+        entrySide: 'uMax',
+        streetId: 'u_3',
+      },
+      mouth: makeIsoCanvasPoint(-376, -917),
+      yardEntry: makeIsoCanvasPoint(-456, -917),
+      stop: makeIsoCanvasPoint(-492, -917),
+      buildingRect: {
+        uMin: mechanicBuilding.uMin,
+        uMax: mechanicBuilding.uMax,
+        vMin: mechanicBuilding.vMin,
+        vMax: mechanicBuilding.vMax,
+      },
+    });
+  }
+
+  // 2) Stacja Paliw #1 w kwartale q_1_5 (skrzyżowanie ul. Kolejowej v = 380 i al. Północnej u = -720)
+  //    Istniejący pawilon/kiosk (b_kiosk_14 przy u = -784..-764) pozostaje nienaruszony.
+  const gasStation1 = tryPush({
+    id: 'b_gas_station_1',
+    typ: 'stacja_paliw',
+    pietra: 1,
+    mieszkania: 0,
+    uMin: -966,
+    uMax: -864,
+    vMin: 454,
+    vMax: 544,
+    colorVariant: 0,
+    forcedStreetId: 'v_5',
+    dostepnyDlaDostaw: false,
+  });
+  if (gasStation1) {
+    serviceFacilities.push({
+      id: 'sf_gas_station_1',
+      buildingId: gasStation1.id,
+      kind: 'stacja_paliw',
+      quarterId: 'q_1_5',
+      yard: { uMin: -984, uMax: -846, vMin: 424, vMax: 562 },
+      driveway: {
+        uMin: -928,
+        uMax: -902,
+        vMin: 394,
+        vMax: 426,
+        axis: 'v',
+        entrySide: 'vMin',
+        streetId: 'v_5',
+      },
+      mouth: makeIsoCanvasPoint(-915, 396),
+      yardEntry: makeIsoCanvasPoint(-915, 428),
+      stop: makeIsoCanvasPoint(-915, 444),
+      buildingRect: {
+        uMin: gasStation1.uMin,
+        uMax: gasStation1.uMax,
+        vMin: gasStation1.vMin,
+        vMax: gasStation1.vMax,
+      },
+    });
+  }
+
+  // 3) Stacja Paliw #2 w kwartale q_4_2 przy rondzie R1 (u zbiegu ul. Słonecznej u = 340,
+  //    al. Zachodniej v = -740 i al. Głównej u = 0). Wjazd asfaltowy bezpośrednio z al. Zachodniej
+  //    (v_2, v = -740), z bezpiecznym odstępem od przejść ronda R1, bloków, kiosku i paczkomatu.
+  const gasStation2 = tryPush({
+    id: 'b_gas_station_2',
+    typ: 'stacja_paliw',
+    pietra: 1,
+    mieszkania: 0,
+    uMin: 128,
+    uMax: 230,
+    vMin: -646,
+    vMax: -556,
+    colorVariant: 1,
+    forcedStreetId: 'v_2',
+    dostepnyDlaDostaw: false,
+  });
+  if (gasStation2) {
+    serviceFacilities.push({
+      id: 'sf_gas_station_2',
+      buildingId: gasStation2.id,
+      kind: 'stacja_paliw',
+      quarterId: 'q_4_2',
+      yard: { uMin: 112, uMax: 246, vMin: -676, vMax: -542 },
+      driveway: {
+        uMin: 172,
+        uMax: 198,
+        vMin: -716,
+        vMax: -674,
+        axis: 'v',
+        entrySide: 'vMin',
+        streetId: 'v_2',
+      },
+      mouth: makeIsoCanvasPoint(185, -714),
+      yardEntry: makeIsoCanvasPoint(185, -672),
+      stop: makeIsoCanvasPoint(185, -656),
+      buildingRect: {
+        uMin: gasStation2.uMin,
+        uMax: gasStation2.uMax,
+        vMin: gasStation2.vMin,
+        vMax: gasStation2.vMax,
+      },
+    });
+  }
+
   // 3. Assign realistic Polish street addresses to ALL buildings (including kiosks & houses on access roads)
   const roadById = new Map(ALL_ADDRESSABLE_ROADS.map((r) => [r.id, r]));
   const grouped = new Map<
@@ -2453,7 +2664,14 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
   //    deliveryStopPoint (dedicated delivery zone for markets & bus station, yard gate for
   //    single-family houses, or sidewalk/parking directly in front of entrance for other buildings).
   const baseRoadGraph = buildProceduralRoadGraph();
-  attachDeliveryPointsToBuildings(addressed, parkingLots, deliveryZones, houseYards, baseRoadGraph);
+  attachDeliveryPointsToBuildings(
+    addressed,
+    parkingLots,
+    deliveryZones,
+    houseYards,
+    serviceFacilities,
+    baseRoadGraph
+  );
 
   return {
     buildings: sortBuildingsBackToFront(addressed),
@@ -2461,6 +2679,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     deliveryZones,
     parcelLockerSlots,
     houseYards,
+    serviceFacilities,
   };
 }
 
@@ -2605,6 +2824,7 @@ function attachDeliveryPointsToBuildings(
   parkingLots: ParkingLot[],
   deliveryZones: DeliveryZone[],
   houseYards: HouseYardFence[],
+  serviceFacilities: ServiceFacilitySpec[],
   roadGraph: RoadGraph
 ) {
   const nodeById = new Map(roadGraph.nodes.map((n) => [n.id, n]));
@@ -2612,6 +2832,9 @@ function attachDeliveryPointsToBuildings(
   const addressableRoadById = new Map(ALL_ADDRESSABLE_ROADS.map((r) => [r.id, r]));
   const deliveryZoneByBuildingId = new Map(deliveryZones.map((dz) => [dz.buildingId, dz]));
   const houseYardByBuildingId = new Map(houseYards.map((y) => [y.buildingId, y]));
+  const serviceFacilityByBuildingId = new Map(
+    serviceFacilities.map((sf) => [sf.buildingId, sf])
+  );
   const straightEdges: PrecomputedRoadEdge[] = [];
   const allPublicEdges: PrecomputedRoadEdge[] = [];
 
@@ -2655,6 +2878,44 @@ function attachDeliveryPointsToBuildings(
   };
 
   for (const b of buildings) {
+    // 0. Service facilities (Mechanic Garage & Gas Stations): excluded from normal parcel deliveries
+    //    (dostepnyDlaDostaw === false), yet receive exact roadApproachPoint on their driveway street
+    //    and off-road service/refueling stopPoint for future fleet maintenance & refueling routes.
+    const sf = serviceFacilityByBuildingId.get(b.id);
+    if (sf) {
+      const targetStreet = streetById.get(sf.driveway.streetId);
+      const streetEdges = targetStreet
+        ? candidateEdges.filter((e) =>
+            targetStreet.axis === 'u'
+              ? Math.abs(e.au - targetStreet.coord) < 5 && Math.abs(e.bu - targetStreet.coord) < 5
+              : Math.abs(e.av - targetStreet.coord) < 5 && Math.abs(e.bv - targetStreet.coord) < 5
+          )
+        : [];
+      const proj = projectIsoPointOntoEdges(
+        sf.mouth.u,
+        sf.mouth.v,
+        streetEdges.length > 0 ? streetEdges : candidateEdges
+      );
+      if (proj) {
+        const approachWaypoints: Array<{ x: number; y: number }> = [
+          { x: sf.mouth.x, y: sf.mouth.y },
+        ];
+        if (sf.yardEntry) {
+          approachWaypoints.push({ x: sf.yardEntry.x, y: sf.yardEntry.y });
+        }
+        b.roadApproachPoint = proj.approach;
+        b.deliveryStopPoint = {
+          x: sf.stop.x,
+          y: sf.stop.y,
+          u: sf.stop.u,
+          v: sf.stop.v,
+          surface: 'delivery_zone',
+          approachWaypoints,
+        };
+      }
+      continue;
+    }
+
     if (b.typ === 'baza' || b.dostepnyDlaDostaw === false) {
       continue;
     }
@@ -2846,6 +3107,8 @@ export const PROCEDURAL_DELIVERY_ZONES: DeliveryZone[] = CITY_STRUCTURES.deliver
 export const PARCEL_LOCKER_SLOTS: ParcelLockerSlot[] = CITY_STRUCTURES.parcelLockerSlots;
 export const parcelLockerSlots: ParcelLockerSlot[] = PARCEL_LOCKER_SLOTS;
 export const PROCEDURAL_HOUSE_YARDS: HouseYardFence[] = CITY_STRUCTURES.houseYards;
+export const PROCEDURAL_SERVICE_FACILITIES: ServiceFacilitySpec[] =
+  CITY_STRUCTURES.serviceFacilities;
 
 /**
  * Precomputed, topologically sorted back-to-front static 3D scene order (all buildings +

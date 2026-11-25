@@ -32,6 +32,7 @@ import {
   MAX_REAL_FRAME_DT,
   MIN_APPROACH_SPEED,
   MIN_CORNER_SPEED_FACTOR,
+  REPAIR_SERVICE_PAUSE_SECONDS,
   WHEEL_RADIANS_PER_PIXEL,
   type CourierCargoItem,
   type CourierMissionKind,
@@ -271,6 +272,134 @@ export function createPickupMissionCourier(
     [],
     resolvedSpeed,
     DELIVERY_PAUSE_SECONDS,
+    vehicle,
+    courierId,
+    assignedTaskId,
+    resolvedCapacity
+  );
+}
+
+/**
+ * Creates a Mechanic Service Mission:
+ * - Courier rides/drives `vehicle` directly from Base (rack / stall P1–P8 or loading bay)
+ *   to the Mechanic Garage (`b_mechanic_garage`, entering via ul. Lipowa driveway)
+ * - Pauses briefly at the garage service bay (`repair_service`), triggering `repair_completed`
+ *   which restores durability to 100%, then drives back to Base loading zone.
+ */
+export function createRepairMissionCourier(
+  graph: RoadGraph,
+  baseDepot: BaseDepotSpec,
+  mechanicBuilding: Building,
+  vehicle: ActiveVehicleSelection,
+  assignedTaskId: string,
+  startFrom: CourierStartPoint = 'rack',
+  speed?: number,
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  courierId = 1,
+  cargoCapacityOverride?: number
+): CourierState {
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
+
+  if (vehicle.type === 'van') {
+    const stopPlan = resolveVanStopForBuilding(mechanicBuilding, parkingNavNetworks);
+    if (!stopPlan) {
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
+    }
+
+    const outboundPath = buildVanOutboundLegFromBaseToStop(
+      graph,
+      baseDepot,
+      stopPlan,
+      startFrom,
+      vehicle.index,
+      parkingNavNetworks
+    );
+    const returnToLoadingZone = buildVanReturnLegFromStopToLoadingZone(
+      graph,
+      baseDepot,
+      stopPlan
+    );
+
+    if (
+      !outboundPath ||
+      outboundPath.length < 2 ||
+      !returnToLoadingZone ||
+      returnToLoadingZone.length < 2
+    ) {
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
+    }
+
+    const actualStopPoint = outboundPath[outboundPath.length - 1];
+    const repairStop: CourierMissionStop = {
+      kind: 'repair_service',
+      buildingId: mechanicBuilding.id,
+      label: formatBuildingAddress(mechanicBuilding),
+      stopPoint: { x: actualStopPoint.x, y: actualStopPoint.y },
+      pauseDuration: REPAIR_SERVICE_PAUSE_SECONDS,
+      repairVehicle: { ...vehicle },
+      legPath: outboundPath,
+      returnToBasePath: returnToLoadingZone,
+    };
+
+    return createMissionCourierFromStops(
+      'repair',
+      [repairStop],
+      [],
+      resolvedSpeed,
+      REPAIR_SERVICE_PAUSE_SECONDS,
+      vehicle,
+      courierId,
+      assignedTaskId,
+      resolvedCapacity
+    );
+  }
+
+  if (!mechanicBuilding.deliveryStopPoint) {
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
+  }
+
+  const outboundPath = buildOutboundLegFromBaseToBuilding(
+    graph,
+    baseDepot,
+    mechanicBuilding,
+    startFrom
+  );
+  const returnToLoadingZone = buildReturnLegFromBuildingToLoadingZone(
+    graph,
+    baseDepot,
+    mechanicBuilding
+  );
+
+  if (
+    !outboundPath ||
+    outboundPath.length < 2 ||
+    !returnToLoadingZone ||
+    returnToLoadingZone.length < 2
+  ) {
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
+  }
+
+  const repairStop: CourierMissionStop = {
+    kind: 'repair_service',
+    buildingId: mechanicBuilding.id,
+    label: formatBuildingAddress(mechanicBuilding),
+    stopPoint: {
+      x: mechanicBuilding.deliveryStopPoint.x,
+      y: mechanicBuilding.deliveryStopPoint.y,
+    },
+    pauseDuration: REPAIR_SERVICE_PAUSE_SECONDS,
+    repairVehicle: { ...vehicle },
+    legPath: outboundPath,
+    returnToBasePath: returnToLoadingZone,
+  };
+
+  return createMissionCourierFromStops(
+    'repair',
+    [repairStop],
+    [],
+    resolvedSpeed,
+    REPAIR_SERVICE_PAUSE_SECONDS,
     vehicle,
     courierId,
     assignedTaskId,
@@ -1110,13 +1239,14 @@ export function simDtToGameMinutes(simDt: number): number {
 function stepCourierBySimDtInternal(
   state: CourierState,
   dt: number,
-  events: CourierSimEvent[]
+  events: CourierSimEvent[],
+  metrics: { distanceMoved: number }
 ): CourierState {
   if (!state.active || state.phase === 'idle' || dt <= 0) {
     return state;
   }
 
-  // Paused at a stop (customer building handoff or Base loading/unloading bay)
+  // Paused at a stop (customer building handoff, mechanic service, or Base loading/unloading bay)
   if (state.phase === 'delivering') {
     const remaining = state.deliveryPauseRemaining - dt;
     if (remaining > 0) {
@@ -1132,6 +1262,31 @@ function stepCourierBySimDtInternal(
     const currentStop = state.stops[state.currentStopIndex];
 
     if (currentStop) {
+      if (currentStop.kind === 'repair_service') {
+        const servicedVehicle: ActiveVehicleSelection = currentStop.repairVehicle ?? {
+          type: state.vehicleType,
+          index: state.vehicleIndex,
+        };
+        events.push({
+          type: 'repair_completed',
+          vehicle: { ...servicedVehicle },
+          buildingId: currentStop.buildingId,
+        });
+        // Restore full vehicle cruising speed immediately after repair for the return leg to Base
+        const restoredSpeed = getCourierSpeedForVehicle(state.vehicleType);
+        const returnState = beginReturnLeg(
+          {
+            ...state,
+            speed: restoredSpeed,
+            assignedTaskId: null,
+          },
+          state.wheelPhase
+        );
+        return leftoverDt > 1e-6
+          ? stepCourierBySimDtInternal(returnState, leftoverDt, events, metrics)
+          : returnState;
+      }
+
       if (currentStop.kind === 'base_load') {
         const nextStopIndex = state.currentStopIndex + 1;
         if (nextStopIndex < state.stops.length && !state.isForcedReturn) {
@@ -1147,7 +1302,7 @@ function stepCourierBySimDtInternal(
             }
           );
           return leftoverDt > 1e-6
-            ? stepCourierBySimDtInternal(nextLegState, leftoverDt, events)
+            ? stepCourierBySimDtInternal(nextLegState, leftoverDt, events, metrics)
             : nextLegState;
         }
         if (state.cargo.length > 0) {
@@ -1240,7 +1395,7 @@ function stepCourierBySimDtInternal(
             }
           );
           return leftoverDt > 1e-6
-            ? stepCourierBySimDtInternal(nextLegState, leftoverDt, events)
+            ? stepCourierBySimDtInternal(nextLegState, leftoverDt, events, metrics)
             : nextLegState;
         }
 
@@ -1252,14 +1407,14 @@ function stepCourierBySimDtInternal(
           state.wheelPhase
         );
         return leftoverDt > 1e-6
-          ? stepCourierBySimDtInternal(returnState, leftoverDt, events)
+          ? stepCourierBySimDtInternal(returnState, leftoverDt, events, metrics)
           : returnState;
       }
     }
 
     const returnState = beginReturnLeg(state, state.wheelPhase);
     return leftoverDt > 1e-6
-      ? stepCourierBySimDtInternal(returnState, leftoverDt, events)
+      ? stepCourierBySimDtInternal(returnState, leftoverDt, events, metrics)
       : returnState;
   }
 
@@ -1335,6 +1490,9 @@ function stepCourierBySimDtInternal(
   }
 
   const movedDist = Math.max(0, traveled - prevTraveled);
+  if (movedDist > 0) {
+    metrics.distanceMoved += movedDist;
+  }
   const nextWheelPhase = state.wheelPhase + movedDist * WHEEL_RADIANS_PER_PIXEL;
 
   // Reached end of current leg
@@ -1361,7 +1519,7 @@ function stepCourierBySimDtInternal(
           deliveryPauseRemaining: 0,
           wheelPhase: nextWheelPhase,
         };
-        return stepCourierBySimDtInternal(pausedZero, 1e-5, events);
+        return stepCourierBySimDtInternal(pausedZero, 1e-5, events, metrics);
       }
 
       return {
@@ -1401,7 +1559,7 @@ function stepCourierBySimDtInternal(
           deliveryPauseRemaining: 0,
           wheelPhase: nextWheelPhase,
         };
-        return stepCourierBySimDtInternal(pausedZero, 1e-5, events);
+        return stepCourierBySimDtInternal(pausedZero, 1e-5, events, metrics);
       }
 
       return {
@@ -1478,11 +1636,12 @@ export function stepCourierMissionWithSimDt(
   simDt: number
 ): CourierStepResult {
   if (!Number.isFinite(simDt) || simDt <= 0) {
-    return { state, events: [] };
+    return { state, events: [], distanceMoved: 0 };
   }
   const events: CourierSimEvent[] = [];
-  const nextState = stepCourierBySimDtInternal(state, simDt, events);
-  return { state: nextState, events };
+  const metrics = { distanceMoved: 0 };
+  const nextState = stepCourierBySimDtInternal(state, simDt, events, metrics);
+  return { state: nextState, events, distanceMoved: metrics.distanceMoved };
 }
 
 export function stepCourierWithSimDt(state: CourierState, simDt: number): CourierState {

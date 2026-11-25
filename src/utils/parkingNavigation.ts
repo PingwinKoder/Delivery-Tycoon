@@ -1038,6 +1038,29 @@ export function resolveVanStopForBuilding(
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   excludeSpotIds?: ReadonlySet<string>
 ): VanBuildingStopPlan | null {
+  // Service facilities (mechanic garage, gas stations) ALWAYS use their own dedicated driveway apron
+  if (
+    (building.typ === 'mechanik' || building.typ === 'stacja_paliw') &&
+    building.roadApproachPoint &&
+    building.deliveryStopPoint?.surface === 'delivery_zone'
+  ) {
+    const approach = building.roadApproachPoint;
+    const stop = building.deliveryStopPoint;
+    const roadPt: Point = { x: approach.x, y: approach.y };
+    const bayPt: Point = { x: stop.x, y: stop.y };
+    const approachWps: Point[] = (stop.approachWaypoints ?? []).map((p) => ({ x: p.x, y: p.y }));
+    return {
+      kind: 'delivery_bay',
+      entryEdge: approach.edge,
+      entryRoadPoint: roadPt,
+      exitEdge: approach.edge,
+      exitRoadPoint: roadPt,
+      entryOffRoadPoints: [...approachWps, bayPt],
+      exitOffRoadPoints: [bayPt, ...[...approachWps].reverse()],
+      stopPoint: bayPt,
+    };
+  }
+
   const bCenterU = (building.uMin + building.uMax) / 2;
   const bCenterV = (building.vMin + building.vMax) / 2;
   const prefersParkingLot = building.deliveryStopPoint?.surface === 'parking';

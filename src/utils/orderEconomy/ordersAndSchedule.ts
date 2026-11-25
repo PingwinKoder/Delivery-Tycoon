@@ -25,7 +25,10 @@ import {
 import {
   calculateMonthlyCompanyCosts,
   getFreeWarehouseCapacity,
+  getPendingVehicleRepairs,
+  getRepairCourierReadiness,
   getStoredPackagesForOrder,
+  getVehicleDurability,
   hasEnoughWarehouseSpaceForPickup,
 } from './companyAndFleet';
 import {
@@ -994,12 +997,18 @@ export function getScheduledTasksForWeekday(
   const unsorted: Array<{
     taskId: string;
     taskType: WeeklyTaskType;
-    order: ActiveOrder;
+    order?: ActiveOrder;
     taskLabel: string;
     packageCount: number;
     pickedUpCount: number;
     deliveredCount: number;
     totalPackages: number;
+    sortTimestamp: number;
+    sortTieBreaker: number;
+    repairVehicle?: WeeklyScheduleTask['repairVehicle'];
+    repairDurability?: number;
+    repairWaitingForCourier?: boolean;
+    repairWaitingReason?: 'no_courier' | 'no_van_license';
   }> = [];
 
   for (const order of state.activeOrders) {
@@ -1057,6 +1066,8 @@ export function getScheduledTasksForWeekday(
               pickedUpCount,
               deliveredCount,
               totalPackages,
+              sortTimestamp: order.acceptedAtMinutes,
+              sortTieBreaker: order.orderNumber,
             });
           }
         } else if (dayQuota > 0) {
@@ -1070,6 +1081,8 @@ export function getScheduledTasksForWeekday(
               pickedUpCount: 0,
               deliveredCount: 0,
               totalPackages: dayQuota,
+              sortTimestamp: order.acceptedAtMinutes,
+              sortTieBreaker: order.orderNumber,
             });
           } else {
             const pickedUpCount = Math.min(dayQuota, order.weekly.pickedUpPackagesThisWeek);
@@ -1084,6 +1097,8 @@ export function getScheduledTasksForWeekday(
                 pickedUpCount,
                 deliveredCount,
                 totalPackages: dayQuota,
+                sortTimestamp: order.acceptedAtMinutes,
+                sortTieBreaker: order.orderNumber,
               });
             }
           }
@@ -1108,6 +1123,8 @@ export function getScheduledTasksForWeekday(
           pickedUpCount,
           deliveredCount,
           totalPackages,
+          sortTimestamp: order.acceptedAtMinutes,
+          sortTieBreaker: order.orderNumber,
         });
       }
     } else {
@@ -1131,10 +1148,43 @@ export function getScheduledTasksForWeekday(
             pickedUpCount,
             deliveredCount,
             totalPackages,
+            sortTimestamp: order.acceptedAtMinutes,
+            sortTieBreaker: order.orderNumber,
           });
         }
       }
     }
+  }
+
+  // Vehicle repair tasks appear ONLY on the current day (isToday) and automatically carry over
+  // to the next day until completed at the Mechanic Garage.
+  if (isToday) {
+    const pendingRepairs = getPendingVehicleRepairs(state);
+    pendingRepairs.forEach((repair, repairIdx) => {
+      const durability = Math.round(getVehicleDurability(state, repair.vehicle));
+      const readiness = getRepairCourierReadiness(state, repair.vehicle);
+      const vehicleName =
+        repair.vehicle.type === 'van'
+          ? `Bus #${repair.vehicle.index}`
+          : `Rower #${repair.vehicle.index}`;
+
+      unsorted.push({
+        taskId: repair.id,
+        taskType: 'repair',
+        taskLabel: 'Serwis',
+        packageCount: 0,
+        pickedUpCount: 0,
+        deliveredCount: 0,
+        totalPackages: 0,
+        sortTimestamp: repair.requestedAtGameDay * MINUTES_PER_DAY + repairIdx,
+        sortTieBreaker: repairIdx,
+        repairVehicle: { ...repair.vehicle },
+        repairDurability: durability,
+        repairWaitingForCourier: !readiness.ready,
+        repairWaitingReason: readiness.reason,
+      });
+      void vehicleName;
+    });
   }
 
   const savedOrder = state.weeklyPriorityOrder[weekdayIndex] ?? [];
@@ -1149,11 +1199,13 @@ export function getScheduledTasksForWeekday(
     }
   });
 
-  const getRank = (item: { taskId: string; order: ActiveOrder }): number => {
+  const getRank = (item: { taskId: string; order?: ActiveOrder }): number => {
     const exact = rankLookup.get(item.taskId);
     if (exact !== undefined) return exact;
-    const byOrder = rankLookup.get(item.order.id);
-    if (byOrder !== undefined) return byOrder;
+    if (item.order) {
+      const byOrder = rankLookup.get(item.order.id);
+      if (byOrder !== undefined) return byOrder;
+    }
     return Number.MAX_SAFE_INTEGER;
   };
 
@@ -1161,29 +1213,60 @@ export function getScheduledTasksForWeekday(
     const rankA = getRank(a);
     const rankB = getRank(b);
     if (rankA !== rankB) return rankA - rankB;
-    if (a.order.acceptedAtMinutes !== b.order.acceptedAtMinutes) {
-      return a.order.acceptedAtMinutes - b.order.acceptedAtMinutes;
+    if (a.sortTimestamp !== b.sortTimestamp) {
+      return a.sortTimestamp - b.sortTimestamp;
     }
-    return a.order.orderNumber - b.order.orderNumber;
+    return a.sortTieBreaker - b.sortTieBreaker;
   });
 
-  return unsorted.map((item, idx) => ({
-    taskId: item.taskId,
-    taskType: item.taskType,
-    orderId: item.order.id,
-    orderNumber: item.order.orderNumber,
-    weekdayIndex,
-    kind: item.order.kind,
-    clientName: item.order.clientName,
-    pickupAddress: item.order.pickupLocation.address,
-    taskLabel: item.taskLabel,
-    packageCount: item.packageCount,
-    pickedUpCount: item.pickedUpCount,
-    deliveredCount: item.deliveredCount,
-    totalPackages: item.totalPackages,
-    satisfaction: item.order.satisfaction,
-    priorityRank: idx + 1,
-  }));
+  return unsorted.map((item, idx) => {
+    if (item.taskType === 'repair' && item.repairVehicle) {
+      const vehicleName =
+        item.repairVehicle.type === 'van'
+          ? `Bus #${item.repairVehicle.index}`
+          : `Rower #${item.repairVehicle.index}`;
+      return {
+        taskId: item.taskId,
+        taskType: 'repair',
+        orderId: item.taskId,
+        orderNumber: 0,
+        weekdayIndex,
+        kind: 'short_term',
+        clientName: `Naprawa: ${vehicleName}`,
+        pickupAddress: 'ul. Lipowa (Mechanik)',
+        taskLabel: 'Serwis',
+        packageCount: 0,
+        pickedUpCount: 0,
+        deliveredCount: 0,
+        totalPackages: 0,
+        satisfaction: 100,
+        priorityRank: idx + 1,
+        repairVehicle: item.repairVehicle,
+        repairDurability: item.repairDurability,
+        repairWaitingForCourier: item.repairWaitingForCourier,
+        repairWaitingReason: item.repairWaitingReason,
+      };
+    }
+
+    const order = item.order!;
+    return {
+      taskId: item.taskId,
+      taskType: item.taskType,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      weekdayIndex,
+      kind: order.kind,
+      clientName: order.clientName,
+      pickupAddress: order.pickupLocation.address,
+      taskLabel: item.taskLabel,
+      packageCount: item.packageCount,
+      pickedUpCount: item.pickedUpCount,
+      deliveredCount: item.deliveredCount,
+      totalPackages: item.totalPackages,
+      satisfaction: order.satisfaction,
+      priorityRank: idx + 1,
+    };
+  });
 }
 
 /**

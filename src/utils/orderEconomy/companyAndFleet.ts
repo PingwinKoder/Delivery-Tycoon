@@ -13,6 +13,8 @@ import type {
   ParkingSpotUpgradeInfo,
   UpgradePurchaseResult,
   VanModelId,
+  VehicleRepairRequestResult,
+  VehicleRepairTask,
   WarehouseLoadForBikeResult,
   WarehouseLoadedBatch,
   WarehouseTier,
@@ -30,8 +32,10 @@ import {
 import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
+  BIKE_WEAR_PER_WORLD_PX,
   COURIER_INSURANCE_COST,
   DEFAULT_LEGACY_VAN_MODEL_ID,
+  DEFAULT_VEHICLE_DURABILITY,
   EMPLOYEE_LICENSE_COSTS,
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
@@ -41,15 +45,21 @@ import {
   INITIAL_PARKING_SPOTS,
   INITIAL_VANS,
   INITIAL_WAREHOUSE_TIER,
+  LOW_DURABILITY_SPEED_MULTIPLIER,
+  LOW_DURABILITY_SPEED_THRESHOLD,
   MAX_BICYCLES,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
+  NEW_VAN_WEAR_PER_WORLD_PX,
   PARKING_SPOT_COST,
+  REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
+  USED_VAN_WEAR_PER_WORLD_PX,
   VAN_COURIER_CAPACITY,
   VAN_MODELS,
   WAREHOUSE_TIERS,
+  clampVehicleDurability,
   createClockRandomSeed,
   createDefaultOwnedVans,
   createEmptyWeeklyPriorityOrder,
@@ -259,10 +269,12 @@ export function createInitialOrderEconomyState(
     employees: initialEmployees,
     bikesCount: INITIAL_BICYCLES,
     bicyclesCount: INITIAL_BICYCLES,
+    bikeDurabilities: Array.from({ length: INITIAL_BICYCLES }, () => DEFAULT_VEHICLE_DURABILITY),
     vans: [],
     vansCount: INITIAL_VANS,
     deliveryVansCount: INITIAL_VANS,
     activeVehicle: starterVehicle,
+    pendingVehicleRepairs: [],
     pendingOffers: [],
     activeOrders: [],
     archivedOrders: [],
@@ -354,15 +366,312 @@ export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult
   }
 
   const nextBikes = currentBikes + 1;
+  const normalizedBikeDurabilities = getNormalizedBikeDurabilities(state, currentBikes);
   return {
     state: {
       ...state,
       balance: roundCurrency(state.balance - BICYCLE_PURCHASE_COST),
       bikesCount: nextBikes,
       bicyclesCount: nextBikes,
+      bikeDurabilities: [...normalizedBikeDurabilities, DEFAULT_VEHICLE_DURABILITY],
     },
     purchased: true,
     cost: BICYCLE_PURCHASE_COST,
+  };
+}
+
+// ============================================================================
+// Vehicle Durability, Dynamic Repair Cost & Service Queue Helpers
+// ============================================================================
+
+export function makeVehicleRepairTaskId(vehicle: ActiveVehicleSelection): string {
+  return `repair:${vehicle.type}:${vehicle.index}`;
+}
+
+export function getNormalizedBikeDurabilities(
+  state: OrderEconomyState,
+  bikesCountOverride?: number
+): number[] {
+  const count = Math.max(
+    INITIAL_BICYCLES,
+    Math.min(MAX_BICYCLES, bikesCountOverride ?? state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES)
+  );
+  const raw = Array.isArray(state.bikeDurabilities) ? state.bikeDurabilities : [];
+  return Array.from({ length: count }, (_, idx) =>
+    typeof raw[idx] === 'number' && Number.isFinite(raw[idx])
+      ? clampVehicleDurability(raw[idx])
+      : DEFAULT_VEHICLE_DURABILITY
+  );
+}
+
+/** Returns current durability (0–100) for any owned bicycle or delivery van. */
+export function getVehicleDurability(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection | null | undefined
+): number {
+  if (!vehicle) return DEFAULT_VEHICLE_DURABILITY;
+  if (vehicle.type === 'bike') {
+    const durabilities = getNormalizedBikeDurabilities(state);
+    return durabilities[vehicle.index - 1] ?? DEFAULT_VEHICLE_DURABILITY;
+  }
+  const van = getOwnedVanByIndex(state, vehicle.index);
+  if (!van) return DEFAULT_VEHICLE_DURABILITY;
+  return typeof van.durability === 'number' && Number.isFinite(van.durability)
+    ? clampVehicleDurability(van.durability)
+    : DEFAULT_VEHICLE_DURABILITY;
+}
+
+/** Returns the cruising speed multiplier for a vehicle (0.8 below 25% durability, otherwise 1.0). */
+export function getVehicleDurabilitySpeedMultiplier(durability: number): number {
+  return durability < LOW_DURABILITY_SPEED_THRESHOLD ? LOW_DURABILITY_SPEED_MULTIPLIER : 1;
+}
+
+/** Returns wear rate (% durability lost per world pixel driven) for the concrete vehicle. */
+export function getVehicleWearPerWorldPx(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): number {
+  if (vehicle.type === 'bike') {
+    return BIKE_WEAR_PER_WORLD_PX;
+  }
+  const van = getOwnedVanByIndex(state, vehicle.index);
+  const condition = van?.condition ?? 'used';
+  return condition === 'new' ? NEW_VAN_WEAR_PER_WORLD_PX : USED_VAN_WEAR_PER_WORLD_PX;
+}
+
+/**
+ * Dynamic repair cost scaling with wear (100 - durability) and vehicle class/model:
+ * - Bicycle (50% wear): ~$57 ($45–$65 range)
+ * - Vans (50% wear): ~$270–$450 depending on Used/New & Lite/Standard/Pro tier
+ */
+export function calculateVehicleRepairCost(
+  vehicleType: ActiveVehicleType,
+  durability: number,
+  vanModelId?: VanModelId
+): number {
+  const clamped = clampVehicleDurability(durability);
+  const wear = Math.max(0, 100 - clamped);
+  if (wear <= 0.01) return 0;
+
+  if (vehicleType === 'bike') {
+    return Math.round(12 + wear * 0.9);
+  }
+
+  const modelId: VanModelId = vanModelId ?? DEFAULT_LEGACY_VAN_MODEL_ID;
+  const vanRates: Record<VanModelId, { base: number; perWearPct: number }> = {
+    used_lite: { base: 45, perWearPct: 4.5 },
+    used_standard: { base: 55, perWearPct: 5.3 },
+    used_pro: { base: 65, perWearPct: 6.3 },
+    new_lite: { base: 60, perWearPct: 5.4 },
+    new_standard: { base: 70, perWearPct: 6.4 },
+    new_pro: { base: 80, perWearPct: 7.4 },
+  };
+  const rate = vanRates[modelId] ?? vanRates[DEFAULT_LEGACY_VAN_MODEL_ID];
+  return Math.round(rate.base + wear * rate.perWearPct);
+}
+
+/** Lists all currently queued/pending vehicle repair tasks. */
+export function getPendingVehicleRepairs(state: OrderEconomyState): VehicleRepairTask[] {
+  return Array.isArray(state.pendingVehicleRepairs) ? state.pendingVehicleRepairs : [];
+}
+
+/** Finds a pending repair task for the given vehicle, if any. */
+export function getPendingRepairForVehicle(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection | null | undefined
+): VehicleRepairTask | null {
+  if (!vehicle) return null;
+  const repairs = getPendingVehicleRepairs(state);
+  return repairs.find((r) => vehiclesEqual(r.vehicle, vehicle)) ?? null;
+}
+
+/** Returns true if the given vehicle is queued for or undergoing mechanic repair. */
+export function isVehicleRepairPending(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection | null | undefined
+): boolean {
+  return getPendingRepairForVehicle(state, vehicle) !== null;
+}
+
+/**
+ * Checks whether a qualified hired courier is currently assigned to drive `vehicle`
+ * to the Mechanic Garage.
+ */
+export function getRepairCourierReadiness(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): { ready: boolean; courier: CompanyCourier | null; reason?: 'no_courier' | 'no_van_license' } {
+  const assigned = findCourierAssignedToVehicle(state.couriers ?? [], vehicle);
+  if (!assigned) {
+    return { ready: false, courier: null, reason: 'no_courier' };
+  }
+  if (!canCourierDriveVehicle(assigned, vehicle.type)) {
+    return { ready: false, courier: assigned, reason: 'no_van_license' };
+  }
+  return { ready: true, courier: assigned };
+}
+
+/**
+ * Orders a mechanic repair for `vehicle` if durability < 80%, not already pending, and cash covers cost.
+ * Deducts repair cost immediately and adds a repair task to today's Plan tygodnia.
+ */
+export function requestVehicleRepair(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection,
+  currentGameDay?: number
+): VehicleRepairRequestResult {
+  const bikesCount = Math.max(
+    INITIAL_BICYCLES,
+    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
+  );
+  const ownedVans = getOwnedVans(state);
+
+  let vanModelId: VanModelId | undefined;
+  if (vehicle.type === 'bike') {
+    if (!Number.isInteger(vehicle.index) || vehicle.index < 1 || vehicle.index > bikesCount) {
+      return { state, queued: false, cost: 0, reason: 'not_found' };
+    }
+  } else {
+    const ownedVan = getOwnedVanByIndex(state, vehicle.index);
+    if (!ownedVan || vehicle.index < 1 || vehicle.index > ownedVans.length) {
+      return { state, queued: false, cost: 0, reason: 'not_found' };
+    }
+    vanModelId = ownedVan.modelId;
+  }
+
+  if (isVehicleRepairPending(state, vehicle)) {
+    return { state, queued: false, cost: 0, reason: 'already_pending' };
+  }
+
+  const durability = getVehicleDurability(state, vehicle);
+  if (durability >= REPAIR_AVAILABLE_DURABILITY_THRESHOLD) {
+    return { state, queued: false, cost: 0, reason: 'above_threshold' };
+  }
+
+  const cost = calculateVehicleRepairCost(vehicle.type, durability, vanModelId);
+  if (state.balance < cost) {
+    return { state, queued: false, cost, reason: 'insufficient_funds' };
+  }
+
+  const gameDay =
+    currentGameDay ?? Math.floor(state.lastProcessedMinutes / MINUTES_PER_DAY) + 1;
+  const newTask: VehicleRepairTask = {
+    id: makeVehicleRepairTaskId(vehicle),
+    vehicle: { type: vehicle.type, index: vehicle.index },
+    requestedAtGameDay: gameDay,
+    costPaid: cost,
+  };
+
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - cost),
+      pendingVehicleRepairs: [...getPendingVehicleRepairs(state), newTask],
+    },
+    queued: true,
+    cost,
+  };
+}
+
+/**
+ * Applies batched distance-driven wear deltas to one or more vehicles cleanly in a single immutable update.
+ */
+export function applyVehicleWearBatch(
+  state: OrderEconomyState,
+  wearEntries: ReadonlyArray<{ vehicle: ActiveVehicleSelection; distancePx: number }>
+): OrderEconomyState {
+  if (wearEntries.length === 0) return state;
+
+  let nextBikeDurabilities: number[] | null = null;
+  let nextVans: OwnedVan[] | null = null;
+  let changed = false;
+
+  for (const entry of wearEntries) {
+    if (!Number.isFinite(entry.distancePx) || entry.distancePx <= 0) continue;
+    const rate = getVehicleWearPerWorldPx(state, entry.vehicle);
+    const wearDelta = entry.distancePx * rate;
+    if (wearDelta <= 0) continue;
+
+    if (entry.vehicle.type === 'bike') {
+      const idx = entry.vehicle.index - 1;
+      const baseBikes: number[] = nextBikeDurabilities ?? getNormalizedBikeDurabilities(state);
+      if (idx < 0 || idx >= baseBikes.length) continue;
+      const prevDur = baseBikes[idx];
+      const nextDur = clampVehicleDurability(prevDur - wearDelta);
+      if (nextDur !== prevDur) {
+        const updatedBikes: number[] = nextBikeDurabilities ?? [...baseBikes];
+        updatedBikes[idx] = nextDur;
+        nextBikeDurabilities = updatedBikes;
+        changed = true;
+      }
+    } else {
+      const baseVans: OwnedVan[] = nextVans ?? getOwnedVans(state);
+      const targetIdx = baseVans.findIndex((v) => v.index === entry.vehicle.index);
+      if (targetIdx === -1) continue;
+      const prevDur =
+        typeof baseVans[targetIdx].durability === 'number'
+          ? baseVans[targetIdx].durability
+          : DEFAULT_VEHICLE_DURABILITY;
+      const nextDur = clampVehicleDurability(prevDur - wearDelta);
+      if (nextDur !== prevDur) {
+        const updatedVans: OwnedVan[] = nextVans ?? baseVans.map((v) => ({ ...v }));
+        updatedVans[targetIdx] = { ...updatedVans[targetIdx], durability: nextDur };
+        nextVans = updatedVans;
+        changed = true;
+      }
+    }
+  }
+
+  if (!changed) return state;
+
+  return {
+    ...state,
+    ...(nextBikeDurabilities ? { bikeDurabilities: nextBikeDurabilities } : {}),
+    ...(nextVans ? { vans: nextVans } : {}),
+  };
+}
+
+/**
+ * Completes a mechanic repair for `vehicle`: restores durability to 100%, removes the task
+ * from `pendingVehicleRepairs`, and cleans its task ID from `weeklyPriorityOrder`.
+ */
+export function completeVehicleRepair(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): OrderEconomyState {
+  const repairTaskId = makeVehicleRepairTaskId(vehicle);
+  const nextPendingRepairs = getPendingVehicleRepairs(state).filter(
+    (r) => !vehiclesEqual(r.vehicle, vehicle) && r.id !== repairTaskId
+  );
+
+  let nextBikeDurabilities = getNormalizedBikeDurabilities(state);
+  let nextVans = getOwnedVans(state);
+
+  if (vehicle.type === 'bike') {
+    const idx = vehicle.index - 1;
+    if (idx >= 0 && idx < nextBikeDurabilities.length) {
+      nextBikeDurabilities = [...nextBikeDurabilities];
+      nextBikeDurabilities[idx] = DEFAULT_VEHICLE_DURABILITY;
+    }
+  } else {
+    nextVans = nextVans.map((v) =>
+      v.index === vehicle.index ? { ...v, durability: DEFAULT_VEHICLE_DURABILITY } : v
+    );
+  }
+
+  const nextWeeklyPriority: Record<number, string[]> = {};
+  for (let wd = 0; wd < 7; wd++) {
+    nextWeeklyPriority[wd] = (state.weeklyPriorityOrder[wd] ?? []).filter(
+      (id) => id !== repairTaskId
+    );
+  }
+
+  return {
+    ...state,
+    bikeDurabilities: nextBikeDurabilities,
+    vans: nextVans,
+    pendingVehicleRepairs: nextPendingRepairs,
+    weeklyPriorityOrder: nextWeeklyPriority,
   };
 }
 
