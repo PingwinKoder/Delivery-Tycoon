@@ -9,8 +9,10 @@ import type {
   HirableEmployeeRole,
   MonthlyCostBreakdown,
   OrderEconomyState,
+  OwnedVan,
   ParkingSpotUpgradeInfo,
   UpgradePurchaseResult,
+  VanModelId,
   WarehouseLoadForBikeResult,
   WarehouseLoadedBatch,
   WarehouseTier,
@@ -29,6 +31,7 @@ import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
   COURIER_INSURANCE_COST,
+  DEFAULT_LEGACY_VAN_MODEL_ID,
   EMPLOYEE_LICENSE_COSTS,
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
@@ -44,19 +47,60 @@ import {
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
-  USED_VAN_INSURANCE_COST,
-  USED_VAN_PURCHASE_COST,
   VAN_COURIER_CAPACITY,
+  VAN_MODELS,
   WAREHOUSE_TIERS,
   createClockRandomSeed,
+  createDefaultOwnedVans,
   createEmptyWeeklyPriorityOrder,
+  createOwnedVan,
+  getVanModelSpec,
   roundCurrency,
 } from './constantsAndHelpers';
 import { generateOffersBatch } from './offerGenerator';
 
-/** Returns package capacity for the selected vehicle type (5 for bicycle, 20 for used van) */
+/** Returns package capacity for the selected generic vehicle type (5 for bicycle, max 20 for van) */
 export function getVehicleCourierCapacity(vehicleType: ActiveVehicleType): number {
   return vehicleType === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY;
+}
+
+/** Returns the normalized list of owned delivery vans (falls back cleanly for legacy saves). */
+export function getOwnedVans(state: OrderEconomyState): OwnedVan[] {
+  if (Array.isArray(state.vans) && state.vans.length > 0) {
+    return state.vans;
+  }
+  const legacyCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  if (legacyCount > 0) {
+    return createDefaultOwnedVans(legacyCount, DEFAULT_LEGACY_VAN_MODEL_ID);
+  }
+  return [];
+}
+
+/** Finds an owned delivery van by its 1-based fleet index (`Bus #1..#8`). */
+export function getOwnedVanByIndex(
+  state: OrderEconomyState,
+  index: number
+): OwnedVan | undefined {
+  const vans = getOwnedVans(state);
+  return vans.find((v) => v.index === index) ?? vans[index - 1];
+}
+
+/**
+ * Returns the exact package carrying capacity for a concrete vehicle selection
+ * (`5` for any bicycle, or `10 / 12 / 14 / 15 / 17 / 20` matching the specific `Bus #N` model).
+ */
+export function getVehicleCourierCapacityForSelection(
+  state: OrderEconomyState,
+  selection: ActiveVehicleSelection | null | undefined
+): number {
+  if (!selection || selection.type === 'bike') {
+    return BIKE_COURIER_CAPACITY;
+  }
+  const ownedVan = getOwnedVanByIndex(state, selection.index);
+  if (!ownedVan) {
+    return VAN_MODELS[DEFAULT_LEGACY_VAN_MODEL_ID].capacity;
+  }
+  return getVanModelSpec(ownedVan.modelId).capacity;
 }
 
 // ============================================================================
@@ -105,7 +149,7 @@ export function getOwnedFleetVehicles(state: OrderEconomyState): ActiveVehicleSe
     INITIAL_BICYCLES,
     state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
   );
-  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  const vansCount = getOwnedVans(state).length;
   const list: ActiveVehicleSelection[] = [];
   for (let i = 1; i <= bikesCount; i++) {
     list.push({ type: 'bike', index: i });
@@ -215,6 +259,7 @@ export function createInitialOrderEconomyState(
     employees: initialEmployees,
     bikesCount: INITIAL_BICYCLES,
     bicyclesCount: INITIAL_BICYCLES,
+    vans: [],
     vansCount: INITIAL_VANS,
     deliveryVansCount: INITIAL_VANS,
     activeVehicle: starterVehicle,
@@ -255,7 +300,7 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
   const baseUpkeepAndTaxCost = warehouseConfig.monthlyUpkeepCost;
   const bikesCount = state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES;
   const additionalBikes = Math.max(0, bikesCount - 1);
-  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  const ownedVans = getOwnedVans(state);
 
   let salariesCost = 0;
 
@@ -275,9 +320,14 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
     }
   }
 
+  let vanInsuranceRaw = 0;
+  for (const van of ownedVans) {
+    vanInsuranceRaw += getVanModelSpec(van.modelId).monthlyInsurance;
+  }
+
   salariesCost = roundCurrency(salariesCost);
   const courierInsuranceCost = roundCurrency(additionalBikes * COURIER_INSURANCE_COST);
-  const vanInsuranceCost = roundCurrency(vansCount * USED_VAN_INSURANCE_COST);
+  const vanInsuranceCost = roundCurrency(vanInsuranceRaw);
   const insuranceCost = roundCurrency(courierInsuranceCost + vanInsuranceCost);
   const totalFixedCosts = roundCurrency(baseUpkeepAndTaxCost + salariesCost + insuranceCost);
 
@@ -317,32 +367,46 @@ export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult
 }
 
 /**
- * Purchases a used delivery van (20-package class, $8 500 each) if a free Base parking spot
- * (parkingSpots) is available and balance covers the purchase price.
+ * Purchases a delivery van of the chosen `modelId` (Used/New × Lite/Standard/Pro)
+ * if a free Base parking spot (`parkingSpots`) is available and balance covers the purchase price.
  */
-export function purchaseUsedVan(state: OrderEconomyState): UpgradePurchaseResult {
-  const currentVans = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+export function purchaseVan(
+  state: OrderEconomyState,
+  modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID
+): UpgradePurchaseResult {
+  const spec = getVanModelSpec(modelId);
+  const existingVans = getOwnedVans(state);
+  const currentVans = existingVans.length;
   if (currentVans >= MAX_VANS) {
     return { state, purchased: false, cost: 0, reason: 'max_reached' };
   }
   if (currentVans >= state.parkingSpots) {
-    return { state, purchased: false, cost: USED_VAN_PURCHASE_COST, reason: 'no_parking_spot' };
+    return { state, purchased: false, cost: spec.purchasePrice, reason: 'no_parking_spot' };
   }
-  if (state.balance < USED_VAN_PURCHASE_COST) {
-    return { state, purchased: false, cost: USED_VAN_PURCHASE_COST, reason: 'insufficient_funds' };
+  if (state.balance < spec.purchasePrice) {
+    return { state, purchased: false, cost: spec.purchasePrice, reason: 'insufficient_funds' };
   }
 
-  const nextVans = currentVans + 1;
+  const nextIndex = currentVans + 1;
+  const nextVans: OwnedVan[] = [...existingVans, createOwnedVan(nextIndex, spec.id)];
   return {
     state: {
       ...state,
-      balance: roundCurrency(state.balance - USED_VAN_PURCHASE_COST),
-      vansCount: nextVans,
-      deliveryVansCount: nextVans,
+      balance: roundCurrency(state.balance - spec.purchasePrice),
+      vans: nextVans,
+      vansCount: nextVans.length,
+      deliveryVansCount: nextVans.length,
     },
     purchased: true,
-    cost: USED_VAN_PURCHASE_COST,
+    cost: spec.purchasePrice,
   };
+}
+
+/**
+ * Backwards-compatible alias for purchasing a Used Standard delivery van.
+ */
+export function purchaseUsedVan(state: OrderEconomyState): UpgradePurchaseResult {
+  return purchaseVan(state, DEFAULT_LEGACY_VAN_MODEL_ID);
 }
 
 /**

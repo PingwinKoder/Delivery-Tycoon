@@ -1,3 +1,4 @@
+import type { VanCondition, VanTier } from '../../types/orders';
 import type { DepthSortedEntity } from '../buildings';
 import {
   DEFAULT_BICYCLE_SCALE,
@@ -34,6 +35,8 @@ export interface ParkedVanSlotEntityInput {
     y: number;
   };
   parkedAngle: number;
+  condition?: VanCondition;
+  tier?: VanTier;
 }
 
 /**
@@ -55,6 +58,8 @@ export function createParkedVanDepthEntity(
         y: slot.spot.y,
         angle: slot.parkedAngle,
         wheelPhase: 0,
+        condition: slot.condition ?? 'used',
+        tier: slot.tier ?? 'standard',
       }),
   };
 }

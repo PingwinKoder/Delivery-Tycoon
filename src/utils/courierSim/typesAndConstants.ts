@@ -1,7 +1,16 @@
 import type { Building } from '../../types/building';
-import type { ActiveOrder, ActiveVehicleType, WeeklyScheduleTask } from '../../types/orders';
+import type {
+  ActiveOrder,
+  ActiveVehicleSelection,
+  ActiveVehicleType,
+  OrderEconomyState,
+  WeeklyScheduleTask,
+} from '../../types/orders';
 import type { Point } from '../../types/roadGraph';
-import { getVehicleCourierCapacity } from '../orderEconomy';
+import {
+  getVehicleCourierCapacity,
+  getVehicleCourierCapacityForSelection,
+} from '../orderEconomy';
 
 export type CourierPhase = 'idle' | 'outbound' | 'delivering' | 'returning';
 
@@ -81,6 +90,8 @@ export interface CourierTaskSelectionOptions {
   claimedTaskIds?: ReadonlySet<string>;
   /** Packages currently reserved in-flight by other couriers' active pickup runs (not yet unloaded into Base) */
   reservedWarehouseSpace?: number;
+  /** Exact carrying capacity for the concrete vehicle being dispatched (e.g. 5 for bike, 10/12/14/15/17/20 for van) */
+  vehicleCapacity?: number;
 }
 
 export interface CourierState {
@@ -194,6 +205,13 @@ export function getCourierSpeedForVehicle(vehicleType: ActiveVehicleType): numbe
 
 export function getCourierCapacityForVehicle(vehicleType: ActiveVehicleType): number {
   return getVehicleCourierCapacity(vehicleType);
+}
+
+export function getCourierCapacityForSelection(
+  state: OrderEconomyState,
+  selection: ActiveVehicleSelection | null | undefined
+): number {
+  return getVehicleCourierCapacityForSelection(state, selection);
 }
 
 export function getCourierCargoCount(cargo: readonly CourierCargoItem[]): number {

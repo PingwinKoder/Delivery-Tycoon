@@ -67,7 +67,7 @@ import {
   createPickupMissionCourier,
   getActiveOutVehiclesForFleet,
   getClaimedTaskIdsForFleet,
-  getCourierCapacityForVehicle,
+  getCourierCapacityForSelection,
   getCourierCargoCount,
   getCourierSpeedForVehicle,
   getReservedWarehouseSpaceForFleet,
@@ -86,6 +86,8 @@ import type {
 } from '../types/orders';
 import { type GameSpeed, getGameClockDisplay } from '../utils/gameClock';
 import {
+  getOwnedVanByIndex,
+  getOwnedVans,
   getRemainingPickupPackagesForOrderToday,
   isNightHoursForTime,
   pickRandomRecipientBuildingForPackage,
@@ -646,8 +648,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   useEffect(() => {
     if (sessionEpoch === lastSessionEpochRef.current) return;
     lastSessionEpochRef.current = sessionEpoch;
-    const roster = propsRef.current.economyStateRef?.current?.couriers;
-    couriersFleetRef.current = createInitialCourierFleet(roster);
+    const eco = propsRef.current.economyStateRef?.current;
+    couriersFleetRef.current = createInitialCourierFleet(eco?.couriers, eco);
     syncFleetStatus();
   }, [sessionEpoch]);
 
@@ -881,17 +883,21 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       },
       recallCourierToBase: () => {
         const recoveredCargo = collectInFlightCargoForFleet(couriersFleetRef.current);
-        const roster = propsRef.current.economyStateRef?.current?.couriers;
+        const eco = propsRef.current.economyStateRef?.current;
+        const roster = eco?.couriers;
 
         for (const slotIndex of COURIER_SLOT_INDICES) {
           const assignedVehicle =
             roster?.find((c) => c.slotIndex === slotIndex)?.assignedVehicle ??
             (slotIndex === 1 ? propsRef.current.activeVehicle : { type: 'bike' as const, index: 1 });
+          const vehicleCapacity = eco
+            ? getCourierCapacityForSelection(eco, assignedVehicle)
+            : undefined;
           couriersFleetRef.current[slotIndex] = {
             slotIndex,
             inRoute: false,
             assignedTaskId: null,
-            courier: createIdleCourier(assignedVehicle, slotIndex),
+            courier: createIdleCourier(assignedVehicle, slotIndex, vehicleCapacity),
             activeRoute: [],
             targetMarker: null,
           };
@@ -902,8 +908,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       },
       getInFlightCargo: () => collectInFlightCargoForFleet(couriersFleetRef.current),
       resetCouriersToBase: (couriers?: readonly CompanyCourier[]) => {
-        const roster = couriers ?? propsRef.current.economyStateRef?.current?.couriers;
-        couriersFleetRef.current = createInitialCourierFleet(roster);
+        const eco = propsRef.current.economyStateRef?.current;
+        const roster = couriers ?? eco?.couriers;
+        couriersFleetRef.current = createInitialCourierFleet(roster, eco);
         syncFleetStatus();
       },
     };
@@ -1286,7 +1293,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type);
-      const vehicleCapacity = getCourierCapacityForVehicle(dispatchVehicle.type);
+      const vehicleCapacity = getCourierCapacityForSelection(ecoState, dispatchVehicle);
       const claimedTaskIds = getClaimedTaskIdsForFleet(couriersFleetRef.current, slotIndex);
       const reservedWarehouseSpace = getReservedWarehouseSpaceForFleet(
         couriersFleetRef.current,
@@ -1302,6 +1309,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         {
           claimedTaskIds,
           reservedWarehouseSpace,
+          vehicleCapacity,
         }
       );
       if (!selectedTask) return false;
@@ -1328,7 +1336,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           dispatchVehicle,
           curParkingNav,
           slotIndex,
-          assignedTaskId
+          assignedTaskId,
+          vehicleCapacity
         );
 
         if (mission.active) {
@@ -1365,7 +1374,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         dispatchVehicle,
         curParkingNav,
         slotIndex,
-        assignedTaskId
+        assignedTaskId,
+        vehicleCapacity
       );
       if (pickupMission.active) {
         couriersFleetRef.current[slotIndex] = {
@@ -1695,6 +1705,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                     {
                       claimedTaskIds: getClaimedTaskIdsForFleet(fleet, slotIndex),
                       reservedWarehouseSpace: getReservedWarehouseSpaceForFleet(fleet, slotIndex),
+                      vehicleCapacity: activeMissionCapacity,
                     }
                   );
 
@@ -1721,7 +1732,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                         activeMissionVehicle,
                         propsRef.current.parkingNavNetworks,
                         slotIndex,
-                        directTaskId
+                        directTaskId,
+                        activeMissionCapacity
                       );
                       if (directMission.active) {
                         entry.courier = {
@@ -1791,7 +1803,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                   activeMissionVehicle,
                   propsRef.current.parkingNavNetworks,
                   propsRef.current.graph,
-                  slotIndex
+                  slotIndex,
+                  activeMissionCapacity
                 );
                 if (parkMission.active) {
                   entry.courier = parkMission;
@@ -1800,7 +1813,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                   entry.activeRoute = [];
                   entry.targetMarker = null;
                 } else {
-                  entry.courier = createIdleCourier(activeMissionVehicle, slotIndex);
+                  entry.courier = createIdleCourier(
+                    activeMissionVehicle,
+                    slotIndex,
+                    activeMissionCapacity
+                  );
                   entry.inRoute = false;
                   entry.assignedTaskId = null;
                   entry.activeRoute = [];
@@ -1811,7 +1828,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               if (ev.cargo.length > 0) {
                 propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
               }
-              entry.courier = createIdleCourier(activeMissionVehicle, slotIndex);
+              entry.courier = createIdleCourier(
+                activeMissionVehicle,
+                slotIndex,
+                activeMissionCapacity
+              );
               entry.inRoute = false;
               entry.assignedTaskId = null;
               entry.activeRoute = [];
@@ -2013,6 +2034,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
       const rack = curBaseDepot.bikeRack;
 
+      const currentEco = propsRef.current.economyStateRef?.current;
+      const ownedVansList = currentEco ? getOwnedVans(currentEco) : undefined;
+
       const drawFleetCourier = (
         drawCtx: CanvasRenderingContext2D,
         entry: FleetCourierSlotState
@@ -2020,12 +2044,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const c = entry.courier;
         const cargoCount = getCourierCargoCount(c.cargo);
         if (c.vehicleType === 'van') {
+          const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, c.vehicleIndex) : undefined;
           drawIsometricDeliveryVan(drawCtx, {
             x: c.x,
             y: c.y,
             angle: c.angle,
             wheelPhase: c.wheelPhase,
             isDelivering: c.phase === 'delivering',
+            condition: ownedVan?.condition ?? 'used',
+            tier: ownedVan?.tier ?? 'standard',
             courierSlotIndex: entry.slotIndex,
             cargoCount,
             cargoCapacity: c.cargoCapacity,
@@ -2061,11 +2088,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           null
         ).filter((slot) => !activeOutVanIndices.has(slot.vanIndex));
         for (const slot of parkedVanSlots) {
+          const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, slot.vanIndex) : undefined;
           drawIsometricDeliveryVan(ctx, {
             x: slot.spot.x,
             y: slot.spot.y,
             angle: slot.parkedAngle,
             wheelPhase: 0,
+            condition: ownedVan?.condition ?? 'used',
+            tier: ownedVan?.tier ?? 'standard',
           });
         }
         for (const slotIndex of COURIER_SLOT_INDICES) {
@@ -2092,7 +2122,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const parkedVanEntities = createBaseParkedVanEntities(
           curBaseDepot,
           curVansCount,
-          null
+          null,
+          ownedVansList
         ).filter((entity) => {
           const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
           return !activeOutVanIndices.has(vanIdx);

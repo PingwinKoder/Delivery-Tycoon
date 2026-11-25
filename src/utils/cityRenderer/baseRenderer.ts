@@ -1,4 +1,5 @@
 import type { Building } from '../../types/building';
+import type { OwnedVan } from '../../types/orders';
 import {
   type BuildingPrismPoints,
   type DepthSortedEntity,
@@ -382,8 +383,16 @@ export function drawBaseWarehouse3DVector(
 export function createBaseParkedVanEntities(
   baseDepot: BaseDepotSpec,
   vansCount: number,
-  activeOutVanIndex: number | null
+  activeOutVanIndex: number | null,
+  ownedVans?: readonly OwnedVan[]
 ): DepthSortedEntity[] {
   const slots = getBaseParkedVanSlots(baseDepot.parking, vansCount, activeOutVanIndex);
-  return slots.map((slot) => createParkedVanDepthEntity(slot));
+  return slots.map((slot) => {
+    const owned = ownedVans?.find((v) => v.index === slot.vanIndex);
+    return createParkedVanDepthEntity({
+      ...slot,
+      condition: owned?.condition ?? 'used',
+      tier: owned?.tier ?? 'standard',
+    });
+  });
 }

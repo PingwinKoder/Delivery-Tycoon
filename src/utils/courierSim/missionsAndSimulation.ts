@@ -45,6 +45,17 @@ import {
   getCourierSpeedForVehicle,
 } from './typesAndConstants';
 
+function resolveMissionCargoCapacity(
+  vehicle: ActiveVehicleSelection,
+  cargoCapacityOverride?: number
+): number {
+  return typeof cargoCapacityOverride === 'number' &&
+    Number.isFinite(cargoCapacityOverride) &&
+    cargoCapacityOverride > 0
+    ? Math.floor(cargoCapacityOverride)
+    : getCourierCapacityForVehicle(vehicle.type);
+}
+
 function createMissionCourierFromStops(
   missionKind: Exclude<CourierMissionKind, 'none' | 'manual' | 'park_rack'>,
   stops: CourierMissionStop[],
@@ -53,10 +64,12 @@ function createMissionCourierFromStops(
   deliveryPauseDuration = DELIVERY_PAUSE_SECONDS,
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   courierId = 1,
-  assignedTaskId: string | null = null
+  assignedTaskId: string | null = null,
+  cargoCapacityOverride?: number
 ): CourierState {
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
   if (stops.length === 0 || stops[0].legPath.length < 2) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -97,7 +110,7 @@ function createMissionCourierFromStops(
     missionKind,
     vehicleType: vehicle.type,
     vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
-    cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
+    cargoCapacity: resolvedCapacity,
     stops,
     currentStopIndex: 0,
     cargo: initialCargo.map((item) => ({ ...item })),
@@ -120,10 +133,12 @@ export function createPickupMissionCourier(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  assignedTaskId: string | null = orderId
+  assignedTaskId: string | null = orderId,
+  cargoCapacityOverride?: number
 ): CourierState {
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
   if (plannedPickupCount <= 0) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -132,7 +147,7 @@ export function createPickupMissionCourier(
   if (vehicle.type === 'van') {
     const stopPlan = resolveVanStopForBuilding(senderBuilding, parkingNavNetworks);
     if (!stopPlan) {
-      return createIdleCourier(vehicle, courierId);
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
     }
 
     const outboundPath = buildVanOutboundLegFromBaseToStop(
@@ -154,7 +169,7 @@ export function createPickupMissionCourier(
       !returnToLoadingZone ||
       returnToLoadingZone.length < 2
     ) {
-      return createIdleCourier(vehicle, courierId);
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
     }
 
     const actualStopPoint = outboundPath[outboundPath.length - 1];
@@ -196,12 +211,13 @@ export function createPickupMissionCourier(
       DELIVERY_PAUSE_SECONDS,
       vehicle,
       courierId,
-      assignedTaskId
+      assignedTaskId,
+      resolvedCapacity
     );
   }
 
   if (!senderBuilding.deliveryStopPoint) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const outboundPath = buildOutboundLegFromBaseToBuilding(
@@ -221,7 +237,7 @@ export function createPickupMissionCourier(
     !returnToLoadingZone ||
     returnToLoadingZone.length < 2
   ) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const pickupStop: CourierMissionStop = {
@@ -257,7 +273,8 @@ export function createPickupMissionCourier(
     DELIVERY_PAUSE_SECONDS,
     vehicle,
     courierId,
-    assignedTaskId
+    assignedTaskId,
+    resolvedCapacity
   );
 }
 
@@ -313,10 +330,12 @@ export function createDeliveryMissionCourier(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  assignedTaskId: string | null = initialCargo[0]?.orderId ?? null
+  assignedTaskId: string | null = initialCargo[0]?.orderId ?? null,
+  cargoCapacityOverride?: number
 ): CourierState {
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
   if (stopsInput.length === 0 || initialCargo.length === 0) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -413,7 +432,7 @@ export function createDeliveryMissionCourier(
   }
 
   if (deliveryStops.length === 0) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const baseLoadLegPath =
@@ -473,7 +492,7 @@ export function createDeliveryMissionCourier(
       missionKind: 'delivery',
       vehicleType: vehicle.type,
       vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
-      cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
+      cargoCapacity: resolvedCapacity,
       stops: allStops,
       currentStopIndex: 0,
       cargo: initialCargo.map((it) => ({ ...it })),
@@ -489,7 +508,8 @@ export function createDeliveryMissionCourier(
     DELIVERY_PAUSE_SECONDS,
     vehicle,
     courierId,
-    assignedTaskId
+    assignedTaskId,
+    resolvedCapacity
   );
 }
 
@@ -508,10 +528,12 @@ export function createDirectDeliveryMissionFromBuilding(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  assignedTaskId: string | null = initialCargo[0]?.orderId ?? null
+  assignedTaskId: string | null = initialCargo[0]?.orderId ?? null,
+  cargoCapacityOverride?: number
 ): CourierState {
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
   if (stopsInput.length === 0 || initialCargo.length === 0) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -520,7 +542,7 @@ export function createDirectDeliveryMissionFromBuilding(
   if (vehicle.type === 'van') {
     const senderPlan = resolveVanStopForBuilding(senderBuilding, parkingNavNetworks);
     if (!senderPlan) {
-      return createIdleCourier(vehicle, courierId);
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
     }
 
     const orderedInputs = orderStopsNearestNeighbor(stopsInput, senderPlan.stopPoint);
@@ -567,7 +589,7 @@ export function createDirectDeliveryMissionFromBuilding(
     }
   } else {
     if (!senderBuilding.deliveryStopPoint || !senderBuilding.roadApproachPoint) {
-      return createIdleCourier(vehicle, courierId);
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
     }
 
     const startPt: Point = {
@@ -608,7 +630,7 @@ export function createDirectDeliveryMissionFromBuilding(
   }
 
   if (deliveryStops.length === 0) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   return createMissionCourierFromStops(
@@ -619,7 +641,8 @@ export function createDirectDeliveryMissionFromBuilding(
     DELIVERY_PAUSE_SECONDS,
     vehicle,
     courierId,
-    assignedTaskId
+    assignedTaskId,
+    resolvedCapacity
   );
 }
 
@@ -636,8 +659,10 @@ export function createParkAtRackCourier(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   graph?: RoadGraph,
-  courierId = 1
+  courierId = 1,
+  cargoCapacityOverride?: number
 ): CourierState {
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
   const parkWaypoints =
     vehicle.type === 'van'
@@ -653,7 +678,7 @@ export function createParkAtRackCourier(
         : baseDepot.loadingZone.toBikeRackWaypoints.map((p) => ({ x: p.x, y: p.y }));
 
   if (parkWaypoints.length < 2) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const dx = parkWaypoints[1].x - parkWaypoints[0].x;
@@ -687,7 +712,7 @@ export function createParkAtRackCourier(
     missionKind: 'park_rack',
     vehicleType: vehicle.type,
     vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
-    cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
+    cargoCapacity: resolvedCapacity,
     stops: [],
     currentStopIndex: 0,
     cargo: [],
@@ -968,7 +993,8 @@ function beginLegOnPath(
   if (nextPath.length < 2) {
     return createIdleCourier(
       { type: state.vehicleType, index: state.vehicleIndex },
-      state.courierId
+      state.courierId,
+      state.cargoCapacity
     );
   }
 
@@ -1136,7 +1162,8 @@ function stepCourierBySimDtInternal(
         });
         return createIdleCourier(
           { type: state.vehicleType, index: state.vehicleIndex },
-          state.courierId
+          state.courierId,
+          state.cargoCapacity
         );
       }
 
@@ -1153,7 +1180,8 @@ function stepCourierBySimDtInternal(
         });
         return createIdleCourier(
           { type: state.vehicleType, index: state.vehicleIndex },
-          state.courierId
+          state.courierId,
+          state.cargoCapacity
         );
       }
 
@@ -1258,7 +1286,8 @@ function stepCourierBySimDtInternal(
     }
     return createIdleCourier(
       { type: state.vehicleType, index: state.vehicleIndex },
-      state.courierId
+      state.courierId,
+      state.cargoCapacity
     );
   }
 
@@ -1402,7 +1431,8 @@ function stepCourierBySimDtInternal(
       });
       return createIdleCourier(
         { type: state.vehicleType, index: state.vehicleIndex },
-        state.courierId
+        state.courierId,
+        state.cargoCapacity
       );
     }
 
@@ -1419,7 +1449,8 @@ function stepCourierBySimDtInternal(
     });
     return createIdleCourier(
       { type: state.vehicleType, index: state.vehicleIndex },
-      state.courierId
+      state.courierId,
+      state.cargoCapacity
     );
   }
 

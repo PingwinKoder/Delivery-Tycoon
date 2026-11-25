@@ -1,8 +1,13 @@
 import type {
   ActiveOrder,
   OrderEconomyState,
+  OwnedVan,
   ReputationLevel,
   ReputationTierConfig,
+  VanCondition,
+  VanModelId,
+  VanModelSpec,
+  VanTier,
   WarehouseTier,
   WarehouseTierConfig,
 } from '../../types/orders';
@@ -50,10 +55,110 @@ export const MAX_BICYCLES = 3;
 export const MAX_ADDITIONAL_BICYCLES = MAX_BICYCLES - INITIAL_BICYCLES; // 2
 export const BICYCLE_PURCHASE_COST = 450;
 
-/** Used delivery van (20-package class) fleet configuration (limit = unlocked parkingSpots, max 8) */
+/** Delivery van fleet configuration (limit = unlocked parkingSpots, max 8) */
 export const INITIAL_VANS = 0;
 export const MAX_VANS = 8;
-export const USED_VAN_PURCHASE_COST = 8500;
+export const DEFAULT_LEGACY_VAN_MODEL_ID: VanModelId = 'used_standard';
+export const USED_VAN_PURCHASE_COST = 7500;
+
+/** Full catalog of 6 delivery van models (3 Used + 3 New tiers) */
+export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
+  used_lite: {
+    id: 'used_lite',
+    condition: 'used',
+    tier: 'lite',
+    name: 'Bus Używany — Lite',
+    capacity: 10,
+    purchasePrice: 5500,
+    monthlyInsurance: 110,
+    fuelConsumptionRate: 1.35,
+  },
+  used_standard: {
+    id: 'used_standard',
+    condition: 'used',
+    tier: 'standard',
+    name: 'Bus Używany — Standard',
+    capacity: 12,
+    purchasePrice: 7500,
+    monthlyInsurance: 130,
+    fuelConsumptionRate: 1.45,
+  },
+  used_pro: {
+    id: 'used_pro',
+    condition: 'used',
+    tier: 'pro',
+    name: 'Bus Używany — Pro',
+    capacity: 15,
+    purchasePrice: 9800,
+    monthlyInsurance: 155,
+    fuelConsumptionRate: 1.55,
+  },
+  new_lite: {
+    id: 'new_lite',
+    condition: 'new',
+    tier: 'lite',
+    name: 'Bus Nowy — Lite',
+    capacity: 14,
+    purchasePrice: 12500,
+    monthlyInsurance: 90,
+    fuelConsumptionRate: 0.9,
+  },
+  new_standard: {
+    id: 'new_standard',
+    condition: 'new',
+    tier: 'standard',
+    name: 'Bus Nowy — Standard',
+    capacity: 17,
+    purchasePrice: 16000,
+    monthlyInsurance: 105,
+    fuelConsumptionRate: 1.0,
+  },
+  new_pro: {
+    id: 'new_pro',
+    condition: 'new',
+    tier: 'pro',
+    name: 'Bus Nowy — Pro',
+    capacity: 20,
+    purchasePrice: 20500,
+    monthlyInsurance: 120,
+    fuelConsumptionRate: 1.1,
+  },
+} as const;
+
+export const VAN_MODEL_IDS_BY_CONDITION: Readonly<Record<VanCondition, readonly VanModelId[]>> = {
+  used: ['used_lite', 'used_standard', 'used_pro'],
+  new: ['new_lite', 'new_standard', 'new_pro'],
+} as const;
+
+export const VAN_TIERS_ORDER: readonly VanTier[] = ['lite', 'standard', 'pro'] as const;
+
+export function isValidVanModelId(value: unknown): value is VanModelId {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(VAN_MODELS, value);
+}
+
+export function getVanModelSpec(modelId: VanModelId): VanModelSpec {
+  return VAN_MODELS[modelId] ?? VAN_MODELS[DEFAULT_LEGACY_VAN_MODEL_ID];
+}
+
+export function createOwnedVan(index: number, modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID): OwnedVan {
+  const spec = getVanModelSpec(modelId);
+  const safeIndex = Math.max(1, Math.floor(index));
+  return {
+    id: `van-${safeIndex}`,
+    index: safeIndex,
+    modelId: spec.id,
+    condition: spec.condition,
+    tier: spec.tier,
+  };
+}
+
+export function createDefaultOwnedVans(
+  count: number,
+  modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID
+): OwnedVan[] {
+  const safeCount = Math.max(0, Math.min(MAX_VANS, Math.floor(count)));
+  return Array.from({ length: safeCount }, (_, idx) => createOwnedVan(idx + 1, modelId));
+}
 
 /** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity, monthly upkeep & depot building size */
 export const WAREHOUSE_TIERS: readonly WarehouseTierConfig[] = [

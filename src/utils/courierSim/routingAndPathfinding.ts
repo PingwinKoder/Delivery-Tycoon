@@ -67,10 +67,18 @@ export function createCourierFromPath(
   returnPoints?: Point[],
   targetLabel?: string,
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
-  courierId = 1
+  courierId = 1,
+  cargoCapacityOverride?: number
 ): CourierState {
+  const resolvedCapacity =
+    typeof cargoCapacityOverride === 'number' &&
+    Number.isFinite(cargoCapacityOverride) &&
+    cargoCapacityOverride > 0
+      ? Math.floor(cargoCapacityOverride)
+      : getCourierCapacityForVehicle(vehicle.type);
+
   if (outboundPoints.length < 2) {
-    return createIdleCourier(vehicle, courierId);
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
   }
 
   const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
@@ -111,7 +119,7 @@ export function createCourierFromPath(
     missionKind: 'manual',
     vehicleType: vehicle.type,
     vehicleIndex: Math.max(1, Math.floor(vehicle.index || 1)),
-    cargoCapacity: getCourierCapacityForVehicle(vehicle.type),
+    cargoCapacity: resolvedCapacity,
     stops: [],
     currentStopIndex: 0,
     cargo: [],

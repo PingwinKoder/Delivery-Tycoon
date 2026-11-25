@@ -7,8 +7,8 @@ export type EffectiveGameSpeed = GameSpeed | typeof NIGHT_MODE_SPEED;
 
 export const GAME_SPEED_OPTIONS: readonly GameSpeed[] = [0, 1, 2, 4];
 
-/** Base in-game clock rate at 1x speed: 1 real second = 2 in-game minutes (2x = 4/s, 4x = 8/s, 15x = 30/s) */
-export const BASE_GAME_MINUTES_PER_REAL_SECOND = 2;
+/** Base in-game clock rate at 1x speed: 1 real second = 1.25 in-game minutes (2x = 2.5/s, 4x = 5/s, 15x = 18.75/s) */
+export const BASE_GAME_MINUTES_PER_REAL_SECOND = 1.25;
 
 export function getGameMinutesPerRealSecond(speed: EffectiveGameSpeed): number {
   return speed * BASE_GAME_MINUTES_PER_REAL_SECOND;

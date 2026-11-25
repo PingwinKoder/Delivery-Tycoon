@@ -217,6 +217,42 @@ export interface CompanyEmployee {
 
 export type ActiveVehicleType = 'bike' | 'van';
 
+export type VanCondition = 'used' | 'new';
+
+export type VanTier = 'lite' | 'standard' | 'pro';
+
+export type VanModelId =
+  | 'used_lite'
+  | 'used_standard'
+  | 'used_pro'
+  | 'new_lite'
+  | 'new_standard'
+  | 'new_pro';
+
+export interface VanModelSpec {
+  id: VanModelId;
+  condition: VanCondition;
+  tier: VanTier;
+  name: string;
+  /** Maximum packages this van model can carry in a single trip */
+  capacity: number;
+  /** One-time purchase price in USD */
+  purchasePrice: number;
+  /** Monthly insurance & maintenance cost in USD */
+  monthlyInsurance: number;
+  /** Relative fuel burn multiplier (higher for used vans, lower for new vans; prepared for fuel stage) */
+  fuelConsumptionRate: number;
+}
+
+export interface OwnedVan {
+  id: string;
+  /** 1-based fleet index matching ActiveVehicleSelection.index and Base stall P1–P8 */
+  index: number;
+  modelId: VanModelId;
+  condition: VanCondition;
+  tier: VanTier;
+}
+
 export interface ActiveVehicleSelection {
   type: ActiveVehicleType;
   /** 1-based fleet index (e.g. Rower #1, Bus #1, Bus #2) */
@@ -390,9 +426,11 @@ export interface OrderEconomyState {
   bikesCount: number;
   /** Alias for bikesCount kept strictly in sync */
   bicyclesCount: number;
-  /** Number of owned used delivery vans (20-package class, starts at 0, max = parkingSpots <= 8) */
+  /** Owned delivery vans with individual models & capacities (limit = parkingSpots <= 8) */
+  vans: OwnedVan[];
+  /** Number of owned delivery vans (always equal to vans.length, max = parkingSpots <= 8) */
   vansCount: number;
-  /** Alias for vansCount kept strictly in sync */
+  /** Alias for vansCount kept strictly in sync with vans.length */
   deliveryVansCount: number;
   /** Vehicle currently assigned to the owner courier (Kurier #1) */
   activeVehicle: ActiveVehicleSelection;

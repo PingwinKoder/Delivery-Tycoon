@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Lock,
   ParkingSquare,
-  Truck,
   UserMinus,
   UserPlus,
   Users,
@@ -22,6 +21,10 @@ import type {
   CompanyCourier,
   CourierQualification,
   OrderEconomyState,
+  OwnedVan,
+  VanCondition,
+  VanModelId,
+  VanTier,
 } from '../types/orders';
 import type { SupportedLanguage } from '../utils/settingsSystem';
 import {
@@ -36,9 +39,8 @@ import {
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
-  USED_VAN_INSURANCE_COST,
-  USED_VAN_PURCHASE_COST,
-  VAN_COURIER_CAPACITY,
+  VAN_MODELS,
+  VAN_MODEL_IDS_BY_CONDITION,
   WAREHOUSE_TIERS,
   calculateMonthlyCompanyCosts,
   canCourierDriveVehicle,
@@ -49,6 +51,10 @@ import {
   getNextParkingSpotUpgrade,
   getNextWarehouseUpgrade,
   getOwnedFleetVehicles,
+  getOwnedVanByIndex,
+  getOwnedVans,
+  getVanModelSpec,
+  getVehicleCourierCapacityForSelection,
   getWarehouseTierConfig,
   vehiclesEqual,
 } from '../utils/orderEconomy';
@@ -61,6 +67,218 @@ function formatMissingFunds(cost: number, balance: number, lang: SupportedLangua
   return t(lang, 'company.missingFunds', { amount: formatCurrencyUsd(missing, hasCents) });
 }
 
+function getVanConditionLabel(lang: SupportedLanguage, condition: VanCondition): string {
+  return condition === 'new'
+    ? t(lang, 'company.vanConditionNew')
+    : t(lang, 'company.vanConditionUsed');
+}
+
+function getVanTierLabel(lang: SupportedLanguage, tier: VanTier): string {
+  if (tier === 'lite') return t(lang, 'company.vanTierLite');
+  if (tier === 'pro') return t(lang, 'company.vanTierPro');
+  return t(lang, 'company.vanTierStandard');
+}
+
+function getVanRoofLabel(lang: SupportedLanguage, tier: VanTier): string {
+  if (tier === 'lite') return t(lang, 'company.vanRoofLow');
+  if (tier === 'pro') return t(lang, 'company.vanRoofHigh');
+  return t(lang, 'company.vanRoofMid');
+}
+
+function formatVehicleDisplayLabel(
+  lang: SupportedLanguage,
+  economyState: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): string {
+  if (vehicle.type === 'bike') {
+    return t(lang, 'company.vehicleBike', { index: vehicle.index });
+  }
+  const ownedVan = getOwnedVanByIndex(economyState, vehicle.index);
+  if (!ownedVan) {
+    return t(lang, 'company.vehicleVan', { index: vehicle.index });
+  }
+  return t(lang, 'company.vehicleVanFull', {
+    index: vehicle.index,
+    condition: getVanConditionLabel(lang, ownedVan.condition),
+    tier: getVanTierLabel(lang, ownedVan.tier),
+  });
+}
+
+interface VanPreviewIllustrationProps {
+  condition: VanCondition;
+  tier: VanTier;
+}
+
+const VanPreviewIllustration: React.FC<VanPreviewIllustrationProps> = ({ condition, tier }) => {
+  const isNew = condition === 'new';
+  const roofY = tier === 'lite' ? 16 : tier === 'pro' ? 6 : 11;
+  const bodyFill = isNew ? '#ffffff' : '#f1efe9';
+  const roofTopFill = isNew ? '#f8fafc' : '#e7e4dc';
+  const sillFill = isNew ? '#cbd5e1' : '#334155';
+  const bumperFill = isNew ? '#f1f5f9' : '#334155';
+  const headlightFill = isNew ? '#e0f2fe' : '#fef08a';
+  const headlightStroke = isNew ? '#38bdf8' : '#b45309';
+
+  const stripes: ReadonlyArray<readonly [number, number]> =
+    tier === 'lite'
+      ? [[34, 3.2]]
+      : tier === 'pro'
+        ? [
+            [30, 2.3],
+            [33.8, 2.3],
+            [37.6, 2.3],
+          ]
+        : [
+            [31.5, 2.8],
+            [36.0, 2.8],
+          ];
+
+  return (
+    <div className="w-full h-14 rounded-md bg-slate-950/85 border border-slate-800/90 flex items-center justify-center px-2 overflow-hidden">
+      <svg
+        viewBox="0 0 128 58"
+        className="w-full max-w-[126px] h-12"
+        aria-hidden="true"
+        focusable="false"
+      >
+        {/* Subtle ground shadow */}
+        <ellipse cx="64" cy="51.5" rx="49" ry="3.5" fill="rgba(15, 23, 42, 0.85)" />
+
+        {/* Main van side silhouette (adapts roof height for Lite / Standard / Pro) */}
+        <path
+          d={`M 14 ${roofY + 2} Q 14 ${roofY} 17 ${roofY} L 83 ${roofY} L 97 ${Math.min(25, roofY + 12)} L 112 29 Q 114 30 114 33 L 114 44 L 14 44 Z`}
+          fill={bodyFill}
+          stroke="#1e293b"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+
+        {/* Roof bevel highlight + longitudinal ribs on used vans */}
+        <rect
+          x="16"
+          y={roofY + 1}
+          width="66"
+          height="3.2"
+          rx="1"
+          fill={roofTopFill}
+          opacity="0.85"
+        />
+        {!isNew && (
+          <g stroke="#94a3b8" strokeWidth="0.9" opacity="0.85">
+            <line x1="20" y1={roofY + 2.4} x2="77" y2={roofY + 2.4} />
+            <line x1="20" y1={roofY + 4.3} x2="77" y2={roofY + 4.3} />
+          </g>
+        )}
+
+        {/* Orange roof ID bar near cab edge */}
+        <rect x="74" y={roofY + 0.8} width="7.5" height="2.4" rx="0.6" fill="#f97316" />
+
+        {/* Cab windshield & side window */}
+        <path
+          d={`M 83 ${roofY + 3.2} L 95 ${Math.min(25.5, roofY + 13.2)} L 83 ${Math.min(25.5, roofY + 13.2)} Z`}
+          fill={isNew ? '#0ea5e9' : '#38bdf8'}
+          stroke="#1e293b"
+          strokeWidth="1.1"
+          strokeLinejoin="round"
+        />
+        <rect
+          x="74.5"
+          y={roofY + 3.6}
+          width="6.8"
+          height={Math.max(6, Math.min(25.5, roofY + 13.2) - (roofY + 3.6))}
+          rx="1"
+          fill={isNew ? '#0ea5e9' : '#38bdf8'}
+          stroke="#1e293b"
+          strokeWidth="1"
+        />
+
+        {/* Cargo / cab vertical door seam */}
+        <line
+          x1="72"
+          y1={roofY + 1.2}
+          x2="72"
+          y2="43"
+          stroke={isNew ? 'rgba(30,41,59,0.35)' : 'rgba(30,41,59,0.58)'}
+          strokeWidth="1"
+        />
+
+        {/* Lower sill trim (prominent dark plastic on used vs slim body-colored skirt on new) */}
+        <rect
+          x="14.8"
+          y={isNew ? 41.2 : 39.8}
+          width="98.4"
+          height={isNew ? 2.6 : 4.2}
+          fill={sillFill}
+        />
+
+        {/* 1 / 2 / 3 full-length horizontal orange stripes */}
+        {stripes.map(([yPos, h], idx) => (
+          <rect
+            key={idx}
+            x="15"
+            y={yPos}
+            width="98"
+            height={h}
+            rx="0.4"
+            fill="#f97316"
+          />
+        ))}
+
+        {/* Front bumper & grille/air intake */}
+        <rect
+          x="108.5"
+          y="38.2"
+          width="6"
+          height="5.8"
+          rx="1"
+          fill={bumperFill}
+          stroke="#1e293b"
+          strokeWidth="1"
+        />
+        {isNew ? (
+          <rect x="110.2" y="39.8" width="3.8" height="2.8" rx="0.5" fill="#0f172a" />
+        ) : (
+          <g stroke="#64748b" strokeWidth="0.7">
+            <line x1="110" y1="35" x2="113.4" y2="35" />
+            <line x1="110" y1="36.8" x2="113.4" y2="36.8" />
+          </g>
+        )}
+
+        {/* Headlight (LED cyan on new vs halogen warm on used) */}
+        <polygon
+          points={isNew ? '107,30.2 113.4,31.4 113.4,34.4 107.6,34.4' : '108.5,31.2 113.4,31.2 113.4,35 108.5,35'}
+          fill={headlightFill}
+          stroke={headlightStroke}
+          strokeWidth="0.9"
+        />
+
+        {/* Taillight */}
+        <rect x="14.2" y="31.5" width="2.8" height="6.2" rx="0.6" fill="#ef4444" stroke="#1e293b" strokeWidth="0.7" />
+
+        {/* Wheels (Steel rims on used vs black alloys with spokes on new) */}
+        {[34, 93].map((cx) => (
+          <g key={cx}>
+            <circle cx={cx} cy="45.5" r="7.2" fill="#0f172a" stroke="#1e293b" strokeWidth="1.2" />
+            {isNew ? (
+              <>
+                <circle cx={cx} cy="45.5" r="4.2" fill="#0f172a" stroke="#64748b" strokeWidth="1.1" />
+                <line x1={cx - 3.1} y1="45.5" x2={cx + 3.1} y2="45.5" stroke="#64748b" strokeWidth="0.9" />
+                <line x1={cx} y1="42.4" x2={cx} y2="48.6" stroke="#64748b" strokeWidth="0.9" />
+                <circle cx={cx} cy="45.5" r="1.3" fill="#94a3b8" />
+              </>
+            ) : (
+              <>
+                <circle cx={cx} cy="45.5" r="4.1" fill="#475569" stroke="#cbd5e1" strokeWidth="1.2" />
+                <circle cx={cx} cy="45.5" r="1.4" fill="#1e293b" />
+              </>
+            )}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+};
+
 interface CompanyModalProps {
   isOpen: boolean;
   language: SupportedLanguage;
@@ -71,7 +289,7 @@ interface CompanyModalProps {
   onUpgradeWarehouse: () => void;
   onBuyParkingSpot: () => void;
   onBuyBicycle: () => void;
-  onBuyUsedVan: () => void;
+  onBuyVan: (modelId: VanModelId) => void;
   onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
   onBuyEmployeeLicense: () => void;
   onHireCourier: (slotIndex: number, qualification: CourierQualification) => void;
@@ -82,6 +300,7 @@ interface CompanyModalProps {
 
 interface CourierVehicleDropdownProps {
   language: SupportedLanguage;
+  economyState: OrderEconomyState;
   courier: CompanyCourier;
   effectiveAssigned: ActiveVehicleSelection | null;
   availableVehicles: readonly ActiveVehicleSelection[];
@@ -95,6 +314,7 @@ interface CourierVehicleDropdownProps {
 
 const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
   language,
+  economyState,
   courier,
   effectiveAssigned,
   availableVehicles,
@@ -121,13 +341,11 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
   }, [isOpen, onClose]);
 
   const triggerLabel = effectiveAssigned
-    ? effectiveAssigned.type === 'van'
-      ? t(language, 'company.vehicleVan', { index: effectiveAssigned.index })
-      : t(language, 'company.vehicleBike', { index: effectiveAssigned.index })
+    ? formatVehicleDisplayLabel(language, economyState, effectiveAssigned)
     : t(language, 'company.noVehicle');
   const triggerCapacity = effectiveAssigned
     ? t(language, 'company.pcsShort', {
-        count: effectiveAssigned.type === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY,
+        count: getVehicleCourierCapacityForSelection(economyState, effectiveAssigned),
       })
     : null;
   const courierAriaName = courier.isOwner
@@ -213,11 +431,9 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           {availableVehicles.map((vehicle) => {
             const isSelected = vehiclesEqual(effectiveAssigned, vehicle);
             const isVan = vehicle.type === 'van';
-            const label = isVan
-              ? t(language, 'company.vehicleVan', { index: vehicle.index })
-              : t(language, 'company.vehicleBike', { index: vehicle.index });
+            const label = formatVehicleDisplayLabel(language, economyState, vehicle);
             const capacityLabel = t(language, 'company.pcsShort', {
-              count: isVan ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY,
+              count: getVehicleCourierCapacityForSelection(economyState, vehicle),
             });
 
             return (
@@ -283,7 +499,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onUpgradeWarehouse,
   onBuyParkingSpot,
   onBuyBicycle,
-  onBuyUsedVan,
+  onBuyVan,
   onSelectActiveVehicle,
   onBuyEmployeeLicense,
   onHireCourier,
@@ -292,6 +508,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onAssignCourierVehicle,
 }) => {
   const [activeTab, setActiveTab] = useState<CompanyTabId>('base');
+  const [vanShopCondition, setVanShopCondition] = useState<VanCondition>('used');
   const [openVehicleSlot, setOpenVehicleSlot] = useState<number | null>(null);
 
   useEffect(() => {
@@ -321,7 +538,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
   const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
   const bikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
-  const vansCount = economyState.vansCount ?? economyState.deliveryVansCount ?? 0;
+  const ownedVans: OwnedVan[] = useMemo(() => getOwnedVans(economyState), [economyState]);
+  const vansCount = ownedVans.length;
   const activeVehicle: ActiveVehicleSelection = economyState.activeVehicle ?? {
     type: 'bike',
     index: 1,
@@ -389,8 +607,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   const canBuyBicycle = !bikesMaxed && economyState.balance >= BICYCLE_PURCHASE_COST;
   const vansMaxed = vansCount >= MAX_VANS;
   const hasFreeParkingForVan = vansCount < economyState.parkingSpots;
-  const canBuyUsedVan =
-    !vansMaxed && hasFreeParkingForVan && economyState.balance >= USED_VAN_PURCHASE_COST;
 
   const hiredCouriersCount = countHiredCouriers(economyState);
   const ownedFleet = getOwnedFleetVehicles(economyState);
@@ -812,202 +1028,358 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               id="company-panel-fleet"
               role="tabpanel"
               aria-labelledby="company-tab-fleet"
-              className="grid grid-cols-1 md:grid-cols-3 [@media(max-height:540px)]:grid-cols-3 gap-2"
+              className="space-y-2.5"
             >
-              {/* Card 1: Courier Bikes */}
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5">
-                <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-                        {t(language, 'company.bikesTitle')}
-                      </h3>
-                    </div>
-                    <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[11px] font-bold text-sky-300 font-mono-nums shrink-0">
-                      {bikesCount} / {MAX_BICYCLES}
-                    </span>
-                  </div>
-
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    {t(language, 'company.bikesDesc')}
-                  </p>
-
-                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
-                      <span className="text-slate-100 font-semibold">
-                        {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">
-                        {t(language, 'company.bikeInsuranceLabel')}
-                      </span>
-                      <span className="text-rose-300 font-semibold">
-                        +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">
-                        {t(language, 'company.currentInsuranceLabel')}
-                      </span>
-                      <span className="text-slate-200 font-semibold">
-                        +{formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-1.5 border-t border-slate-800 space-y-1">
-                  {!bikesMaxed && !canBuyBicycle && (
-                    <p className="text-[11px] font-semibold text-rose-300 font-mono-nums leading-tight">
-                      {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance, language)}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    disabled={!canBuyBicycle}
-                    onClick={onBuyBicycle}
-                    className={`w-full px-2.5 py-1 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                      canBuyBicycle
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                        : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                    }`}
-                  >
-                    {bikesMaxed
-                      ? t(language, 'company.limitReached', {
-                          current: MAX_BICYCLES,
-                          max: MAX_BICYCLES,
-                        })
-                      : t(language, 'company.buyBikeBtn', {
-                          amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
-                        })}
-                  </button>
-                </div>
-              </article>
-
-              {/* Card 2: Used Delivery Van */}
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5">
-                <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 leading-tight">
-                        {t(language, 'company.usedVanTitle')}
-                      </h3>
-                    </div>
+              {/* Delivery Vans 6-Model Dealership Panel */}
+              <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-100">
+                      {t(language, 'company.vansCatalogTitle')}
+                    </h3>
                     <span
                       title={t(language, 'company.vansCountTitle')}
-                      className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0 whitespace-nowrap"
+                      className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0"
                     >
                       {vansCount} / {economyState.parkingSpots}
                     </span>
-                  </div>
-
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    {t(language, 'company.usedVanDesc', { capacity: VAN_COURIER_CAPACITY })}
-                  </p>
-
-                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
-                      <span className="text-slate-100 font-semibold">
-                        {t(language, 'company.packagesCount', { count: VAN_COURIER_CAPACITY })}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">
-                        {t(language, 'company.vanInsuranceLabel')}
-                      </span>
-                      <span className="text-rose-300 font-semibold">
-                        +{formatCurrencyUsd(USED_VAN_INSURANCE_COST, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">
-                        {t(language, 'company.currentInsuranceLabel')}
-                      </span>
-                      <span className="text-slate-200 font-semibold">
-                        +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-1.5 border-t border-slate-800 space-y-1">
-                  {!vansMaxed && !canBuyUsedVan && (
-                    <div className="space-y-0.5 text-[11px] font-semibold leading-tight">
-                      {!hasFreeParkingForVan && (
-                        <p className="text-amber-300">
-                          {t(language, 'company.requiresFreeParking')}
-                        </p>
-                      )}
-                      {economyState.balance < USED_VAN_PURCHASE_COST && (
-                        <p className="text-rose-300 font-mono-nums">
-                          {formatMissingFunds(
-                            USED_VAN_PURCHASE_COST,
-                            economyState.balance,
-                            language
-                          )}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={!canBuyUsedVan}
-                    onClick={onBuyUsedVan}
-                    className={`w-full px-2.5 py-1 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                      canBuyUsedVan
-                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                        : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                    }`}
-                  >
-                    {vansMaxed
-                      ? t(language, 'company.limitReached', {
-                          current: MAX_VANS,
-                          max: MAX_VANS,
-                        })
-                      : t(language, 'company.buyVanBtn', {
-                          amount: formatCurrencyUsd(USED_VAN_PURCHASE_COST, false),
-                        })}
-                  </button>
-                </div>
-              </article>
-
-              {/* Card 3: Heavy Delivery Van (Coming Soon) */}
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5 opacity-85">
-                <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Truck className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 leading-tight">
-                        {t(language, 'company.heavyVanTitle')}
-                      </h3>
-                    </div>
-                    <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-semibold text-amber-300 shrink-0">
-                      {t(language, 'company.comingSoon')}
+                    <span className="hidden sm:inline text-[11px] text-slate-400">
+                      {vanShopCondition === 'used'
+                        ? t(language, 'company.vanUsedTrait')
+                        : t(language, 'company.vanNewTrait')}
                     </span>
                   </div>
 
-                  <p className="text-[11px] font-semibold text-slate-200 leading-tight">
-                    {t(language, 'company.heavyVanSubtitle')}
-                  </p>
-                  <p className="text-[11px] text-slate-400 leading-tight">
-                    {t(language, 'company.heavyVanDesc')}
-                  </p>
+                  {/* Used / New Category Switcher */}
+                  <div
+                    role="group"
+                    aria-label={t(language, 'company.vansCategoryAria')}
+                    className="inline-flex items-center rounded-lg bg-slate-950 border border-slate-700/90 p-0.5 shrink-0"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={vanShopCondition === 'used'}
+                      onClick={() => setVanShopCondition('used')}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                        vanShopCondition === 'used'
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {t(language, 'company.vansCategoryUsed')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={vanShopCondition === 'new'}
+                      onClick={() => setVanShopCondition('new')}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                        vanShopCondition === 'new'
+                          ? 'bg-sky-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {t(language, 'company.vansCategoryNew')}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-nums text-slate-400">
-                  <span>{t(language, 'company.heavyVanCapacity')}</span>
-                  <span>{t(language, 'company.requiresParking')}</span>
+                {/* 3 Van Tier Cards (Lite / Standard / Pro) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {VAN_MODEL_IDS_BY_CONDITION[vanShopCondition].map((modelId) => {
+                    const spec = VAN_MODELS[modelId];
+                    const canAfford = economyState.balance >= spec.purchasePrice;
+                    const canPurchase = !vansMaxed && hasFreeParkingForVan && canAfford;
+                    const condLabel = getVanConditionLabel(language, spec.condition);
+                    const tierLabel = getVanTierLabel(language, spec.tier);
+                    const roofLabel = getVanRoofLabel(language, spec.tier);
+
+                    return (
+                      <article
+                        key={modelId}
+                        className="rounded-lg bg-slate-900/75 border border-slate-700/80 p-2 flex flex-col justify-between gap-2"
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <h4 className="text-xs font-bold text-slate-100 truncate">
+                              {condLabel} {tierLabel}
+                            </h4>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[11px] font-bold font-mono-nums shrink-0 border ${
+                                spec.condition === 'new'
+                                  ? 'bg-sky-500/15 border-sky-400/45 text-sky-300'
+                                  : 'bg-amber-500/15 border-amber-400/45 text-amber-300'
+                              }`}
+                            >
+                              {t(language, 'company.packagesCount', { count: spec.capacity })}
+                            </span>
+                          </div>
+
+                          <VanPreviewIllustration condition={spec.condition} tier={spec.tier} />
+
+                          <div className="rounded-md bg-slate-950/75 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">
+                                {t(language, 'company.payloadLabel')}
+                              </span>
+                              <span className="text-slate-100 font-semibold">
+                                {t(language, 'company.packagesCount', { count: spec.capacity })}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">
+                                {t(language, 'company.vanInsuranceShort')}
+                              </span>
+                              <span className="text-rose-300 font-semibold">
+                                +{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                                {perMonth}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 pt-0.5 border-t border-slate-800/80">
+                              {roofLabel}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          {!vansMaxed && !canPurchase && (
+                            <div className="space-y-0.5 text-[11px] font-semibold leading-tight">
+                              {!hasFreeParkingForVan && (
+                                <p className="text-amber-300">
+                                  {t(language, 'company.requiresFreeParking')}
+                                </p>
+                              )}
+                              {!canAfford && (
+                                <p className="text-rose-300 font-mono-nums">
+                                  {formatMissingFunds(
+                                    spec.purchasePrice,
+                                    economyState.balance,
+                                    language
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            disabled={!canPurchase}
+                            onClick={() => onBuyVan(modelId)}
+                            className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                              canPurchase
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
+                            }`}
+                          >
+                            {vansMaxed
+                              ? t(language, 'company.buyVanLimitReached', {
+                                  current: MAX_VANS,
+                                  max: MAX_VANS,
+                                })
+                              : t(language, 'company.buyModelBtn', {
+                                  amount: formatCurrencyUsd(spec.purchasePrice, false),
+                                })}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
-              </article>
+              </section>
+
+              {/* Bottom Row: Courier Bikes & Owned Fleet List */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {/* Card: Courier Bikes */}
+                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5">
+                  <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                        <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                          {t(language, 'company.bikesTitle')}
+                        </h3>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[11px] font-bold text-sky-300 font-mono-nums shrink-0">
+                        {bikesCount} / {MAX_BICYCLES}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-tight">
+                      {t(language, 'company.bikesDesc')}
+                    </p>
+
+                    <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400">
+                          {t(language, 'company.payloadLabel')}
+                        </span>
+                        <span className="text-slate-100 font-semibold">
+                          {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400">
+                          {t(language, 'company.bikeInsuranceLabel')}
+                        </span>
+                        <span className="text-rose-300 font-semibold">
+                          +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                          {perMonth}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400">
+                          {t(language, 'company.currentInsuranceLabel')}
+                        </span>
+                        <span className="text-slate-200 font-semibold">
+                          +{formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}
+                          {perMonth}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-1.5 border-t border-slate-800 space-y-1">
+                    {!bikesMaxed && !canBuyBicycle && (
+                      <p className="text-[11px] font-semibold text-rose-300 font-mono-nums leading-tight">
+                        {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance, language)}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={!canBuyBicycle}
+                      onClick={onBuyBicycle}
+                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                        canBuyBicycle
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
+                      }`}
+                    >
+                      {bikesMaxed
+                        ? t(language, 'company.limitReached', {
+                            current: MAX_BICYCLES,
+                            max: MAX_BICYCLES,
+                          })
+                        : t(language, 'company.buyBikeBtn', {
+                            amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
+                          })}
+                    </button>
+                  </div>
+                </article>
+
+                {/* Card: Owned Fleet Roster */}
+                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-100">
+                      {t(language, 'company.ownedFleetTitle', {
+                        count: ownedFleet.length,
+                      })}
+                    </h3>
+                    <span className="text-[11px] font-mono-nums text-rose-300 font-semibold">
+                      {t(language, 'company.currentInsuranceLabel')}{' '}
+                      +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost + monthlyCosts.courierInsuranceCost, false)}
+                      {perMonth}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 max-h-40 overflow-y-auto overscroll-contain pr-0.5">
+                    {ownedVans.map((van) => {
+                      const spec = getVanModelSpec(van.modelId);
+                      const driver = findCourierAssignedToVehicle(couriers, {
+                        type: 'van',
+                        index: van.index,
+                      });
+                      const driverName = driver
+                        ? driver.isOwner
+                          ? t(language, 'orders.ownerBadge')
+                          : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
+                        : null;
+
+                      return (
+                        <div
+                          key={van.id}
+                          className="rounded-md bg-slate-900/75 border border-slate-800 px-2 py-1 flex items-center justify-between gap-2 text-[11px] font-mono-nums"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                            <span className="font-semibold text-slate-100 truncate">
+                              {t(language, 'company.vehicleVanFull', {
+                                index: van.index,
+                                condition: getVanConditionLabel(language, van.condition),
+                                tier: getVanTierLabel(language, van.tier),
+                              })}
+                            </span>
+                            <span className="text-slate-400 shrink-0">
+                              ({t(language, 'company.packagesCount', { count: spec.capacity })})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-rose-300">
+                              -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                              {perMonth}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border ${
+                                driverName
+                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                              }`}
+                            >
+                              {driverName
+                                ? t(language, 'company.assignedToLabel', { name: driverName })
+                                : t(language, 'company.unassignedBadge')}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {Array.from({ length: bikesCount }, (_, i) => {
+                      const bikeIndex = i + 1;
+                      const driver = findCourierAssignedToVehicle(couriers, {
+                        type: 'bike',
+                        index: bikeIndex,
+                      });
+                      const driverName = driver
+                        ? driver.isOwner
+                          ? t(language, 'orders.ownerBadge')
+                          : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
+                        : null;
+                      return (
+                        <div
+                          key={`bike-${bikeIndex}`}
+                          className="rounded-md bg-slate-900/60 border border-slate-800/80 px-2 py-1 flex items-center justify-between gap-2 text-[11px] font-mono-nums"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+                            <span className="font-semibold text-slate-200 truncate">
+                              {t(language, 'company.vehicleBike', { index: bikeIndex })}
+                            </span>
+                            <span className="text-slate-400 shrink-0">
+                              ({t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })})
+                            </span>
+                          </div>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border shrink-0 ${
+                              driverName
+                                ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                : 'bg-slate-800 border-slate-700 text-slate-400'
+                            }`}
+                          >
+                            {driverName
+                              ? t(language, 'company.assignedToLabel', { name: driverName })
+                              : t(language, 'company.unassignedBadge')}
+                          </span>
+                        </div>
+                      );
+                    })}
+
+                    {ownedVans.length === 0 && (
+                      <p className="text-[11px] text-slate-400 pt-1 leading-snug">
+                        {t(language, 'company.ownedFleetEmptyVans')}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              </div>
             </div>
           )}
 
@@ -1148,6 +1520,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
                             <CourierVehicleDropdown
                               language={language}
+                              economyState={economyState}
                               courier={courier}
                               effectiveAssigned={effectiveAssigned}
                               availableVehicles={availableVehicles}
@@ -1176,15 +1549,24 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         </div>
 
                         <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-[11px] text-slate-400 font-mono-nums">
                             {courier.isOwner
-                              ? t(language, 'company.ownerFooterDesc')
+                              ? `${t(language, 'company.ownerFooterDesc')} • ${t(
+                                  language,
+                                  'company.courierPayload',
+                                  {
+                                    count: getVehicleCourierCapacityForSelection(
+                                      economyState,
+                                      effectiveAssigned
+                                    ),
+                                  }
+                                )}`
                               : effectiveAssigned
                                 ? t(language, 'company.courierPayload', {
-                                    count:
-                                      effectiveAssigned.type === 'van'
-                                        ? VAN_COURIER_CAPACITY
-                                        : BIKE_COURIER_CAPACITY,
+                                    count: getVehicleCourierCapacityForSelection(
+                                      economyState,
+                                      effectiveAssigned
+                                    ),
                                   })
                                 : hasVanQualification
                                   ? t(language, 'company.assignBikeOrVan')

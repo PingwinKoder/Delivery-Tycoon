@@ -11,6 +11,7 @@ import {
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
   getStoredPackagesForOrder,
+  getVehicleCourierCapacityForSelection,
   hasEnoughWarehouseSpaceForPickup,
 } from '../orderEconomy';
 import {
@@ -55,7 +56,14 @@ export function selectNextCourierTaskForDay(
   const claimedTaskIds = options?.claimedTaskIds;
   const activeType: ActiveVehicleType =
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
-  const vehicleCapacity = getCourierCapacityForVehicle(activeType);
+  const vehicleCapacity =
+    typeof options?.vehicleCapacity === 'number' &&
+    Number.isFinite(options.vehicleCapacity) &&
+    options.vehicleCapacity > 0
+      ? Math.floor(options.vehicleCapacity)
+      : vehicleTypeOverride === undefined
+        ? getVehicleCourierCapacityForSelection(state, state.activeVehicle)
+        : getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
     if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
@@ -144,7 +152,14 @@ export function selectNextTaskAfterFinalPickup(
   const claimedTaskIds = options?.claimedTaskIds;
   const activeType: ActiveVehicleType =
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
-  const vehicleCapacity = getCourierCapacityForVehicle(activeType);
+  const vehicleCapacity =
+    typeof options?.vehicleCapacity === 'number' &&
+    Number.isFinite(options.vehicleCapacity) &&
+    options.vehicleCapacity > 0
+      ? Math.floor(options.vehicleCapacity)
+      : vehicleTypeOverride === undefined
+        ? getVehicleCourierCapacityForSelection(state, state.activeVehicle)
+        : getCourierCapacityForVehicle(activeType);
 
   for (const task of todayTasks) {
     if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
@@ -215,10 +230,17 @@ export function selectNextTaskAfterFinalPickup(
 
 export function createIdleCourier(
   vehicle: ActiveVehicleSelection = { type: 'bike', index: 1 },
-  courierId = 1
+  courierId = 1,
+  cargoCapacityOverride?: number
 ): CourierState {
   const vehicleType = vehicle.type;
   const vehicleIndex = Math.max(1, Math.floor(vehicle.index || 1));
+  const resolvedCapacity =
+    typeof cargoCapacityOverride === 'number' &&
+    Number.isFinite(cargoCapacityOverride) &&
+    cargoCapacityOverride > 0
+      ? Math.floor(cargoCapacityOverride)
+      : getCourierCapacityForVehicle(vehicleType);
   return {
     courierId: Math.max(1, Math.floor(courierId || 1)),
     inRoute: false,
@@ -245,7 +267,7 @@ export function createIdleCourier(
     missionKind: 'none',
     vehicleType,
     vehicleIndex,
-    cargoCapacity: getCourierCapacityForVehicle(vehicleType),
+    cargoCapacity: resolvedCapacity,
     stops: [],
     currentStopIndex: 0,
     cargo: [],
@@ -254,17 +276,21 @@ export function createIdleCourier(
 }
 
 export function createInitialCourierFleet(
-  couriers?: readonly CompanyCourier[]
+  couriers?: readonly CompanyCourier[],
+  economyState?: OrderEconomyState
 ): MultiCourierFleetState {
   const fleet: MultiCourierFleetState = {};
   for (const slotIndex of COURIER_SLOT_INDICES) {
     const rosterEntry = couriers?.find((c) => c.slotIndex === slotIndex);
     const vehicle = rosterEntry?.assignedVehicle ?? { type: 'bike' as const, index: 1 };
+    const capacity = economyState
+      ? getVehicleCourierCapacityForSelection(economyState, vehicle)
+      : undefined;
     fleet[slotIndex] = {
       slotIndex,
       inRoute: false,
       assignedTaskId: null,
-      courier: createIdleCourier(vehicle, slotIndex),
+      courier: createIdleCourier(vehicle, slotIndex, capacity),
       activeRoute: [],
       targetMarker: null,
     };

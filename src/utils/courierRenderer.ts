@@ -1,10 +1,11 @@
 import type { Point } from '../types/roadGraph';
+import type { VanCondition, VanTier } from '../types/orders';
 import type { BaseBikeRackSpec, BaseLoadingZoneSpec } from './cityMap';
 import { isoToCanvas } from './cityMap';
 
 /** Compact, minimalist bicycle & rider scale (~20% smaller than 0.67 for crisp city readability) */
 export const DEFAULT_BICYCLE_SCALE = 0.54;
-/** Orthographic isometric scale for the 20-package used delivery van (fits cleanly in P1–P8 stalls) */
+/** Orthographic isometric scale for delivery vans (fits cleanly in P1–P8 stalls) */
 export const DEFAULT_VAN_SCALE = 1.0;
 
 export interface DeliveryVanRenderOptions {
@@ -16,11 +17,15 @@ export interface DeliveryVanRenderOptions {
   wheelPhase: number;
   /** True while halted at destination handing off parcels */
   isDelivering?: boolean;
+  /** Vehicle condition styling ('used' warm cream + ribs/steel rims vs 'new' crisp white + LED/alloys) */
+  condition?: VanCondition;
+  /** Van tier controlling roof height (Lite/Standard/Pro) and 1/2/3 horizontal livery stripes */
+  tier?: VanTier;
   /** Optional 1-based courier slot index (#1–#6) shown in the floating label (e.g. "#2 • 14/20") */
   courierSlotIndex?: number;
   /** Current number of packages onboard (draws crisp cargo counter when provided) */
   cargoCount?: number;
-  /** Maximum van cargo capacity (defaults to 20) */
+  /** Maximum van cargo capacity (defaults to 12) */
   cargoCapacity?: number;
   /** Inverse zoom scale factor for crisp floating cargo badge */
   invScale?: number;
@@ -423,12 +428,16 @@ export function drawIsometricDeliveryVan(
     angle,
     wheelPhase,
     isDelivering = false,
+    condition = 'used',
+    tier = 'standard',
     courierSlotIndex,
     cargoCount,
-    cargoCapacity = 20,
+    cargoCapacity = 12,
     invScale = 1,
     scale = DEFAULT_VAN_SCALE,
   } = opts;
+
+  const isNew = condition === 'new';
 
   const { fwdX, fwdY, sideX, sideY } = buildExactIsoGroundBasis(angle);
   const s = scale;
@@ -469,12 +478,36 @@ export function drawIsometricDeliveryVan(
   const frontL = 8.7;
   const halfW = 4.15;
 
+  const roofBaseHeight = tier === 'lite' ? 10.1 : tier === 'pro' ? 12.4 : 11.2;
   const zChassis = 2.0 + driveBob;
-  const zStripeBot = 4.2 + driveBob;
-  const zStripeTop = 6.1 + driveBob;
   const zBelt = 6.9 + driveBob;
-  const zRoof = 11.2 + driveBob;
+  const zRoof = roofBaseHeight + driveBob;
   const zHood = 6.2 + driveBob;
+
+  // Full-length horizontal stripe bands strictly inside [3.45, 5.95] so they run cleanly from rearL to frontL
+  const stripeBands: ReadonlyArray<readonly [number, number]> =
+    tier === 'lite'
+      ? [[4.45 + driveBob, 5.15 + driveBob]]
+      : tier === 'pro'
+        ? [
+            [3.5 + driveBob, 4.02 + driveBob],
+            [4.38 + driveBob, 4.9 + driveBob],
+            [5.26 + driveBob, 5.78 + driveBob],
+          ]
+        : [
+            [3.85 + driveBob, 4.5 + driveBob],
+            [4.95 + driveBob, 5.6 + driveBob],
+          ];
+
+  // Condition-specific color palette (Used: warm cream-white + dark plastic vs New: crisp pure white + body-colored trim)
+  const litBodyFill = isNew ? '#ffffff' : '#f1efe9';
+  const shadedBodyFill = isNew ? '#e2e8f0' : '#d6d3cb';
+  const roofFill = isNew ? '#ffffff' : '#ebe8e0';
+  const noseFill = isNew ? '#f8fafc' : '#e7e4dc';
+  const hoodFill = isNew ? '#ffffff' : '#edeae2';
+  const windshieldFrameFill = isNew ? '#f1f5f9' : '#d6d3cb';
+  const rearBodyFill = isNew ? '#e2e8f0' : '#d6d3cb';
+  const glassFill = isNew ? '#0ea5e9' : '#38bdf8';
 
   ctx.save();
   ctx.lineCap = 'round';
@@ -530,12 +563,47 @@ export function drawIsometricDeliveryVan(
     ctx.lineWidth = 0.85 * s;
     ctx.stroke();
 
-    // Crisp silver hubcap center
     const hub = pt(axleFwd, wheelSide, r);
-    ctx.beginPath();
-    ctx.arc(hub.x, hub.y, 0.95 * s, 0, Math.PI * 2);
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fill();
+    if (isNew) {
+      // Modern black alloy rim with dark-gray metallic spokes
+      ctx.beginPath();
+      ctx.arc(hub.x, hub.y, 1.05 * s, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 0.6 * s;
+      ctx.stroke();
+
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 0.55 * s;
+      for (let k = 0; k < 3; k++) {
+        const spAngle = wheelPhase * 0.5 + (k * Math.PI) / 3;
+        const dx = Math.cos(spAngle) * 0.85 * s;
+        const dy = Math.sin(spAngle) * 0.85 * s;
+        ctx.beginPath();
+        ctx.moveTo(hub.x - dx, hub.y - dy);
+        ctx.lineTo(hub.x + dx, hub.y + dy);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(hub.x, hub.y, 0.32 * s, 0, Math.PI * 2);
+      ctx.fillStyle = '#94a3b8';
+      ctx.fill();
+    } else {
+      // Classic steel rim (#475569) with crisp silver outer ring
+      ctx.beginPath();
+      ctx.arc(hub.x, hub.y, 1.0 * s, 0, Math.PI * 2);
+      ctx.fillStyle = '#475569';
+      ctx.fill();
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 0.65 * s;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(hub.x, hub.y, 0.35 * s, 0, Math.PI * 2);
+      ctx.fillStyle = '#1e293b';
+      ctx.fill();
+    }
   };
 
   // Draw far-side wheels peeking cleanly under the chassis
@@ -546,9 +614,8 @@ export function drawIsometricDeliveryVan(
   const drawSideFace = (sideSign: number) => {
     const sideCoord = sideSign * halfW;
     const isLitSide = sideSign === -1;
-    const bodyFill = isLitSide ? '#ffffff' : '#e2e8f0';
+    const bodyFill = isLitSide ? litBodyFill : shadedBodyFill;
     const stripeFill = isLitSide ? '#f97316' : '#ea580c';
-    const bumperFill = isLitSide ? '#475569' : '#334155';
 
     // Main side silhouette (cargo box + sloped cab hood)
     const hullPts = [
@@ -561,37 +628,53 @@ export function drawIsometricDeliveryVan(
     ];
     fillPoly(hullPts, bodyFill, '#1e293b', 1.2 * s);
 
-    // Lower dark chassis sill strip
-    fillPoly(
-      [
-        pt(rearL, sideCoord, zChassis),
-        pt(frontL, sideCoord, zChassis),
-        pt(frontL, sideCoord, zChassis + 1.25),
-        pt(rearL, sideCoord, zChassis + 1.25),
-      ],
-      bumperFill
-    );
+    if (isNew) {
+      // New van: clean body-colored sill with subtle slim aerodynamic skirt accent
+      fillPoly(
+        [
+          pt(rearL, sideCoord, zChassis),
+          pt(frontL, sideCoord, zChassis),
+          pt(frontL, sideCoord, zChassis + 0.65),
+          pt(rearL, sideCoord, zChassis + 0.65),
+        ],
+        isLitSide ? '#cbd5e1' : '#94a3b8'
+      );
+    } else {
+      // Used van: prominent dark-gray plastic lower sill cladding & rub strip
+      fillPoly(
+        [
+          pt(rearL, sideCoord, zChassis),
+          pt(frontL, sideCoord, zChassis),
+          pt(frontL, sideCoord, zChassis + 1.35),
+          pt(rearL, sideCoord, zChassis + 1.35),
+        ],
+        isLitSide ? '#475569' : '#334155'
+      );
+    }
 
-    // Signature company orange stripe running along cargo box + cab door
-    fillPoly(
-      [
-        pt(rearL + 0.2, sideCoord, zStripeBot),
-        pt(frontL - 0.3, sideCoord, zStripeBot),
-        pt(frontL - 0.3, sideCoord, zStripeTop),
-        pt(rearL + 0.2, sideCoord, zStripeTop),
-      ],
-      stripeFill
-    );
+    // 1 / 2 / 3 horizontal livery stripes running along full body length (rearL -> frontL)
+    for (const [zBot, zTop] of stripeBands) {
+      fillPoly(
+        [
+          pt(rearL + 0.16, sideCoord, zBot),
+          pt(frontL - 0.18, sideCoord, zBot),
+          pt(frontL - 0.18, sideCoord, zTop),
+          pt(rearL + 0.16, sideCoord, zTop),
+        ],
+        stripeFill
+      );
+    }
 
-    // Side cab window
+    // Side cab window (adapts height cleanly to Lite/Standard/Pro roof)
+    const winTop = Math.min(zRoof - 0.85, zBelt + 3.45);
     fillPoly(
       [
         pt(cabSplitL + 0.35, sideCoord, zBelt + 0.2),
         pt(hoodL - 0.3, sideCoord, zBelt + 0.2),
-        pt(cabSplitL + 0.55, sideCoord, zRoof - 0.9),
-        pt(cabSplitL + 0.35, sideCoord, zRoof - 0.9),
+        pt(cabSplitL + 0.55, sideCoord, winTop),
+        pt(cabSplitL + 0.35, sideCoord, winTop),
       ],
-      '#38bdf8',
+      glassFill,
       '#1e293b',
       0.85 * s
     );
@@ -599,12 +682,24 @@ export function drawIsometricDeliveryVan(
     // Subtle vertical cargo/cab panel seam
     const seamBot = pt(cabSplitL - 0.1, sideCoord, zChassis + 1.2);
     const seamTop = pt(cabSplitL - 0.1, sideCoord, zRoof - 0.3);
-    ctx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
+    ctx.strokeStyle = isNew ? 'rgba(30, 41, 59, 0.34)' : 'rgba(30, 41, 59, 0.52)';
     ctx.lineWidth = 0.85 * s;
     ctx.beginPath();
     ctx.moveTo(seamBot.x, seamBot.y);
     ctx.lineTo(seamTop.x, seamTop.y);
     ctx.stroke();
+
+    // Extra subtle body molding crease on used vans
+    if (!isNew) {
+      const creaseA = pt(rearL + 0.4, sideCoord, zBelt + 0.15);
+      const creaseB = pt(cabSplitL - 0.25, sideCoord, zBelt + 0.15);
+      ctx.strokeStyle = 'rgba(71, 85, 105, 0.32)';
+      ctx.lineWidth = 0.7 * s;
+      ctx.beginPath();
+      ctx.moveTo(creaseA.x, creaseA.y);
+      ctx.lineTo(creaseB.x, creaseB.y);
+      ctx.stroke();
+    }
 
     // Re-stroke crisp outer hull outline so inner strips never bleed past border
     ctx.beginPath();
@@ -626,61 +721,152 @@ export function drawIsometricDeliveryVan(
       pt(frontL, halfW, zHood),
       pt(frontL, -halfW, zHood),
     ];
-    fillPoly(nosePts, '#f1f5f9', '#1e293b', 1.2 * s);
+    fillPoly(nosePts, noseFill, '#1e293b', 1.2 * s);
 
-    // Dark bumper bar
-    fillPoly(
-      [
-        pt(frontL, -halfW, zChassis),
-        pt(frontL, halfW, zChassis),
-        pt(frontL, halfW, zChassis + 1.3),
-        pt(frontL, -halfW, zChassis + 1.3),
-      ],
-      '#334155',
-      '#1e293b',
-      0.9 * s
-    );
-
-    // Dark front radiator grille
-    fillPoly(
-      [
-        pt(frontL, -halfW * 0.56, zChassis + 1.55),
-        pt(frontL, halfW * 0.56, zChassis + 1.55),
-        pt(frontL, halfW * 0.56, zHood - 0.9),
-        pt(frontL, -halfW * 0.56, zHood - 0.9),
-      ],
-      '#1e293b'
-    );
-
-    // Orange accent bar across upper nose
-    fillPoly(
-      [
-        pt(frontL, -halfW + 0.2, zHood - 0.85),
-        pt(frontL, halfW - 0.2, zHood - 0.85),
-        pt(frontL, halfW - 0.2, zHood - 0.15),
-        pt(frontL, -halfW + 0.2, zHood - 0.15),
-      ],
-      '#f97316'
-    );
-
-    // Warm crisp headlights
-    const drawHeadlight = (sideSign: number) => {
+    if (isNew) {
+      // New van: body-colored front bumper with wide sleek black lower air intake
       fillPoly(
         [
-          pt(frontL, sideSign * (halfW - 0.25), zChassis + 1.7),
-          pt(frontL, sideSign * (halfW - 1.35), zChassis + 1.7),
-          pt(frontL, sideSign * (halfW - 1.35), zChassis + 2.95),
-          pt(frontL, sideSign * (halfW - 0.25), zChassis + 2.95),
+          pt(frontL, -halfW, zChassis),
+          pt(frontL, halfW, zChassis),
+          pt(frontL, halfW, zChassis + 1.35),
+          pt(frontL, -halfW, zChassis + 1.35),
         ],
-        '#fef08a',
-        '#1e293b',
-        0.65 * s
+        '#f8fafc',
+        '#94a3b8',
+        0.75 * s
       );
-    };
-    drawHeadlight(-1);
-    drawHeadlight(1);
 
-    // Sloped white hood deck
+      // Wide black lower air intake inset
+      fillPoly(
+        [
+          pt(frontL, -halfW * 0.72, zChassis + 0.22),
+          pt(frontL, halfW * 0.72, zChassis + 0.22),
+          pt(frontL, halfW * 0.66, zChassis + 1.15),
+          pt(frontL, -halfW * 0.66, zChassis + 1.15),
+        ],
+        '#0f172a'
+      );
+
+      // Modern upper dark grille with sharp silver accent trim
+      fillPoly(
+        [
+          pt(frontL, -halfW * 0.54, zChassis + 1.65),
+          pt(frontL, halfW * 0.54, zChassis + 1.65),
+          pt(frontL, halfW * 0.58, zHood - 0.95),
+          pt(frontL, -halfW * 0.58, zHood - 0.95),
+        ],
+        '#0f172a'
+      );
+      const trimA = pt(frontL, -halfW * 0.48, zChassis + 2.38);
+      const trimB = pt(frontL, halfW * 0.48, zChassis + 2.38);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 0.75 * s;
+      ctx.beginPath();
+      ctx.moveTo(trimA.x, trimA.y);
+      ctx.lineTo(trimB.x, trimB.y);
+      ctx.stroke();
+
+      // Sleek orange brand accent bar across upper nose
+      fillPoly(
+        [
+          pt(frontL, -halfW + 0.2, zHood - 0.78),
+          pt(frontL, halfW - 0.2, zHood - 0.78),
+          pt(frontL, halfW - 0.2, zHood - 0.18),
+          pt(frontL, -halfW + 0.2, zHood - 0.18),
+        ],
+        '#f97316'
+      );
+
+      // Sharp modern LED headlights (#e0f2fe + cyan LED signature #38bdf8)
+      const drawLedHeadlight = (sideSign: number) => {
+        fillPoly(
+          [
+            pt(frontL, sideSign * (halfW - 0.18), zChassis + 1.85),
+            pt(frontL, sideSign * (halfW - 1.55), zChassis + 1.7),
+            pt(frontL, sideSign * (halfW - 1.55), zChassis + 2.65),
+            pt(frontL, sideSign * (halfW - 0.18), zChassis + 2.95),
+          ],
+          '#e0f2fe',
+          '#0f172a',
+          0.65 * s
+        );
+        const ledA = pt(frontL, sideSign * (halfW - 0.28), zChassis + 2.02);
+        const ledB = pt(frontL, sideSign * (halfW - 1.42), zChassis + 1.9);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 0.95 * s;
+        ctx.beginPath();
+        ctx.moveTo(ledA.x, ledA.y);
+        ctx.lineTo(ledB.x, ledB.y);
+        ctx.stroke();
+      };
+      drawLedHeadlight(-1);
+      drawLedHeadlight(1);
+    } else {
+      // Used van: prominent dark-gray plastic bumper bar
+      fillPoly(
+        [
+          pt(frontL, -halfW, zChassis),
+          pt(frontL, halfW, zChassis),
+          pt(frontL, halfW, zChassis + 1.4),
+          pt(frontL, -halfW, zChassis + 1.4),
+        ],
+        '#334155',
+        '#1e293b',
+        0.95 * s
+      );
+
+      // Classic dark radiator grille with horizontal slats
+      fillPoly(
+        [
+          pt(frontL, -halfW * 0.58, zChassis + 1.6),
+          pt(frontL, halfW * 0.58, zChassis + 1.6),
+          pt(frontL, halfW * 0.58, zHood - 0.9),
+          pt(frontL, -halfW * 0.58, zHood - 0.9),
+        ],
+        '#1e293b'
+      );
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 0.65 * s;
+      for (const slatZ of [zChassis + 2.0, zChassis + 2.5, zChassis + 3.0]) {
+        const slA = pt(frontL, -halfW * 0.52, slatZ);
+        const slB = pt(frontL, halfW * 0.52, slatZ);
+        ctx.beginPath();
+        ctx.moveTo(slA.x, slA.y);
+        ctx.lineTo(slB.x, slB.y);
+        ctx.stroke();
+      }
+
+      // Orange accent bar across upper nose
+      fillPoly(
+        [
+          pt(frontL, -halfW + 0.2, zHood - 0.85),
+          pt(frontL, halfW - 0.2, zHood - 0.85),
+          pt(frontL, halfW - 0.2, zHood - 0.15),
+          pt(frontL, -halfW + 0.2, zHood - 0.15),
+        ],
+        '#f97316'
+      );
+
+      // Classic rectangular warm halogen headlights
+      const drawHalogenHeadlight = (sideSign: number) => {
+        fillPoly(
+          [
+            pt(frontL, sideSign * (halfW - 0.25), zChassis + 1.72),
+            pt(frontL, sideSign * (halfW - 1.32), zChassis + 1.72),
+            pt(frontL, sideSign * (halfW - 1.32), zChassis + 2.95),
+            pt(frontL, sideSign * (halfW - 0.25), zChassis + 2.95),
+          ],
+          '#fef08a',
+          '#1e293b',
+          0.65 * s
+        );
+      };
+      drawHalogenHeadlight(-1);
+      drawHalogenHeadlight(1);
+    }
+
+    // Sloped hood deck
     fillPoly(
       [
         pt(frontL, -halfW, zHood),
@@ -688,12 +874,12 @@ export function drawIsometricDeliveryVan(
         pt(hoodL, halfW, zBelt),
         pt(hoodL, -halfW, zBelt),
       ],
-      '#f8fafc',
+      hoodFill,
       '#1e293b',
       1.15 * s
     );
 
-    // Sloped cab windshield
+    // Sloped cab windshield frame
     fillPoly(
       [
         pt(hoodL, -halfW, zBelt),
@@ -701,7 +887,7 @@ export function drawIsometricDeliveryVan(
         pt(cabSplitL, halfW, zRoof),
         pt(cabSplitL, -halfW, zRoof),
       ],
-      '#e2e8f0',
+      windshieldFrameFill,
       '#1e293b',
       1.15 * s
     );
@@ -714,7 +900,7 @@ export function drawIsometricDeliveryVan(
         pt(cabSplitL + 0.35, halfW - 0.55, zRoof - 0.65),
         pt(cabSplitL + 0.35, -halfW + 0.55, zRoof - 0.65),
       ],
-      '#38bdf8',
+      glassFill,
       '#0f172a',
       0.85 * s
     );
@@ -722,7 +908,7 @@ export function drawIsometricDeliveryVan(
     // Crisp diagonal glass glare reflection
     const glA = pt(hoodL - 0.6, -halfW * 0.4, zBelt + 0.9);
     const glB = pt(cabSplitL + 0.65, -halfW * 0.05, zRoof - 1.0);
-    ctx.strokeStyle = 'rgba(248, 250, 252, 0.72)';
+    ctx.strokeStyle = 'rgba(248, 250, 252, 0.76)';
     ctx.lineWidth = 1.1 * s;
     ctx.beginPath();
     ctx.moveTo(glA.x, glA.y);
@@ -737,31 +923,33 @@ export function drawIsometricDeliveryVan(
       pt(rearL, halfW, zRoof),
       pt(rearL, -halfW, zRoof),
     ];
-    fillPoly(rearPts, '#cbd5e1', '#1e293b', 1.2 * s);
+    fillPoly(rearPts, rearBodyFill, '#1e293b', 1.2 * s);
 
-    // Dark rear bumper
+    // Rear bumper (body-colored on New, dark-gray plastic on Used)
     fillPoly(
       [
         pt(rearL, -halfW, zChassis),
         pt(rearL, halfW, zChassis),
-        pt(rearL, halfW, zChassis + 1.3),
-        pt(rearL, -halfW, zChassis + 1.3),
+        pt(rearL, halfW, zChassis + (isNew ? 1.15 : 1.35)),
+        pt(rearL, -halfW, zChassis + (isNew ? 1.15 : 1.35)),
       ],
-      '#334155',
+      isNew ? '#cbd5e1' : '#334155',
       '#1e293b',
       0.9 * s
     );
 
-    // Matching company orange rear stripe
-    fillPoly(
-      [
-        pt(rearL, -halfW + 0.2, zStripeBot),
-        pt(rearL, halfW - 0.2, zStripeBot),
-        pt(rearL, halfW - 0.2, zStripeTop),
-        pt(rearL, -halfW + 0.2, zStripeTop),
-      ],
-      '#ea580c'
-    );
+    // Matching 1 / 2 / 3 company orange rear stripes
+    for (const [zBot, zTop] of stripeBands) {
+      fillPoly(
+        [
+          pt(rearL, -halfW + 0.18, zBot),
+          pt(rearL, halfW - 0.18, zBot),
+          pt(rearL, halfW - 0.18, zTop),
+          pt(rearL, -halfW + 0.18, zTop),
+        ],
+        '#ea580c'
+      );
+    }
 
     // Split rear cargo door vertical seam
     const midBot = pt(rearL, 0, zChassis + 1.3);
@@ -805,7 +993,7 @@ export function drawIsometricDeliveryVan(
     drawSideFace(nearSideSign);
   }
 
-  // 4. Flat white cargo roof + subtle orange roof identification band
+  // 4. Cargo roof (Used: warm cream with visible longitudinal stiffening ribs vs New: smooth bright white)
   fillPoly(
     [
       pt(rearL, -halfW, zRoof),
@@ -813,18 +1001,32 @@ export function drawIsometricDeliveryVan(
       pt(cabSplitL, halfW, zRoof),
       pt(rearL, halfW, zRoof),
     ],
-    '#f8fafc',
+    roofFill,
     '#1e293b',
     1.2 * s
   );
 
+  if (!isNew) {
+    // Visible longitudinal roof ribs/creases characteristic of older/used cargo vans
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.48)';
+    ctx.lineWidth = 0.78 * s;
+    for (const ribSide of [-halfW * 0.62, -halfW * 0.21, halfW * 0.21, halfW * 0.62]) {
+      const rA = pt(rearL + 0.65, ribSide, zRoof);
+      const rB = pt(cabSplitL - 2.55, ribSide, zRoof);
+      ctx.beginPath();
+      ctx.moveTo(rA.x, rA.y);
+      ctx.lineTo(rB.x, rB.y);
+      ctx.stroke();
+    }
+  }
+
   // Subtle orange company roof accent bar near cab edge
   fillPoly(
     [
-      pt(cabSplitL - 2.3, -halfW + 0.75, zRoof),
+      pt(cabSplitL - 2.25, -halfW + 0.75, zRoof),
       pt(cabSplitL - 0.55, -halfW + 0.75, zRoof),
       pt(cabSplitL - 0.55, halfW - 0.75, zRoof),
-      pt(cabSplitL - 2.3, halfW - 0.75, zRoof),
+      pt(cabSplitL - 2.25, halfW - 0.75, zRoof),
     ],
     '#f97316'
   );

@@ -20,6 +20,7 @@ import type {
   CompanyCourier,
   CourierQualification,
   OrderEconomyState,
+  VanModelId,
   WarehouseLoadedBatch,
   WeeklyScheduleTask,
 } from './types/orders';
@@ -45,7 +46,7 @@ import {
   getNextDayMorningMinutes,
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
-  getVehicleCourierCapacity,
+  getVehicleCourierCapacityForSelection,
   getWarehouseTierConfig,
   hasEconomyBoundaryBetween,
   hireCourierInSlot,
@@ -57,7 +58,7 @@ import {
   purchaseBicycle,
   purchaseEmployeeLicense,
   purchaseParkingSpot,
-  purchaseUsedVan,
+  purchaseVan,
   purchaseWarehouseUpgrade,
   recordPackageDelivery,
   recordPackagePickup,
@@ -812,7 +813,7 @@ export function App() {
       let loaded: WarehouseLoadedBatch[] = [];
       applyEconomyUpdate((prev) => {
         const vehicleCapacity =
-          capacityOverride ?? getVehicleCourierCapacity(prev.activeVehicle?.type ?? 'bike');
+          capacityOverride ?? getVehicleCourierCapacityForSelection(prev, prev.activeVehicle);
         const res = loadPackagesFromWarehouseForBike(
           prev,
           orderId,
@@ -847,7 +848,7 @@ export function App() {
         );
         const freeSpace = getFreeWarehouseCapacity(prev);
         const vehicleCapacity =
-          capacityOverride ?? getVehicleCourierCapacity(prev.activeVehicle?.type ?? 'bike');
+          capacityOverride ?? getVehicleCourierCapacityForSelection(prev, prev.activeVehicle);
         actualCount = Math.min(
           Math.max(0, requestedCount),
           vehicleCapacity,
@@ -969,9 +970,12 @@ export function App() {
     applyEconomyUpdate((prev) => purchaseBicycle(prev).state);
   }, [applyEconomyUpdate]);
 
-  const handleBuyUsedVan = useCallback(() => {
-    applyEconomyUpdate((prev) => purchaseUsedVan(prev).state);
-  }, [applyEconomyUpdate]);
+  const handleBuyVan = useCallback(
+    (modelId: VanModelId) => {
+      applyEconomyUpdate((prev) => purchaseVan(prev, modelId).state);
+    },
+    [applyEconomyUpdate]
+  );
 
   const handleSelectActiveVehicle = useCallback(
     (vehicle: ActiveVehicleSelection) => {
@@ -1038,7 +1042,8 @@ export function App() {
 
   const activeWarehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
   const activeBikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
-  const activeVansCount = economyState.vansCount ?? economyState.deliveryVansCount ?? 0;
+  const activeVansCount =
+    economyState.vans?.length ?? economyState.vansCount ?? economyState.deliveryVansCount ?? 0;
   const ownerActiveVehicle = economyState.activeVehicle ?? { type: 'bike' as const, index: 1 };
 
   const baseDepot = useMemo(
@@ -1139,7 +1144,7 @@ export function App() {
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}
         onBuyBicycle={handleBuyBicycle}
-        onBuyUsedVan={handleBuyUsedVan}
+        onBuyVan={handleBuyVan}
         onSelectActiveVehicle={handleSelectActiveVehicle}
         onBuyEmployeeLicense={handleBuyEmployeeLicense}
         onHireCourier={handleHireCourier}
