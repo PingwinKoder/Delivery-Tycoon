@@ -104,6 +104,9 @@ import { applyRightHandLaneOffsets } from '../utils/trafficLanes';
 
 export interface MapCanvasController {
   centerOnBase: () => void;
+  setPanoramicOverview: () => void;
+  armIntroFlyIn: () => void;
+  beginArmedIntroFlyIn: () => void;
   dispatchCourierToBuilding: (building: Building) => boolean;
   recallCourierToBase: () => WarehouseLoadedBatch[];
   getInFlightCargo: () => WarehouseLoadedBatch[];
@@ -124,9 +127,12 @@ interface MapCanvasProps {
   gameMinutesRef?: React.RefObject<number>;
   economyStateRef?: React.RefObject<OrderEconomyState>;
   interactionBlocked?: boolean;
+  /** Shows moderate panoramic city overview (used behind Start Screen) */
+  overviewMode?: boolean;
   /** Incrementing session counter that forces full fleet reinitialization parked at Base */
   sessionEpoch?: number;
   onFpsChange?: (fps: number) => void;
+  onIntroFlyInComplete?: () => void;
   onCourierAtBaseChange?: (atBase: boolean) => void;
   onCourierStatusChange?: (status: CourierFleetStatusSnapshot) => void;
   onLoadFromWarehouse?: (
@@ -153,6 +159,262 @@ const FPS_SAMPLE_WINDOW_MS = 500;
 const FRAME_INTERVAL_MS = 1000 / 60.5;
 const MAX_CANVAS_DPR = 1.5;
 const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
+const CAMERA_INTRO_DURATION_MS = 1200;
+/** Moderate panoramic zoom multiplier relative to default gameplay zoom (~0.60x keeps 60 FPS on mobile) */
+const OVERVIEW_ZOOM_RATIO = 0.6;
+/** Scenic framing offset relative to Base focus for the Start Screen panorama */
+const OVERVIEW_BASE_OFFSET_X = 250;
+const OVERVIEW_BASE_OFFSET_Y = -185;
+
+interface CameraIntroTransition {
+  phase: 'armed' | 'running';
+  startTime: number | null;
+  durationMs: number;
+  fromX: number;
+  fromY: number;
+  fromEffectiveZoom: number;
+}
+
+interface AmbientTrafficCar {
+  fromId: string;
+  toId: string;
+  progress: number;
+  speed: number;
+  bodyColor: string;
+  roofColor: string;
+  length: number;
+  width: number;
+  turnSeed: number;
+}
+
+const AMBIENT_CAR_PALETTE: ReadonlyArray<{ body: string; roof: string }> = [
+  { body: '#e2e8f0', roof: '#f8fafc' },
+  { body: '#64748b', roof: '#94a3b8' },
+  { body: '#3b82f6', roof: '#60a5fa' },
+  { body: '#f59e0b', roof: '#fbbf24' },
+  { body: '#ef4444', roof: '#f87171' },
+  { body: '#10b981', roof: '#34d399' },
+  { body: '#475569', roof: '#64748b' },
+  { body: '#f97316', roof: '#fb923c' },
+];
+
+function easeOutCubic(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  const inv = 1 - clamped;
+  return 1 - inv * inv * inv;
+}
+
+function getBaseFocusPoint(baseNode: { x: number; y: number } | null): Point {
+  return baseNode ? { x: baseNode.x + 10, y: baseNode.y - 70 } : { x: 820, y: 1460 };
+}
+
+function clampWorldCenterForEffectiveZoom(
+  x: number,
+  y: number,
+  effectiveZoom: number,
+  viewport: Size
+): Point {
+  const safeZoom = Math.max(0.05, effectiveZoom);
+  const halfVisW = Math.max(1, viewport.width) / (2 * safeZoom);
+  const halfVisH = Math.max(1, viewport.height) / (2 * safeZoom);
+
+  const clampedX =
+    halfVisW * 2 >= MAP_WIDTH
+      ? MAP_WIDTH / 2
+      : Math.max(halfVisW, Math.min(MAP_WIDTH - halfVisW, x));
+  const clampedY =
+    halfVisH * 2 >= MAP_HEIGHT
+      ? MAP_HEIGHT / 2
+      : Math.max(halfVisH, Math.min(MAP_HEIGHT - halfVisH, y));
+
+  return { x: clampedX, y: clampedY };
+}
+
+/**
+ * Computes a moderate, mobile-friendly panoramic camera slightly offset from Base
+ * (~0.60x of normal gameplay zoom, floored so map boundaries never show empty void).
+ */
+function getPanoramicCamera(
+  viewport: Size,
+  baseNode: { x: number; y: number } | null
+): { x: number; y: number; effectiveZoom: number } {
+  const vw = Math.max(1, viewport.width);
+  const vh = Math.max(1, viewport.height);
+  const gameplayEffectiveZoom = getEffectiveZoom(DEFAULT_ZOOM, viewport, MAP_SIZE);
+  const minCoverZoom = Math.max(vw / MAP_WIDTH, vh / MAP_HEIGHT) * 1.04;
+  const overviewZoom = Math.max(minCoverZoom, gameplayEffectiveZoom * OVERVIEW_ZOOM_RATIO);
+
+  const baseFocus = getBaseFocusPoint(baseNode);
+  const clamped = clampWorldCenterForEffectiveZoom(
+    baseFocus.x + OVERVIEW_BASE_OFFSET_X,
+    baseFocus.y + OVERVIEW_BASE_OFFSET_Y,
+    overviewZoom,
+    viewport
+  );
+
+  return {
+    x: clamped.x,
+    y: clamped.y,
+    effectiveZoom: overviewZoom,
+  };
+}
+
+function createAmbientTrafficPool(graph: RoadGraph, count = 14): {
+  nodeMap: Map<string, Point>;
+  adjacency: Map<string, string[]>;
+  cars: AmbientTrafficCar[];
+} {
+  const nodeMap = new Map<string, Point>();
+  for (const node of graph.nodes) {
+    nodeMap.set(node.id, { x: node.x, y: node.y });
+  }
+
+  const adjacency = new Map<string, string[]>();
+  const validSegments: Array<{ from: string; to: string }> = [];
+
+  for (const edge of graph.edges) {
+    const [fromId, toId] = edge;
+    if (fromId === 'base' || toId === 'base') continue;
+    const fromPt = nodeMap.get(fromId);
+    const toPt = nodeMap.get(toId);
+    if (!fromPt || !toPt) continue;
+    if (Math.hypot(toPt.x - fromPt.x, toPt.y - fromPt.y) < 35) continue;
+
+    const listA = adjacency.get(fromId) ?? [];
+    if (!listA.includes(toId)) listA.push(toId);
+    adjacency.set(fromId, listA);
+
+    const listB = adjacency.get(toId) ?? [];
+    if (!listB.includes(fromId)) listB.push(fromId);
+    adjacency.set(toId, listB);
+
+    validSegments.push({ from: fromId, to: toId });
+    validSegments.push({ from: toId, to: fromId });
+  }
+
+  const cars: AmbientTrafficCar[] = [];
+  if (validSegments.length === 0) {
+    return { nodeMap, adjacency, cars };
+  }
+
+  const stride = Math.max(1, Math.floor(validSegments.length / count));
+  for (let i = 0; i < count; i++) {
+    const seg = validSegments[(i * stride + i * 3) % validSegments.length];
+    const palette = AMBIENT_CAR_PALETTE[i % AMBIENT_CAR_PALETTE.length];
+    cars.push({
+      fromId: seg.from,
+      toId: seg.to,
+      progress: ((i * 0.37) % 0.85) + 0.05,
+      speed: 52 + ((i * 19) % 38),
+      bodyColor: palette.body,
+      roofColor: palette.roof,
+      length: 10.5 + (i % 3) * 1.1,
+      width: 5.4 + (i % 2) * 0.7,
+      turnSeed: i + 1,
+    });
+  }
+
+  return { nodeMap, adjacency, cars };
+}
+
+function stepAmbientTraffic(
+  cars: AmbientTrafficCar[],
+  nodeMap: Map<string, Point>,
+  adjacency: Map<string, string[]>,
+  dt: number
+): void {
+  if (dt <= 0 || cars.length === 0) return;
+
+  for (const car of cars) {
+    const fromPt = nodeMap.get(car.fromId);
+    const toPt = nodeMap.get(car.toId);
+    if (!fromPt || !toPt) continue;
+    const segLen = Math.max(1, Math.hypot(toPt.x - fromPt.x, toPt.y - fromPt.y));
+    car.progress += (car.speed * dt) / segLen;
+
+    if (car.progress >= 1) {
+      const neighbors = adjacency.get(car.toId);
+      if (neighbors && neighbors.length > 0) {
+        const nonReverse = neighbors.filter((id) => id !== car.fromId);
+        const candidates = nonReverse.length > 0 ? nonReverse : neighbors;
+        car.turnSeed = (car.turnSeed * 7 + 3) % 97;
+        const nextTo = candidates[car.turnSeed % candidates.length];
+        car.fromId = car.toId;
+        car.toId = nextTo;
+        car.progress = car.progress - Math.floor(car.progress);
+      } else {
+        const prevFrom = car.fromId;
+        car.fromId = car.toId;
+        car.toId = prevFrom;
+        car.progress = 0;
+      }
+    }
+  }
+}
+
+function drawAmbientTraffic(
+  ctx: CanvasRenderingContext2D,
+  cars: readonly AmbientTrafficCar[],
+  nodeMap: Map<string, Point>,
+  viewBounds: { minX: number; maxX: number; minY: number; maxY: number },
+  alpha: number
+): void {
+  if (alpha <= 0.01 || cars.length === 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  for (const car of cars) {
+    const fromPt = nodeMap.get(car.fromId);
+    const toPt = nodeMap.get(car.toId);
+    if (!fromPt || !toPt) continue;
+
+    const dx = toPt.x - fromPt.x;
+    const dy = toPt.y - fromPt.y;
+    const angle = Math.atan2(dy, dx);
+    // Offset cleanly onto the right-hand lane
+    const laneOffset = 4.4;
+    const cx = fromPt.x + dx * car.progress - Math.sin(angle) * laneOffset;
+    const cy = fromPt.y + dy * car.progress + Math.cos(angle) * laneOffset;
+
+    if (
+      cx < viewBounds.minX ||
+      cx > viewBounds.maxX ||
+      cy < viewBounds.minY ||
+      cy > viewBounds.maxY
+    ) {
+      continue;
+    }
+
+    const halfL = car.length * 0.5;
+    const halfW = car.width * 0.5;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+
+    // Subtle ground shadow
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+    ctx.fillRect(-halfL + 0.8, -halfW + 1.1, car.length, car.width);
+
+    // Car body
+    ctx.fillStyle = car.bodyColor;
+    ctx.fillRect(-halfL, -halfW, car.length, car.width);
+
+    // Roof / cabin highlight
+    ctx.fillStyle = car.roofColor;
+    ctx.fillRect(-halfL * 0.45, -halfW * 0.72, car.length * 0.52, car.width * 0.72);
+
+    // Tiny warm headlights at front
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(halfL - 1.1, -halfW + 0.6, 1.1, 1.3);
+    ctx.fillRect(halfL - 1.1, halfW - 1.9, 1.1, 1.3);
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
 
 type ArrowKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
 
@@ -190,8 +452,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   gameMinutesRef,
   economyStateRef,
   interactionBlocked = false,
+  overviewMode = false,
   sessionEpoch = 0,
   onFpsChange,
+  onIntroFlyInComplete,
   onCourierAtBaseChange,
   onCourierStatusChange,
   onLoadFromWarehouse,
@@ -212,8 +476,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   const cameraRef = useRef<CameraState>({ x: 820, y: 1460, zoom: DEFAULT_ZOOM });
   const targetCameraRef = useRef<CameraState>({ x: 820, y: 1460, zoom: DEFAULT_ZOOM });
   const cameraVelocityRef = useRef<CameraVelocity>({ vx: 0, vy: 0 });
+  const cameraIntroRef = useRef<CameraIntroTransition | null>(null);
   const initializedCameraRef = useRef<boolean>(false);
   const pressedArrowKeysRef = useRef<Set<ArrowKey>>(new Set());
+
+  const ambientTrafficRef = useRef<{
+    nodeMap: Map<string, Point>;
+    adjacency: Map<string, string[]>;
+    cars: AmbientTrafficCar[];
+  }>(createAmbientTrafficPool(graph, 14));
 
   const couriersFleetRef = useRef<MultiCourierFleetState>(
     createInitialCourierFleet(economyStateRef?.current?.couriers)
@@ -260,7 +531,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     gameMinutesRef: gameMinutesRef ?? internalGameMinutesRef,
     economyStateRef,
     interactionBlocked,
+    overviewMode,
     onFpsChange,
+    onIntroFlyInComplete,
     onCourierAtBaseChange,
     onCourierStatusChange,
     onLoadFromWarehouse,
@@ -284,7 +557,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     gameMinutesRef: gameMinutesRef ?? internalGameMinutesRef,
     economyStateRef,
     interactionBlocked,
+    overviewMode,
     onFpsChange,
+    onIntroFlyInComplete,
     onCourierAtBaseChange,
     onCourierStatusChange,
     onLoadFromWarehouse,
@@ -357,12 +632,54 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   useEffect(() => {
     controllerRef.current = {
       centerOnBase: () => {
-        const curBaseNode = propsRef.current.baseNode;
-        const focus = curBaseNode
-          ? { x: curBaseNode.x + 10, y: curBaseNode.y - 70 }
-          : { x: 820, y: 1460 };
+        const focus = getBaseFocusPoint(propsRef.current.baseNode);
+        cameraIntroRef.current = null;
         cameraVelocityRef.current = { vx: 0, vy: 0 };
         targetCameraRef.current = createInitialCamera(viewportRef.current, MAP_SIZE, focus);
+      },
+      setPanoramicOverview: () => {
+        cameraIntroRef.current = null;
+        cameraVelocityRef.current = { vx: 0, vy: 0 };
+        pressedArrowKeysRef.current.clear();
+      },
+      armIntroFlyIn: () => {
+        const viewport = viewportRef.current;
+        const pan = getPanoramicCamera(viewport, propsRef.current.baseNode);
+        const focus = getBaseFocusPoint(propsRef.current.baseNode);
+        const baseCam = createInitialCamera(viewport, MAP_SIZE, focus);
+
+        cameraVelocityRef.current = { vx: 0, vy: 0 };
+        pressedArrowKeysRef.current.clear();
+        cameraRef.current = baseCam;
+        targetCameraRef.current = baseCam;
+        // Hold camera at exact panoramic coordinates until state reset & localStorage save settle
+        cameraIntroRef.current = {
+          phase: 'armed',
+          startTime: null,
+          durationMs: CAMERA_INTRO_DURATION_MS,
+          fromX: pan.x,
+          fromY: pan.y,
+          fromEffectiveZoom: pan.effectiveZoom,
+        };
+      },
+      beginArmedIntroFlyIn: () => {
+        const current = cameraIntroRef.current;
+        if (current) {
+          current.phase = 'running';
+          // Stamp startTime lazily on the very first rAF render frame so zero duration is ever lost
+          current.startTime = null;
+        } else {
+          const viewport = viewportRef.current;
+          const pan = getPanoramicCamera(viewport, propsRef.current.baseNode);
+          cameraIntroRef.current = {
+            phase: 'running',
+            startTime: null,
+            durationMs: CAMERA_INTRO_DURATION_MS,
+            fromX: pan.x,
+            fromY: pan.y,
+            fromEffectiveZoom: pan.effectiveZoom,
+          };
+        }
       },
       dispatchCourierToBuilding: (building: Building) => {
         const {
@@ -1015,11 +1332,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
       hasRenderedFirstFrame = true;
 
-      // Measure real rendered FPS averaged over ~0.5s intervals
+      const isOverviewOrIntro =
+        propsRef.current.overviewMode || cameraIntroRef.current !== null;
+
+      // Measure real rendered FPS averaged over ~0.5s intervals, but skip React UI updates
+      // while the Start Screen or camera fly-in is active so zero unnecessary re-renders occur
       fpsFrames += 1;
       const fpsElapsed = now - fpsWindowStart;
       if (fpsElapsed >= FPS_SAMPLE_WINDOW_MS) {
-        if (fpsElapsed > 2000) {
+        if (fpsElapsed > 2000 || isOverviewOrIntro) {
           fpsFrames = 0;
           fpsWindowStart = now;
         } else {
@@ -1033,29 +1354,122 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
       }
 
-      // Compute arrow-key directional input vector (blocked while modals are open)
+      // Compute arrow-key directional input vector (blocked while modals/overview/intro are active)
       const activeArrowKeys = pressedArrowKeysRef.current;
       const arrowInput: ArrowInputVector = { x: 0, y: 0 };
-      if (!propsRef.current.interactionBlocked && activeArrowKeys.size > 0) {
+      if (!propsRef.current.interactionBlocked && !isOverviewOrIntro && activeArrowKeys.size > 0) {
         if (activeArrowKeys.has('ArrowLeft')) arrowInput.x -= 1;
         if (activeArrowKeys.has('ArrowRight')) arrowInput.x += 1;
         if (activeArrowKeys.has('ArrowUp')) arrowInput.y -= 1;
         if (activeArrowKeys.has('ArrowDown')) arrowInput.y += 1;
       }
 
-      // Frame-rate-independent exponential camera physics + smooth arrow-key velocity + hard snap
-      const camStep = stepCameraPhysics(
-        cameraRef.current,
-        targetCameraRef.current,
-        cameraVelocityRef.current,
-        arrowInput,
-        rawDt,
+      // Ensure static caches before starting the intro clock so any warehouse/parking rebuild
+      // during load never eats into the 1.2s fly-in duration
+      ensureStaticCaches();
+
+      // Compute rendered camera transform purely via refs (zero React setState during animation):
+      // 1) Armed or running 1.2s easeOutCubic fly-in from panoramic overview to Base
+      // 2) Moderate panoramic city overview behind Start Screen
+      // 3) Standard interactive gameplay camera physics
+      let renderCamX = cameraRef.current.x;
+      let renderCamY = cameraRef.current.y;
+      let renderEffectiveZoom = getEffectiveZoom(
+        cameraRef.current.zoom,
         viewportRef.current,
         MAP_SIZE
       );
-      cameraRef.current = camStep.camera;
-      targetCameraRef.current = camStep.target;
-      cameraVelocityRef.current = camStep.velocity;
+      let renderCacheZoomKey = cameraRef.current.zoom;
+      let ambientTrafficAlpha = 0;
+
+      const activeIntro = cameraIntroRef.current;
+      if (activeIntro) {
+        if (activeIntro.phase === 'armed') {
+          renderCamX = activeIntro.fromX;
+          renderCamY = activeIntro.fromY;
+          renderEffectiveZoom = activeIntro.fromEffectiveZoom;
+          renderCacheZoomKey = activeIntro.fromEffectiveZoom;
+          ambientTrafficAlpha = 1;
+        } else {
+          if (activeIntro.startTime === null) {
+            activeIntro.startTime = now;
+          }
+          const elapsed = Math.max(0, now - activeIntro.startTime);
+          const rawT = Math.min(1, elapsed / activeIntro.durationMs);
+          const eased = easeOutCubic(rawT);
+
+          const baseFocus = getBaseFocusPoint(propsRef.current.baseNode);
+          const baseCam = createInitialCamera(viewportRef.current, MAP_SIZE, baseFocus);
+          const toEffectiveZoom = getEffectiveZoom(baseCam.zoom, viewportRef.current, MAP_SIZE);
+
+          const safeFromZoom = Math.max(0.05, activeIntro.fromEffectiveZoom);
+          renderEffectiveZoom = safeFromZoom * Math.pow(toEffectiveZoom / safeFromZoom, eased);
+          const interpX = activeIntro.fromX + (baseCam.x - activeIntro.fromX) * eased;
+          const interpY = activeIntro.fromY + (baseCam.y - activeIntro.fromY) * eased;
+          const clampedCenter = clampWorldCenterForEffectiveZoom(
+            interpX,
+            interpY,
+            renderEffectiveZoom,
+            viewportRef.current
+          );
+          renderCamX = clampedCenter.x;
+          renderCamY = clampedCenter.y;
+          renderCacheZoomKey = renderEffectiveZoom;
+          ambientTrafficAlpha = Math.max(0, 1 - eased * 1.4);
+
+          if (rawT >= 1) {
+            cameraRef.current = baseCam;
+            targetCameraRef.current = baseCam;
+            cameraVelocityRef.current = { vx: 0, vy: 0 };
+            cameraIntroRef.current = null;
+            renderCamX = baseCam.x;
+            renderCamY = baseCam.y;
+            renderEffectiveZoom = toEffectiveZoom;
+            renderCacheZoomKey = baseCam.zoom;
+            ambientTrafficAlpha = 0;
+            propsRef.current.onIntroFlyInComplete?.();
+          }
+        }
+      } else if (propsRef.current.overviewMode) {
+        const panCam = getPanoramicCamera(viewportRef.current, propsRef.current.baseNode);
+        renderCamX = panCam.x;
+        renderCamY = panCam.y;
+        renderEffectiveZoom = panCam.effectiveZoom;
+        renderCacheZoomKey = panCam.effectiveZoom;
+        ambientTrafficAlpha = 1;
+      } else {
+        // Frame-rate-independent exponential camera physics + smooth arrow-key velocity + hard snap
+        const camStep = stepCameraPhysics(
+          cameraRef.current,
+          targetCameraRef.current,
+          cameraVelocityRef.current,
+          arrowInput,
+          rawDt,
+          viewportRef.current,
+          MAP_SIZE
+        );
+        cameraRef.current = camStep.camera;
+        targetCameraRef.current = camStep.target;
+        cameraVelocityRef.current = camStep.velocity;
+        renderCamX = camStep.camera.x;
+        renderCamY = camStep.camera.y;
+        renderEffectiveZoom = getEffectiveZoom(
+          camStep.camera.zoom,
+          viewportRef.current,
+          MAP_SIZE
+        );
+        renderCacheZoomKey = camStep.camera.zoom;
+      }
+
+      // Advance lightweight background street traffic while Start Screen overview or fly-in is visible
+      if (ambientTrafficAlpha > 0.01) {
+        stepAmbientTraffic(
+          ambientTrafficRef.current.cars,
+          ambientTrafficRef.current.nodeMap,
+          ambientTrafficRef.current.adjacency,
+          rawDt
+        );
+      }
 
       // Shared speed-scaled simulation step for couriers and future fleet vehicles (0 = paused)
       const simDt = computeScaledSimDt(rawDt, propsRef.current.gameSpeed);
@@ -1355,8 +1769,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const { width: vw, height: vh } = viewportRef.current;
       const dprX = canvas.width / Math.max(1, vw);
       const dprY = canvas.height / Math.max(1, vh);
-      const cam = cameraRef.current;
-      const effectiveZoom = getEffectiveZoom(cam.zoom, viewportRef.current, MAP_SIZE);
+      const effectiveZoom = renderEffectiveZoom;
       const {
         baseNode: curBaseNode,
         buildings: curBuildings,
@@ -1381,9 +1794,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           canvasHeight: canvas.height,
           logicalWidth: vw,
           logicalHeight: vh,
-          cameraX: cam.x,
-          cameraY: cam.y,
-          cameraZoom: cam.zoom,
+          cameraX: renderCamX,
+          cameraY: renderCamY,
+          cameraZoom: renderCacheZoomKey,
           effectiveZoom,
         });
         ctx.drawImage(viewportGroundCacheRef.current.canvas, 0, 0, vw, vh);
@@ -1395,7 +1808,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       // Apply camera transform once for dynamic overlays (route, courier, Z-sorted 3D atlas sprites, labels)
       ctx.translate(vw / 2, vh / 2);
       ctx.scale(effectiveZoom, effectiveZoom);
-      ctx.translate(-cam.x, -cam.y);
+      ctx.translate(-renderCamX, -renderCamY);
 
       const invScale = 1 / Math.sqrt(effectiveZoom);
 
@@ -1414,7 +1827,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         ctx.lineWidth = 2 * invScale;
         ctx.strokeRect(node.x - half, node.y - half, half * 2, half * 2);
 
-        ctx.font = `700 ${Math.round(12 * invScale)}px "Plus Jakarta Sans", sans-serif`;
+        ctx.font = `700 ${Math.round(12 * invScale)}px "Inter", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
         ctx.lineWidth = 3.5 * invScale;
@@ -1441,11 +1854,21 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const halfViewW = vw / (2 * effectiveZoom) + 60;
       const halfViewH = vh / (2 * effectiveZoom) + 60;
       const viewBounds = {
-        minX: cam.x - halfViewW,
-        maxX: cam.x + halfViewW,
-        minY: cam.y - halfViewH,
-        maxY: cam.y + halfViewH,
+        minX: renderCamX - halfViewW,
+        maxX: renderCamX + halfViewW,
+        minY: renderCamY - halfViewH,
+        maxY: renderCamY + halfViewH,
       };
+
+      if (ambientTrafficAlpha > 0.01) {
+        drawAmbientTraffic(
+          ctx,
+          ambientTrafficRef.current.cars,
+          ambientTrafficRef.current.nodeMap,
+          viewBounds,
+          ambientTrafficAlpha
+        );
+      }
 
       const curBikesCount = propsRef.current.bikesCount;
       const curVansCount = propsRef.current.vansCount;

@@ -4,6 +4,7 @@ import { CompanyModal } from './components/CompanyModal';
 import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
 import { OrdersModal } from './components/OrdersModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
+import { SettingsModal } from './components/SettingsModal';
 import { SkipTimeModal } from './components/SkipTimeModal';
 import { StartScreenModal } from './components/StartScreenModal';
 import { Toolbar } from './components/Toolbar';
@@ -74,6 +75,11 @@ import {
   loadGameFromSlot,
   saveGameToSlot,
 } from './utils/saveSystem';
+import {
+  type GameSettings,
+  loadGameSettings,
+  saveGameSettings,
+} from './utils/settingsSystem';
 
 const MAX_CLOCK_REAL_DT = 0.1;
 
@@ -293,7 +299,13 @@ export function App() {
   );
   const [activeSlotId, setActiveSlotId] = useState<SaveSlotId | null>(null);
   const [startScreenOpen, setStartScreenOpen] = useState<boolean>(true);
+  const [startScreenMounted, setStartScreenMounted] = useState<boolean>(true);
+  const [introActive, setIntroActive] = useState<boolean>(false);
+  const [hudVisible, setHudVisible] = useState<boolean>(false);
   const [sessionEpoch, setSessionEpoch] = useState<number>(0);
+
+  const [settings, setSettings] = useState<GameSettings>(() => loadGameSettings());
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
 
   // Tracks per-slot courier Base presence (#1–#6) and live Plan tygodnia task assignments
   const [courierAtBaseBySlot, setCourierAtBaseBySlot] = useState<Record<number, boolean>>(
@@ -318,6 +330,55 @@ export function App() {
   const activeSlotIdRef = useRef<SaveSlotId | null>(activeSlotId);
   const lastSavedCompletedOrdersRef = useRef<number>(economyState.completedOrdersCount);
   const lastAutoSavedMorningDayRef = useRef<number>(1);
+  const introRafIdsRef = useRef<number[]>([]);
+
+  const clearIntroRafs = useCallback(() => {
+    for (const rafId of introRafIdsRef.current) {
+      window.cancelAnimationFrame(rafId);
+    }
+    introRafIdsRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearIntroRafs();
+    };
+  }, [clearIntroRafs]);
+
+  const scheduleCinematicFlyInAfterPaint = useCallback(() => {
+    clearIntroRafs();
+    // Wait two animation frames so React commit, localStorage write, and first post-save paint
+    // complete completely before starting the 1.2s camera fly-in and GPU HUD slide-in
+    const raf1 = window.requestAnimationFrame(() => {
+      const raf2 = window.requestAnimationFrame(() => {
+        introRafIdsRef.current = [];
+        canvasControllerRef.current?.beginArmedIntroFlyIn();
+        setHudVisible(true);
+      });
+      introRafIdsRef.current = [raf2];
+    });
+    introRafIdsRef.current = [raf1];
+  }, [clearIntroRafs]);
+
+  const handleIntroFlyInComplete = useCallback(() => {
+    setStartScreenMounted(false);
+    setIntroActive(false);
+  }, []);
+
+  const handleUpdateSettings = useCallback((patch: Partial<GameSettings>) => {
+    setSettings((prev) => saveGameSettings({ ...prev, ...patch }));
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setOrdersOpen(false);
+    setCompanyOpen(false);
+    setSkipTimeOpen(false);
+    setSettingsOpen(true);
+  }, []);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOpen(false);
+  }, []);
 
   const applyEconomyUpdate = useCallback(
     (updater: (prev: OrderEconomyState) => OrderEconomyState): OrderEconomyState => {
@@ -368,6 +429,9 @@ export function App() {
 
   const handleStartNewGame = useCallback(
     (slotId: SaveSlotId) => {
+      // Lock panoramic camera framing before state updates so zero 1-frame jump occurs
+      canvasControllerRef.current?.armIntroFlyIn();
+
       const freshEconomy = createNewCareerEconomyState();
       economyStateRef.current = freshEconomy;
       setEconomyState(freshEconomy);
@@ -393,19 +457,26 @@ export function App() {
       setOrdersOpen(false);
       setCompanyOpen(false);
       setSkipTimeOpen(false);
+      setSettingsOpen(false);
+      setHudVisible(false);
+      setIntroActive(true);
       setStartScreenOpen(false);
       setGameSpeed(1);
 
-      // Auto-save trigger #1: immediately persist starter state in the chosen slot
+      // Auto-save trigger #1: persist starter state BEFORE starting the camera fly-in timer
       persistGameToSlot(slotId, freshEconomy, INITIAL_GAME_MINUTES, []);
+      scheduleCinematicFlyInAfterPaint();
     },
-    [handleCourierStatusChange, persistGameToSlot]
+    [handleCourierStatusChange, persistGameToSlot, scheduleCinematicFlyInAfterPaint]
   );
 
   const handleLoadGame = useCallback(
     (slotId: SaveSlotId) => {
       const entry = loadGameFromSlot(slotId);
       if (!entry) return;
+
+      // Lock panoramic camera framing before state updates so zero 1-frame jump occurs
+      canvasControllerRef.current?.armIntroFlyIn();
 
       const restoredEconomy = restoreEconomyStateFromSavedEntry(entry.state);
       const restoredMinutes = entry.state.gameMinutes;
@@ -437,10 +508,15 @@ export function App() {
       setOrdersOpen(false);
       setCompanyOpen(false);
       setSkipTimeOpen(false);
+      setSettingsOpen(false);
+      setHudVisible(false);
+      setIntroActive(true);
       setStartScreenOpen(false);
       setGameSpeed(1);
+
+      scheduleCinematicFlyInAfterPaint();
     },
-    [handleCourierStatusChange]
+    [handleCourierStatusChange, scheduleCinematicFlyInAfterPaint]
   );
 
   const handleDeleteSaveSlot = useCallback((slotId: SaveSlotId) => {
@@ -453,6 +529,7 @@ export function App() {
   }, []);
 
   const handleSaveAndExit = useCallback(() => {
+    clearIntroRafs();
     const slotId = activeSlotIdRef.current;
     if (slotId !== null) {
       persistGameToSlot(slotId, economyStateRef.current, exactGameMinutesRef.current);
@@ -463,8 +540,13 @@ export function App() {
     setCompanyOpen(false);
     setOrdersOpen(false);
     setSkipTimeOpen(false);
+    setSettingsOpen(false);
+    setIntroActive(false);
+    setHudVisible(false);
+    setStartScreenMounted(true);
     setStartScreenOpen(true);
-  }, [persistGameToSlot]);
+    canvasControllerRef.current?.setPanoramicOverview();
+  }, [clearIntroRafs, persistGameToSlot]);
 
   // Auto-save trigger #2: save immediately whenever completedOrdersCount increases
   useEffect(() => {
@@ -491,11 +573,14 @@ export function App() {
   }, [gameMinutes, activeSlotId, startScreenOpen, persistGameToSlot]);
 
   // Advance world clock smoothly:
-  // - Pause (0x) or StartScreenModal always stops time completely
+  // - Pause (0x), StartScreenModal, SettingsModal, or active camera fly-in stops clock updates
+  //   (prevents React re-renders during the 1.2s intro fly-in)
   // - Daytime runs at user's chosen speed (1x/2x/4x -> 2/4/8 in-game min/s)
   // - Night hours (from seasonal closing time until 08:00) auto-switch to 15x when allCouriersAtBase is true
+  const isPausedByOverlay = startScreenOpen || introActive || settingsOpen;
+
   useEffect(() => {
-    if (startScreenOpen || gameSpeed === 0) return;
+    if (isPausedByOverlay || gameSpeed === 0) return;
 
     let rafId: number | null = null;
     let lastTime = performance.now();
@@ -541,7 +626,7 @@ export function App() {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [gameSpeed, startScreenOpen, applyEconomyUpdate]);
+  }, [gameSpeed, isPausedByOverlay, applyEconomyUpdate]);
 
   const handleToggleGrid = useCallback(() => {
     setShowGrid((prev) => !prev);
@@ -562,6 +647,7 @@ export function App() {
   const handleOpenOrders = useCallback(() => {
     setSkipTimeOpen(false);
     setCompanyOpen(false);
+    setSettingsOpen(false);
     setOrdersOpen(true);
   }, []);
 
@@ -572,6 +658,7 @@ export function App() {
   const handleOpenCompany = useCallback(() => {
     setOrdersOpen(false);
     setSkipTimeOpen(false);
+    setSettingsOpen(false);
     setCompanyOpen(true);
   }, []);
 
@@ -582,6 +669,7 @@ export function App() {
   const handleOpenSkipTime = useCallback(() => {
     setOrdersOpen(false);
     setCompanyOpen(false);
+    setSettingsOpen(false);
     setSkipTimeOpen(true);
   }, []);
 
@@ -805,9 +893,9 @@ export function App() {
   );
 
   const unreadOffersCount = countUnreadOffers(economyState);
-  const effectiveSimSpeed: GameSpeed = startScreenOpen ? 0 : gameSpeed;
+  const effectiveSimSpeed: GameSpeed = isPausedByOverlay ? 0 : gameSpeed;
   const isNightMode =
-    !startScreenOpen && allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
+    !isPausedByOverlay && allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
   const nextDayMorningMinutes = useMemo(
     () => getNextDayMorningMinutes(gameMinutes),
@@ -849,9 +937,18 @@ export function App() {
         gameSpeed={effectiveSimSpeed}
         gameMinutesRef={exactGameMinutesRef}
         economyStateRef={economyStateRef}
-        interactionBlocked={startScreenOpen || ordersOpen || skipTimeOpen || companyOpen}
+        overviewMode={startScreenOpen}
+        interactionBlocked={
+          startScreenOpen ||
+          introActive ||
+          ordersOpen ||
+          skipTimeOpen ||
+          companyOpen ||
+          settingsOpen
+        }
         sessionEpoch={sessionEpoch}
         onFpsChange={setFps}
+        onIntroFlyInComplete={handleIntroFlyInComplete}
         onCourierAtBaseChange={handleCourierAtBaseChange}
         onCourierStatusChange={handleCourierStatusChange}
         onLoadFromWarehouse={handleLoadFromWarehouse}
@@ -861,7 +958,17 @@ export function App() {
         controllerRef={canvasControllerRef}
       />
 
+      {/* Single lightweight semi-transparent veil animated exclusively via GPU opacity */}
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 z-10 pointer-events-none bg-slate-950/65 will-change-[opacity] transition-opacity duration-[1200ms] ease-out ${
+          startScreenOpen ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+
       <Toolbar
+        hudVisible={hudVisible}
+        language={settings.language}
         showGrid={showGrid}
         footprintOnly={footprintOnly}
         showStreetNames={showStreetNames}
@@ -871,6 +978,7 @@ export function App() {
         isNightMode={isNightMode}
         ordersOpen={ordersOpen}
         companyOpen={companyOpen}
+        settingsOpen={settingsOpen}
         unreadOffersCount={unreadOffersCount}
         fps={fps}
         onToggleGrid={handleToggleGrid}
@@ -880,6 +988,7 @@ export function App() {
         onOpenSkipTime={handleOpenSkipTime}
         onOpenOrders={handleOpenOrders}
         onOpenCompany={handleOpenCompany}
+        onOpenSettings={handleOpenSettings}
       />
 
       <OrdersModal
@@ -923,14 +1032,24 @@ export function App() {
         onSkipToNextOrder={handleSkipToNextOrder}
       />
 
-      {startScreenOpen && (
+      {startScreenMounted && (
         <StartScreenModal
+          isVisible={startScreenOpen}
+          language={settings.language}
           slots={saveSlots}
           onStartNewGame={handleStartNewGame}
           onLoadGame={handleLoadGame}
           onDeleteSlot={handleDeleteSaveSlot}
+          onOpenSettings={handleOpenSettings}
         />
       )}
+
+      <SettingsModal
+        isOpen={settingsOpen}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+        onClose={handleCloseSettings}
+      />
 
       <PWAInstallButton />
     </main>
