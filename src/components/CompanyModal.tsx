@@ -1333,7 +1333,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         : null;
                       const durability = getVehicleDurability(economyState, vehicleSel);
                       const roundedDurability = Math.round(durability);
-                      const isSlowed = durability < LOW_DURABILITY_SPEED_THRESHOLD;
+                      const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
                       const repairPending = isVehicleRepairPending(economyState, vehicleSel);
                       const repairEligible =
                         !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
@@ -1463,7 +1463,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         : null;
                       const durability = getVehicleDurability(economyState, vehicleSel);
                       const roundedDurability = Math.round(durability);
-                      const isSlowed = durability < LOW_DURABILITY_SPEED_THRESHOLD;
+                      const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
                       const repairPending = isVehicleRepairPending(economyState, vehicleSel);
                       const repairEligible =
                         !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;

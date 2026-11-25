@@ -15,6 +15,8 @@ import {
   LONG_TERM_OFFER_EXPIRY_DAYS,
   MAX_PENDING_OFFERS,
   SHORT_TERM_OFFER_EXPIRY_DAYS,
+  TWO_DAY_LONG_TERM_MIN_COMPLETED_ORDERS,
+  TWO_DAY_LONG_TERM_OFFER_CHANCE,
   getReputationTierConfig,
   nextRng,
   rngInt,
@@ -216,7 +218,8 @@ export function generateSingleOffer(
   buildings: readonly Building[],
   orderSeq: number,
   rngState: number,
-  usedOrderNumbers?: ReadonlySet<number>
+  usedOrderNumbers?: ReadonlySet<number>,
+  completedOrdersCount = 0
 ): { offer: OrderOffer; nextState: number } {
   let state = rngState;
   const tier = getReputationTierConfig(reputationLevel);
@@ -257,22 +260,39 @@ export function generateSingleOffer(
     state = monthsPick.nextState;
     const durationMonths: LongTermDurationMonths = monthsPick.value;
 
-    // Level 2: 10–16 pkgs/week, 1 pickup day/week; Levels 3–4: 20–36 pkgs/week, 2 pickup days/week
-    const isHighVolumeTier = reputationLevel >= 3;
-    const pkgStep = rngInt(state, isHighVolumeTier ? 20 : 10, isHighVolumeTier ? 36 : 16);
-    state = pkgStep.nextState;
-    const packagesPerWeek = pkgStep.value;
-    const pickupDaysPerWeek: 1 | 2 = isHighVolumeTier ? 2 : 1;
+    // Late-game long-term contracts (rep 3–4 or >= 25 completed orders) have a ~33% chance
+    // to roll a 2x/week schedule with higher weekly volume split evenly across two weekdays.
+    const canRollTwoDays =
+      reputationLevel >= 3 || completedOrdersCount >= TWO_DAY_LONG_TERM_MIN_COMPLETED_ORDERS;
+    let pickupDaysPerWeek: 1 | 2 = 1;
+    if (canRollTwoDays) {
+      const twoDayRoll = nextRng(state);
+      state = twoDayRoll.nextState;
+      pickupDaysPerWeek = twoDayRoll.value < TWO_DAY_LONG_TERM_OFFER_CHANCE ? 2 : 1;
+    }
 
+    let packagesPerWeek: number;
     let pickupWeekdays: readonly number[];
-    if (pickupDaysPerWeek === 1) {
-      const dayStep = rngInt(state, 0, 4); // Poniedziałek–Piątek
-      state = dayStep.nextState;
-      pickupWeekdays = [dayStep.value];
-    } else {
+    if (pickupDaysPerWeek === 2) {
+      const perDayMin = reputationLevel >= 4 ? 12 : 10;
+      const perDayMax = reputationLevel >= 4 ? 18 : 16;
+      const perDayStep = rngInt(state, perDayMin, perDayMax);
+      state = perDayStep.nextState;
+      packagesPerWeek = perDayStep.value * 2; // Clean even split across both scheduled days
+
       const pairStep = rngPick(state, TWO_DAY_WEEKDAY_PAIRS);
       state = pairStep.nextState;
       pickupWeekdays = pairStep.value;
+    } else {
+      const singleMin = reputationLevel >= 4 ? 16 : reputationLevel >= 3 ? 13 : 10;
+      const singleMax = reputationLevel >= 4 ? 24 : reputationLevel >= 3 ? 20 : 16;
+      const pkgStep = rngInt(state, singleMin, singleMax);
+      state = pkgStep.nextState;
+      packagesPerWeek = pkgStep.value;
+
+      const dayStep = rngInt(state, 0, 4); // Poniedziałek–Piątek
+      state = dayStep.nextState;
+      pickupWeekdays = [dayStep.value];
     }
 
     // 3m = 13 weeks, 6m = 26 weeks, 12m = 52 weeks (aligned with 365-day calendar)
@@ -414,7 +434,8 @@ export function generateOffersBatch(
       buildings,
       nextOrderSeq,
       activeRngState,
-      usedOrderNumbers
+      usedOrderNumbers,
+      state.completedOrdersCount
     );
     usedOrderNumbers.add(generated.offer.orderNumber);
     newOffers.push(generated.offer);

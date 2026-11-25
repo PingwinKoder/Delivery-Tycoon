@@ -690,13 +690,27 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       const pickedUp = Math.max(0, Math.min(totalPkgs, task.pickedUpCount));
                       const delivered = Math.max(0, Math.min(totalPkgs, task.deliveredCount));
                       const allPickedUp = totalPkgs > 0 && pickedUp >= totalPkgs;
+                      const isExpiring = Boolean(task.isExpiringOnDay) && delivered < totalPkgs;
                       const translatedClient = translateOrderText(language, task.clientName);
                       const translatedAddress = translateOrderText(language, task.pickupAddress);
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
-                          className="rounded-md bg-[#182030] border border-slate-700/85 py-0.5 px-2 flex items-center gap-1.5 text-xs min-w-0"
+                          className={`rounded-md border py-0.5 px-2 flex items-center gap-1.5 text-xs min-w-0 ${
+                            isExpiring
+                              ? 'animate-expiring-task'
+                              : 'bg-[#182030] border-slate-700/85'
+                          }`}
                         >
+                          {isExpiring && (
+                            <span
+                              title={t(language, 'orders.expiringLastDayTooltip')}
+                              aria-label={t(language, 'orders.expiringLastDayTooltip')}
+                              className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/25 border border-rose-400/75 text-rose-300 text-[11px] font-extrabold leading-none shrink-0"
+                            >
+                              !
+                            </span>
+                          )}
                           <p
                             className="flex-1 min-w-0 truncate text-xs leading-tight text-slate-100"
                             title={`#${task.orderNumber} • ${translatedClient} (${translatedAddress})`}
@@ -877,9 +891,16 @@ const OfferCard: React.FC<OfferCardProps> = ({
     <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-2 gap-1">
       {/* 1. Order type + expiry */}
       <div className="flex items-center justify-between gap-1.5 text-[11px] leading-tight">
-        <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
-          {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
+            {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
+          </span>
+          {offer.kind === 'long_term' && offer.pickupDaysPerWeek === 2 && (
+            <span className="px-1.5 py-[1px] rounded bg-sky-500/15 border border-sky-400/45 text-[10px] font-bold text-sky-200 font-mono-nums whitespace-nowrap shrink-0">
+              {t(language, 'orders.freqTwicePerWeek')}
+            </span>
+          )}
+        </div>
         <span
           className={`font-mono-nums shrink-0 ${
             expiresUrgent ? 'text-rose-400 font-semibold' : 'text-slate-400'
@@ -1010,9 +1031,16 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
     <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-2 gap-1">
       {/* 1. Order type + remaining time */}
       <div className="flex items-center justify-between gap-1.5 text-[11px] leading-tight">
-        <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
-          {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
+            {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
+          </span>
+          {order.kind === 'long_term' && order.pickupDaysPerWeek === 2 && (
+            <span className="px-1.5 py-[1px] rounded bg-sky-500/15 border border-sky-400/45 text-[10px] font-bold text-sky-200 font-mono-nums whitespace-nowrap shrink-0">
+              {t(language, 'orders.freqTwicePerWeek')}
+            </span>
+          )}
+        </div>
         <span className="text-slate-300 font-mono-nums shrink-0">
           {isLongTerm ? `${remainingText} • ${endDateShort}` : remainingText}
         </span>

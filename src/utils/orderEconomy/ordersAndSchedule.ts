@@ -1009,6 +1009,7 @@ export function getScheduledTasksForWeekday(
     repairDurability?: number;
     repairWaitingForCourier?: boolean;
     repairWaitingReason?: 'no_courier' | 'no_van_license';
+    isExpiringOnDay?: boolean;
   }> = [];
 
   for (const order of state.activeOrders) {
@@ -1024,6 +1025,10 @@ export function getScheduledTasksForWeekday(
       const withinContract =
         targetGameDay >= order.acceptedAtGameDay && targetGameDay < order.endGameDay;
       if (!withinContract) continue;
+
+      const contractLastActiveDay = Math.max(order.acceptedAtGameDay, order.endGameDay - 1);
+      const isContractOrWeekFinalDay =
+        targetGameDay === contractLastActiveDay || weekdayIndex === SUNDAY_WEEKDAY_INDEX;
 
       if (order.pickupWeekdays.includes(weekdayIndex)) {
         const idxInPickups = order.pickupWeekdays.indexOf(weekdayIndex);
@@ -1068,6 +1073,7 @@ export function getScheduledTasksForWeekday(
               totalPackages,
               sortTimestamp: order.acceptedAtMinutes,
               sortTieBreaker: order.orderNumber,
+              isExpiringOnDay: isContractOrWeekFinalDay && deliveredCount < totalPackages,
             });
           }
         } else if (dayQuota > 0) {
@@ -1083,6 +1089,7 @@ export function getScheduledTasksForWeekday(
               totalPackages: dayQuota,
               sortTimestamp: order.acceptedAtMinutes,
               sortTieBreaker: order.orderNumber,
+              isExpiringOnDay: isContractOrWeekFinalDay,
             });
           } else {
             const pickedUpCount = Math.min(dayQuota, order.weekly.pickedUpPackagesThisWeek);
@@ -1099,6 +1106,7 @@ export function getScheduledTasksForWeekday(
                 totalPackages: dayQuota,
                 sortTimestamp: order.acceptedAtMinutes,
                 sortTieBreaker: order.orderNumber,
+                isExpiringOnDay: isContractOrWeekFinalDay,
               });
             }
           }
@@ -1125,6 +1133,7 @@ export function getScheduledTasksForWeekday(
           totalPackages,
           sortTimestamp: order.acceptedAtMinutes,
           sortTieBreaker: order.orderNumber,
+          isExpiringOnDay: isContractOrWeekFinalDay && deliveredCount < totalPackages,
         });
       }
     } else {
@@ -1150,6 +1159,7 @@ export function getScheduledTasksForWeekday(
             totalPackages,
             sortTimestamp: order.acceptedAtMinutes,
             sortTieBreaker: order.orderNumber,
+            isExpiringOnDay: targetGameDay === lastActiveDay,
           });
         }
       }
@@ -1265,6 +1275,7 @@ export function getScheduledTasksForWeekday(
       totalPackages: item.totalPackages,
       satisfaction: order.satisfaction,
       priorityRank: idx + 1,
+      isExpiringOnDay: Boolean(item.isExpiringOnDay),
     };
   });
 }

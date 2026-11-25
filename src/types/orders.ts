@@ -155,6 +155,8 @@ export interface WeeklyScheduleTask {
   repairWaitingForCourier?: boolean;
   /** Present when taskType === 'repair' && repairWaitingForCourier */
   repairWaitingReason?: 'no_courier' | 'no_van_license';
+  /** True when the viewed weekday is the final day to complete this order (short-term expiry or weekly/contract deadline) */
+  isExpiringOnDay?: boolean;
 }
 
 export interface ActiveOrderBase {

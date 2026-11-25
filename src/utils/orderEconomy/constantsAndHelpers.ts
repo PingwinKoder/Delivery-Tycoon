@@ -67,17 +67,28 @@ export const MIN_VEHICLE_DURABILITY = 0;
 export const MAX_VEHICLE_DURABILITY = 100;
 /** Repair button becomes available once vehicle durability drops strictly below 80% */
 export const REPAIR_AVAILABLE_DURABILITY_THRESHOLD = 80;
-/** Below 25% durability, vehicle cruising speed is reduced by 20% until repaired */
+/** At or below 25% durability (<= 25%), vehicle cruising speed is reduced by 20% until repaired */
 export const LOW_DURABILITY_SPEED_THRESHOLD = 25;
 export const LOW_DURABILITY_SPEED_MULTIPLIER = 0.8;
-/** Durability wear (% lost per 1 world pixel driven while actively moving on route) */
-export const BIKE_WEAR_PER_WORLD_PX = 0.0012;
-export const USED_VAN_WEAR_PER_WORLD_PX = 0.0018;
-export const NEW_VAN_WEAR_PER_WORLD_PX = 0.001;
+/**
+ * Durability wear (% lost per 1 world pixel driven while actively moving on route).
+ * Calibrated for BASE_GAME_MINUTES_PER_REAL_SECOND = 1.25 (1 game hour = 48 sim seconds)
+ * and 10 active driving hours/day to drop from 100% to 25% (-75%):
+ * - Bike (~105 px/s avg -> ~5,000 px/h): ~0.25%/h -> 300h (30 days)
+ * - Used Van (~166 px/s avg -> ~8,000 px/h): ~0.10%/h -> 750h (~75 days / 2.5 months)
+ * - New Van (~166 px/s avg -> ~8,000 px/h): ~0.05%/h -> 1,500h (~150 days / 5 months)
+ */
+export const BIKE_WEAR_PER_WORLD_PX = 0.00005;
+export const USED_VAN_WEAR_PER_WORLD_PX = 0.0000125;
+export const NEW_VAN_WEAR_PER_WORLD_PX = 0.00000625;
+/** Repair pricing multipliers: bike -50% (0.5x), vans -25% (0.75x) */
+export const BIKE_REPAIR_COST_MULTIPLIER = 0.5;
+export const VAN_REPAIR_COST_MULTIPLIER = 0.75;
 
+/** Preserves full floating-point precision so slow fractional wear never rounds away on short runs. */
 export function clampVehicleDurability(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_VEHICLE_DURABILITY;
-  return Math.max(MIN_VEHICLE_DURABILITY, Math.min(MAX_VEHICLE_DURABILITY, Math.round(value * 100) / 100));
+  return Math.max(MIN_VEHICLE_DURABILITY, Math.min(MAX_VEHICLE_DURABILITY, value));
 }
 
 /** Full catalog of 6 delivery van models (3 Used + 3 New tiers) */
@@ -249,6 +260,9 @@ export const MAX_PENDING_OFFERS = 7;
 export const SHORT_TERM_OFFER_EXPIRY_DAYS = 2;
 export const LONG_TERM_OFFER_EXPIRY_DAYS = 3;
 export const OFFER_EXPIRY_DAYS = SHORT_TERM_OFFER_EXPIRY_DAYS;
+/** Late-game 2x/week long-term contract unlock threshold & roll probability (~33%) */
+export const TWO_DAY_LONG_TERM_MIN_COMPLETED_ORDERS = 25;
+export const TWO_DAY_LONG_TERM_OFFER_CHANCE = 0.33;
 
 /** Individual active contract satisfaction rules */
 export const INITIAL_ORDER_SATISFACTION = 80;

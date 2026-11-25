@@ -27,3 +27,19 @@
     font-feature-settings: 'tnum' 1, 'zero' 0;
   }
 }
+
+@keyframes expiring-task-pulse {
+  0%,
+  100% {
+    background-color: rgba(239, 68, 68, 0.05);
+    border-color: rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    background-color: rgba(239, 68, 68, 0.16);
+    border-color: rgba(239, 68, 68, 0.75);
+  }
+}
+
+.animate-expiring-task {
+  animation: expiring-task-pulse 1.8s ease-in-out infinite;
+}

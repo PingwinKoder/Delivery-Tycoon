@@ -32,6 +32,7 @@ import {
 import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
+  BIKE_REPAIR_COST_MULTIPLIER,
   BIKE_WEAR_PER_WORLD_PX,
   COURIER_INSURANCE_COST,
   DEFAULT_LEGACY_VAN_MODEL_ID,
@@ -58,6 +59,7 @@ import {
   USED_VAN_WEAR_PER_WORLD_PX,
   VAN_COURIER_CAPACITY,
   VAN_MODELS,
+  VAN_REPAIR_COST_MULTIPLIER,
   WAREHOUSE_TIERS,
   clampVehicleDurability,
   createClockRandomSeed,
@@ -421,9 +423,9 @@ export function getVehicleDurability(
     : DEFAULT_VEHICLE_DURABILITY;
 }
 
-/** Returns the cruising speed multiplier for a vehicle (0.8 below 25% durability, otherwise 1.0). */
+/** Returns the cruising speed multiplier for a vehicle (0.8 at or below 25% durability, otherwise 1.0). */
 export function getVehicleDurabilitySpeedMultiplier(durability: number): number {
-  return durability < LOW_DURABILITY_SPEED_THRESHOLD ? LOW_DURABILITY_SPEED_MULTIPLIER : 1;
+  return durability <= LOW_DURABILITY_SPEED_THRESHOLD ? LOW_DURABILITY_SPEED_MULTIPLIER : 1;
 }
 
 /** Returns wear rate (% durability lost per world pixel driven) for the concrete vehicle. */
@@ -441,8 +443,8 @@ export function getVehicleWearPerWorldPx(
 
 /**
  * Dynamic repair cost scaling with wear (100 - durability) and vehicle class/model:
- * - Bicycle (50% wear): ~$57 ($45–$65 range)
- * - Vans (50% wear): ~$270–$450 depending on Used/New & Lite/Standard/Pro tier
+ * - Bicycle: -50% vs initial pricing (at 50% wear: ~$29)
+ * - Vans (Used & New): -25% vs initial pricing (at 50% wear: ~$203–$338 depending on tier)
  */
 export function calculateVehicleRepairCost(
   vehicleType: ActiveVehicleType,
@@ -454,7 +456,7 @@ export function calculateVehicleRepairCost(
   if (wear <= 0.01) return 0;
 
   if (vehicleType === 'bike') {
-    return Math.round(12 + wear * 0.9);
+    return Math.max(1, Math.round((12 + wear * 0.9) * BIKE_REPAIR_COST_MULTIPLIER));
   }
 
   const modelId: VanModelId = vanModelId ?? DEFAULT_LEGACY_VAN_MODEL_ID;
@@ -467,7 +469,7 @@ export function calculateVehicleRepairCost(
     new_pro: { base: 80, perWearPct: 7.4 },
   };
   const rate = vanRates[modelId] ?? vanRates[DEFAULT_LEGACY_VAN_MODEL_ID];
-  return Math.round(rate.base + wear * rate.perWearPct);
+  return Math.max(1, Math.round((rate.base + wear * rate.perWearPct) * VAN_REPAIR_COST_MULTIPLIER));
 }
 
 /** Lists all currently queued/pending vehicle repair tasks. */
