@@ -120,8 +120,10 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 will-change-[opacity] transition-opacity duration-500 ease-out touch-none ${
-        isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 transition-opacity duration-500 ease-out touch-none ${
+        isVisible
+          ? 'opacity-100 pointer-events-auto will-change-auto'
+          : 'opacity-0 pointer-events-none will-change-[opacity]'
       }`}
       role="dialog"
       aria-modal={isVisible}

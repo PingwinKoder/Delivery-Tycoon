@@ -132,6 +132,7 @@ interface MapCanvasProps {
   /** Incrementing session counter that forces full fleet reinitialization parked at Base */
   sessionEpoch?: number;
   onFpsChange?: (fps: number) => void;
+  onMapReady?: () => void;
   onIntroFlyInComplete?: () => void;
   onCourierAtBaseChange?: (atBase: boolean) => void;
   onCourierStatusChange?: (status: CourierFleetStatusSnapshot) => void;
@@ -157,19 +158,21 @@ interface MapCanvasProps {
 const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 const FPS_SAMPLE_WINDOW_MS = 500;
 const FRAME_INTERVAL_MS = 1000 / 60.5;
-const MAX_CANVAS_DPR = 1.5;
+const MAX_CANVAS_DPR = 2;
 const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
-const CAMERA_INTRO_DURATION_MS = 1200;
-/** Moderate panoramic zoom multiplier relative to default gameplay zoom (~0.60x keeps 60 FPS on mobile) */
-const OVERVIEW_ZOOM_RATIO = 0.6;
+const CAMERA_INTRO_DURATION_MS = 2500;
+const CAMERA_INTRO_DURATION_SEC = CAMERA_INTRO_DURATION_MS / 1000;
+/** Optimal panoramic zoom multiplier (~0.75x keeps Start Screen sharp & 60 FPS on mobile) */
+const OVERVIEW_ZOOM_RATIO = 0.75;
 /** Scenic framing offset relative to Base focus for the Start Screen panorama */
-const OVERVIEW_BASE_OFFSET_X = 250;
-const OVERVIEW_BASE_OFFSET_Y = -185;
+const OVERVIEW_BASE_OFFSET_X = 200;
+const OVERVIEW_BASE_OFFSET_Y = -145;
 
 interface CameraIntroTransition {
   phase: 'armed' | 'running';
-  startTime: number | null;
-  durationMs: number;
+  started: boolean;
+  elapsedSec: number;
+  durationSec: number;
   fromX: number;
   fromY: number;
   fromEffectiveZoom: number;
@@ -231,8 +234,8 @@ function clampWorldCenterForEffectiveZoom(
 }
 
 /**
- * Computes a moderate, mobile-friendly panoramic camera slightly offset from Base
- * (~0.60x of normal gameplay zoom, floored so map boundaries never show empty void).
+ * Computes an optimal, mobile-friendly panoramic camera slightly offset from Base
+ * (~0.75x of normal gameplay zoom, floored so map boundaries never show empty void).
  */
 function getPanoramicCamera(
   viewport: Size,
@@ -259,7 +262,7 @@ function getPanoramicCamera(
   };
 }
 
-function createAmbientTrafficPool(graph: RoadGraph, count = 14): {
+function createAmbientTrafficPool(graph: RoadGraph, count = 10): {
   nodeMap: Map<string, Point>;
   adjacency: Map<string, string[]>;
   cars: AmbientTrafficCar[];
@@ -455,6 +458,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   overviewMode = false,
   sessionEpoch = 0,
   onFpsChange,
+  onMapReady,
   onIntroFlyInComplete,
   onCourierAtBaseChange,
   onCourierStatusChange,
@@ -484,7 +488,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     nodeMap: Map<string, Point>;
     adjacency: Map<string, string[]>;
     cars: AmbientTrafficCar[];
-  }>(createAmbientTrafficPool(graph, 14));
+  }>(createAmbientTrafficPool(graph, 10));
 
   const couriersFleetRef = useRef<MultiCourierFleetState>(
     createInitialCourierFleet(economyStateRef?.current?.couriers)
@@ -533,6 +537,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     interactionBlocked,
     overviewMode,
     onFpsChange,
+    onMapReady,
     onIntroFlyInComplete,
     onCourierAtBaseChange,
     onCourierStatusChange,
@@ -559,6 +564,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     interactionBlocked,
     overviewMode,
     onFpsChange,
+    onMapReady,
     onIntroFlyInComplete,
     onCourierAtBaseChange,
     onCourierStatusChange,
@@ -655,8 +661,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         // Hold camera at exact panoramic coordinates until state reset & localStorage save settle
         cameraIntroRef.current = {
           phase: 'armed',
-          startTime: null,
-          durationMs: CAMERA_INTRO_DURATION_MS,
+          started: false,
+          elapsedSec: 0,
+          durationSec: CAMERA_INTRO_DURATION_SEC,
           fromX: pan.x,
           fromY: pan.y,
           fromEffectiveZoom: pan.effectiveZoom,
@@ -666,15 +673,18 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const current = cameraIntroRef.current;
         if (current) {
           current.phase = 'running';
-          // Stamp startTime lazily on the very first rAF render frame so zero duration is ever lost
-          current.startTime = null;
+          // Begin strictly at 0% on the first rendered rAF frame; accumulate clamped dt thereafter
+          current.started = false;
+          current.elapsedSec = 0;
+          current.durationSec = CAMERA_INTRO_DURATION_SEC;
         } else {
           const viewport = viewportRef.current;
           const pan = getPanoramicCamera(viewport, propsRef.current.baseNode);
           cameraIntroRef.current = {
             phase: 'running',
-            startTime: null,
-            durationMs: CAMERA_INTRO_DURATION_MS,
+            started: false,
+            elapsedSec: 0,
+            durationSec: CAMERA_INTRO_DURATION_SEC,
             fromX: pan.x,
             fromY: pan.y,
             fromEffectiveZoom: pan.effectiveZoom,
@@ -860,7 +870,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const rect = container.getBoundingClientRect();
       const width = Math.max(1, Math.round(rect.width));
       const height = Math.max(1, Math.round(rect.height));
-      const dpr = Math.min(window.devicePixelRatio || 1, MAX_CANVAS_DPR);
+      const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), MAX_CANVAS_DPR);
 
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
@@ -1365,11 +1375,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       // Ensure static caches before starting the intro clock so any warehouse/parking rebuild
-      // during load never eats into the 1.2s fly-in duration
+      // during load never eats into the 2.5s fly-in duration
       ensureStaticCaches();
 
       // Compute rendered camera transform purely via refs (zero React setState during animation):
-      // 1) Armed or running 1.2s easeOutCubic fly-in from panoramic overview to Base
+      // 1) Armed or running 2.5s easeOutCubic fly-in from panoramic overview to Base
       // 2) Moderate panoramic city overview behind Start Screen
       // 3) Standard interactive gameplay camera physics
       let renderCamX = cameraRef.current.x;
@@ -1391,11 +1401,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           renderCacheZoomKey = activeIntro.fromEffectiveZoom;
           ambientTrafficAlpha = 1;
         } else {
-          if (activeIntro.startTime === null) {
-            activeIntro.startTime = now;
+          if (!activeIntro.started) {
+            activeIntro.started = true;
+            activeIntro.elapsedSec = 0;
+          } else {
+            activeIntro.elapsedSec += Math.min(rawDt, 0.05);
           }
-          const elapsed = Math.max(0, now - activeIntro.startTime);
-          const rawT = Math.min(1, elapsed / activeIntro.durationMs);
+          const rawT = Math.min(1, activeIntro.elapsedSec / activeIntro.durationSec);
           const eased = easeOutCubic(rawT);
 
           const baseFocus = getBaseFocusPoint(propsRef.current.baseNode);
@@ -1472,9 +1484,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       // Shared speed-scaled simulation step for couriers and future fleet vehicles (0 = paused)
-      const simDt = computeScaledSimDt(rawDt, propsRef.current.gameSpeed);
+      const simDt = isOverviewOrIntro ? 0 : computeScaledSimDt(rawDt, propsRef.current.gameSpeed);
       const currentGameMinutes = propsRef.current.gameMinutesRef.current ?? 0;
-      const isNightNow = isNightHoursForTime(currentGameMinutes);
+      const isNightNow = isOverviewOrIntro ? false : isNightHoursForTime(currentGameMinutes);
 
       const fleet = couriersFleetRef.current;
 
@@ -1761,7 +1773,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       // Notify React only when any courier's inRoute status or claimed task actually changed
-      syncFleetStatus();
+      if (!isOverviewOrIntro) {
+        syncFleetStatus();
+      }
 
       // Ensure static ground buffer & individual building sprites are built (rebuilt only on static state changes)
       ensureStaticCaches();
@@ -2023,27 +2037,43 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         if (curBaseNode) {
           drawBaseMarker(curBaseNode);
         }
-        if (streetNamesVisible) {
+        if (streetNamesVisible && !propsRef.current.overviewMode) {
           renderStreetNames(ctx, effectiveZoom, viewBounds);
         }
       }
 
       ctx.restore();
 
+      if (!hasNotifiedMapReady) {
+        hasNotifiedMapReady = true;
+        mapReadyRafId = requestAnimationFrame(() => {
+          mapReadyRafId = null;
+          propsRef.current.onMapReady?.();
+        });
+      }
+
       rafId = requestAnimationFrame(drawScene);
     };
+
+    let hasNotifiedMapReady = false;
+    let mapReadyRafId: number | null = null;
 
     updateCanvasSize();
     ensureStaticCaches();
     const resizeObserver = new ResizeObserver(updateCanvasSize);
     resizeObserver.observe(container);
+    window.addEventListener('resize', updateCanvasSize);
     rafId = requestAnimationFrame(drawScene);
 
     return () => {
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
+      if (mapReadyRafId !== null) {
+        cancelAnimationFrame(mapReadyRafId);
+      }
       resizeObserver.disconnect();
+      window.removeEventListener('resize', updateCanvasSize);
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);

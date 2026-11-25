@@ -20,9 +20,61 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background-color: #0f172a;
+        color: #f1f5f9;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        opacity: 1;
+        transition: opacity 400ms ease-out;
+      }
+      #app-splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .app-splash-spinner {
+        width: 34px;
+        height: 34px;
+        border-radius: 9999px;
+        border: 3px solid rgba(148, 163, 184, 0.25);
+        border-top-color: #f97316;
+        animation: app-splash-spin 0.8s linear infinite;
+      }
+      .app-splash-title {
+        font-size: 20px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: #f8fafc;
+        margin: 0;
+      }
+      .app-splash-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: #94a3b8;
+        margin: 0;
+      }
+      @keyframes app-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="app-splash" role="status" aria-live="polite" aria-label="Ładowanie miasta">
+      <div class="app-splash-spinner" aria-hidden="true"></div>
+      <p class="app-splash-title">Delivery Tycoon</p>
+      <p class="app-splash-label">Ładowanie miasta...</p>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {

@@ -300,8 +300,11 @@ export function App() {
   const [activeSlotId, setActiveSlotId] = useState<SaveSlotId | null>(null);
   const [startScreenOpen, setStartScreenOpen] = useState<boolean>(true);
   const [startScreenMounted, setStartScreenMounted] = useState<boolean>(true);
+  const [mistVisible, setMistVisible] = useState<boolean>(true);
   const [introActive, setIntroActive] = useState<boolean>(false);
   const [hudVisible, setHudVisible] = useState<boolean>(false);
+  const [mapReady, setMapReady] = useState<boolean>(false);
+  const [startDataReady, setStartDataReady] = useState<boolean>(false);
   const [sessionEpoch, setSessionEpoch] = useState<number>(0);
 
   const [settings, setSettings] = useState<GameSettings>(() => loadGameSettings());
@@ -348,17 +351,52 @@ export function App() {
   const scheduleCinematicFlyInAfterPaint = useCallback(() => {
     clearIntroRafs();
     // Wait two animation frames so React commit, localStorage write, and first post-save paint
-    // complete completely before starting the 1.2s camera fly-in and GPU HUD slide-in
+    // complete completely before starting the 2.5s camera fly-in, mist dissipation, and HUD slide-in
     const raf1 = window.requestAnimationFrame(() => {
       const raf2 = window.requestAnimationFrame(() => {
         introRafIdsRef.current = [];
         canvasControllerRef.current?.beginArmedIntroFlyIn();
+        setMistVisible(false);
         setHudVisible(true);
       });
       introRafIdsRef.current = [raf2];
     });
     introRafIdsRef.current = [raf1];
   }, [clearIntroRafs]);
+
+  const handleMapReady = useCallback(() => {
+    setMapReady(true);
+  }, []);
+
+  // Ensure StartScreenModal save slots & settings are hydrated before dismissing the splash screen
+  useEffect(() => {
+    setSaveSlots(getAllSaveSlots());
+    setSettings(loadGameSettings());
+    setStartDataReady(true);
+  }, []);
+
+  // Keep the HTML splash screen visible until BOTH MapCanvas rendered its first full frame
+  // AND StartScreenModal save slots / settings are hydrated
+  useEffect(() => {
+    if (!mapReady || !startDataReady) return;
+    const splash = document.getElementById('app-splash');
+    if (!splash) return;
+
+    let removeTimer: number | null = null;
+    const rafId = window.requestAnimationFrame(() => {
+      splash.classList.add('is-hidden');
+      removeTimer = window.setTimeout(() => {
+        splash.remove();
+      }, 440);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      if (removeTimer !== null) {
+        window.clearTimeout(removeTimer);
+      }
+    };
+  }, [mapReady, startDataReady]);
 
   const handleIntroFlyInComplete = useCallback(() => {
     setStartScreenMounted(false);
@@ -543,6 +581,7 @@ export function App() {
     setSettingsOpen(false);
     setIntroActive(false);
     setHudVisible(false);
+    setMistVisible(true);
     setStartScreenMounted(true);
     setStartScreenOpen(true);
     canvasControllerRef.current?.setPanoramicOverview();
@@ -892,19 +931,22 @@ export function App() {
     [applyEconomyUpdate]
   );
 
-  const unreadOffersCount = countUnreadOffers(economyState);
+  const unreadOffersCount = startScreenOpen ? 0 : countUnreadOffers(economyState);
   const effectiveSimSpeed: GameSpeed = isPausedByOverlay ? 0 : gameSpeed;
   const isNightMode =
     !isPausedByOverlay && allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
   const nextDayMorningMinutes = useMemo(
-    () => getNextDayMorningMinutes(gameMinutes),
-    [gameMinutes]
+    () => (startScreenOpen ? INITIAL_GAME_MINUTES : getNextDayMorningMinutes(gameMinutes)),
+    [gameMinutes, startScreenOpen]
   );
 
   const nextScheduledOrderMinutes = useMemo(
-    () => findNextScheduledOrderDayMinutes(economyState, gameMinutes),
-    [economyState, gameMinutes]
+    () =>
+      startScreenOpen
+        ? null
+        : findNextScheduledOrderDayMinutes(economyState, gameMinutes),
+    [economyState, gameMinutes, startScreenOpen]
   );
 
   const activeWarehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
@@ -948,6 +990,7 @@ export function App() {
         }
         sessionEpoch={sessionEpoch}
         onFpsChange={setFps}
+        onMapReady={handleMapReady}
         onIntroFlyInComplete={handleIntroFlyInComplete}
         onCourierAtBaseChange={handleCourierAtBaseChange}
         onCourierStatusChange={handleCourierStatusChange}
@@ -958,13 +1001,17 @@ export function App() {
         controllerRef={canvasControllerRef}
       />
 
-      {/* Single lightweight semi-transparent veil animated exclusively via GPU opacity */}
-      <div
-        aria-hidden="true"
-        className={`fixed inset-0 z-10 pointer-events-none bg-slate-950/65 will-change-[opacity] transition-opacity duration-[1200ms] ease-out ${
-          startScreenOpen ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
+      {/* Lightweight uniform semi-transparent mist veil (zero gradients/blur, unmounted once fly-in completes) */}
+      {(mistVisible || introActive) && (
+        <div
+          aria-hidden="true"
+          className={`fixed inset-0 z-10 pointer-events-none bg-[rgba(15,23,42,0.82)] transition-opacity ease-out ${
+            mistVisible
+              ? 'duration-500 opacity-100 will-change-auto'
+              : 'duration-[2500ms] opacity-0 will-change-[opacity]'
+          }`}
+        />
+      )}
 
       <Toolbar
         hudVisible={hudVisible}

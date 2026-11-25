@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Clock,
@@ -70,6 +70,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenCompany,
   onOpenSettings,
 }) => {
+  const [hudSettled, setHudSettled] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!hudVisible) {
+      setHudSettled(false);
+      return;
+    }
+
+    // Fallback in case prefers-reduced-motion skips CSS transitionend
+    const settleTimer = window.setTimeout(() => {
+      setHudSettled(true);
+    }, 2050);
+
+    return () => {
+      window.clearTimeout(settleTimer);
+    };
+  }, [hudVisible]);
+
   const clock = getGameClockDisplay(gameMinutes);
   const formattedBalance = formatBalanceUsd(balance);
   const interactiveClass = hudVisible ? 'pointer-events-auto' : 'pointer-events-none';
@@ -77,14 +95,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const companyLabel = t(language, 'hud.company');
   const settingsLabel = t(language, 'hud.settings');
 
+  const headerMotionClass = hudVisible
+    ? hudSettled
+      ? 'opacity-100 transform-none will-change-auto'
+      : 'will-change-[opacity,transform] transition-[opacity,transform] ease-out duration-[1200ms] delay-[800ms] opacity-100 [transform:translate3d(0,0,0)]'
+    : 'transition-[opacity,transform] ease-out duration-300 delay-0 opacity-0 [transform:translate3d(0,-16px,0)] will-change-auto';
+
   return (
     <header
       aria-hidden={!hudVisible}
-      className={`pointer-events-none fixed inset-x-0 top-0 z-20 will-change-[opacity,transform] transition-[opacity,transform] duration-[900ms] ease-out ${
-        hudVisible
-          ? 'opacity-100 [transform:translate3d(0,0,0)]'
-          : 'opacity-0 [transform:translate3d(0,-16px,0)]'
-      }`}
+      onTransitionEnd={(e) => {
+        if (hudVisible && e.target === e.currentTarget && e.propertyName === 'transform') {
+          setHudSettled(true);
+        }
+      }}
+      className={`pointer-events-none fixed inset-x-0 top-0 z-20 ${headerMotionClass}`}
     >
       {/* Top-center docked status bar (flush to top: 0, solid #182030, rounded bottom corners only) */}
       <div className="flex justify-center pl-1.5 pr-[54px] min-[560px]:px-2 [@media(max-height:540px)]:px-1.5">
