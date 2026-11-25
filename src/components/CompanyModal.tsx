@@ -17,6 +17,7 @@ import {
   Warehouse,
   X,
 } from 'lucide-react';
+import { t, translateOrderText } from '../i18n/translations';
 import type {
   ActiveVehicleSelection,
   CompanyCourier,
@@ -24,6 +25,7 @@ import type {
   OrderEconomyState,
 } from '../types/orders';
 import type { SaveSlotId } from '../utils/saveSystem';
+import type { SupportedLanguage } from '../utils/settingsSystem';
 import {
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
@@ -55,14 +57,15 @@ import {
 
 type CompanyTabId = 'base' | 'fleet' | 'employees';
 
-function formatMissingFunds(cost: number, balance: number): string {
+function formatMissingFunds(cost: number, balance: number, lang: SupportedLanguage): string {
   const missing = Math.round(Math.max(0, cost - balance) * 100) / 100;
   const hasCents = Math.abs(missing - Math.round(missing)) > 0.001;
-  return `Brakuje ${formatCurrencyUsd(missing, hasCents)}`;
+  return t(lang, 'company.missingFunds', { amount: formatCurrencyUsd(missing, hasCents) });
 }
 
 interface CompanyModalProps {
   isOpen: boolean;
+  language: SupportedLanguage;
   economyState: OrderEconomyState;
   isOwnerAtBase: boolean;
   courierAtBaseBySlot?: Readonly<Record<number, boolean>>;
@@ -82,6 +85,7 @@ interface CompanyModalProps {
 }
 
 interface CourierVehicleDropdownProps {
+  language: SupportedLanguage;
   courier: CompanyCourier;
   effectiveAssigned: ActiveVehicleSelection | null;
   availableVehicles: readonly ActiveVehicleSelection[];
@@ -94,6 +98,7 @@ interface CourierVehicleDropdownProps {
 }
 
 const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
+  language,
   courier,
   effectiveAssigned,
   availableVehicles,
@@ -121,14 +126,17 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
 
   const triggerLabel = effectiveAssigned
     ? effectiveAssigned.type === 'van'
-      ? `Bus #${effectiveAssigned.index}`
-      : `Rower #${effectiveAssigned.index}`
-    : 'Brak pojazdu';
+      ? t(language, 'company.vehicleVan', { index: effectiveAssigned.index })
+      : t(language, 'company.vehicleBike', { index: effectiveAssigned.index })
+    : t(language, 'company.noVehicle');
   const triggerCapacity = effectiveAssigned
-    ? effectiveAssigned.type === 'van'
-      ? `${VAN_COURIER_CAPACITY} szt.`
-      : `${BIKE_COURIER_CAPACITY} szt.`
+    ? t(language, 'company.pcsShort', {
+        count: effectiveAssigned.type === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY,
+      })
     : null;
+  const courierAriaName = courier.isOwner
+    ? t(language, 'orders.ownerBadge')
+    : t(language, 'orders.courierBadge', { slot: courier.slotIndex });
 
   return (
     <div ref={containerRef} className="relative">
@@ -176,8 +184,8 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         <ul
           id={`courier-vehicle-menu-${courier.slotIndex}`}
           role="listbox"
-          aria-label={`Wybierz pojazd dla ${courier.isOwner ? 'Właściciela' : `Kuriera #${courier.slotIndex}`}`}
-          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-2xl py-1 max-h-48 overflow-y-auto overscroll-contain ${
+          aria-label={t(language, 'company.selectVehicleAria', { name: courierAriaName })}
+          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-lg py-1 max-h-48 overflow-y-auto overscroll-contain ${
             openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
           }`}
         >
@@ -197,7 +205,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
               >
                 <span className="flex items-center gap-2 min-w-0 truncate">
                   <Ban className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
-                  <span className="truncate">Brak pojazdu</span>
+                  <span className="truncate">{t(language, 'company.noVehicle')}</span>
                 </span>
                 {effectiveAssigned === null && (
                   <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
@@ -209,10 +217,12 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           {availableVehicles.map((vehicle) => {
             const isSelected = vehiclesEqual(effectiveAssigned, vehicle);
             const isVan = vehicle.type === 'van';
-            const label = isVan ? `Bus #${vehicle.index}` : `Rower #${vehicle.index}`;
-            const capacityLabel = isVan
-              ? `${VAN_COURIER_CAPACITY} szt.`
-              : `${BIKE_COURIER_CAPACITY} szt.`;
+            const label = isVan
+              ? t(language, 'company.vehicleVan', { index: vehicle.index })
+              : t(language, 'company.vehicleBike', { index: vehicle.index });
+            const capacityLabel = t(language, 'company.pcsShort', {
+              count: isVan ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY,
+            });
 
             return (
               <li
@@ -258,7 +268,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
 
           {availableVehicles.length === 0 && (
             <li className="px-2.5 py-1.5 text-[11px] text-slate-500">
-              Brak innych wolnych pojazdów dla tych uprawnień
+              {t(language, 'company.noFreeVehicles')}
             </li>
           )}
         </ul>
@@ -269,6 +279,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
 
 export const CompanyModal: React.FC<CompanyModalProps> = ({
   isOpen,
+  language,
   economyState,
   isOwnerAtBase,
   courierAtBaseBySlot,
@@ -344,24 +355,38 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
   const costsBreakdownTitle = useMemo(() => {
     const parts: string[] = [
-      `Baza (Poz. ${warehouseLevel}): ${formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}`,
+      t(language, 'company.costBase', {
+        level: warehouseLevel,
+        amount: formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false),
+      }),
     ];
     if (monthlyCosts.courierInsuranceCost > 0) {
       parts.push(
-        `Ubezp. dodatkowych rowerów: ${formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}`
+        t(language, 'company.costBikes', {
+          amount: formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false),
+        })
       );
     }
     if (monthlyCosts.vanInsuranceCost > 0) {
-      parts.push(`Ubezp. busów: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`);
+      parts.push(
+        t(language, 'company.costVans', {
+          amount: formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false),
+        })
+      );
     }
     if (monthlyCosts.salariesCost > 0) {
-      parts.push(`Pensje: ${formatCurrencyUsd(monthlyCosts.salariesCost, false)}`);
+      parts.push(
+        t(language, 'company.costSalaries', {
+          amount: formatCurrencyUsd(monthlyCosts.salariesCost, false),
+        })
+      );
     }
     return parts.join(' | ');
-  }, [monthlyCosts, warehouseLevel]);
+  }, [language, monthlyCosts, warehouseLevel]);
 
   if (!isOpen) return null;
 
+  const perMonth = t(language, 'company.perMonth');
   const canUpgradeWarehouse =
     nextWarehouseUpgrade !== null && economyState.balance >= nextWarehouseUpgrade.cost;
   const canBuyParkingSpot =
@@ -401,7 +426,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
-        className="w-[94vw] max-w-4xl max-h-[84vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-2xl overflow-hidden text-slate-100 touch-auto overscroll-contain"
+        className="w-[94vw] max-w-4xl max-h-[84vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Compact Header & Single-Line Company Summary Bar */}
@@ -410,14 +435,14 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <div className="flex items-center gap-1.5 shrink-0">
               <Building2 className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
               <h2 id="company-modal-heading" className="text-xs sm:text-sm font-bold text-slate-100">
-                Firma
+                {t(language, 'company.title')}
               </h2>
             </div>
 
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Gotówka: </span>
+              <span className="text-slate-400">{t(language, 'company.cash')} </span>
               <span className="font-bold text-emerald-400 font-mono-nums">
                 {formatCurrencyUsd(economyState.balance)}
               </span>
@@ -426,7 +451,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Magazyn: </span>
+              <span className="text-slate-400">{t(language, 'company.warehouse')} </span>
               <span className="font-bold text-amber-300 font-mono-nums">
                 {economyState.warehousePackages}/{economyState.warehouseCapacity}
               </span>
@@ -435,7 +460,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Rowery: </span>
+              <span className="text-slate-400">{t(language, 'company.bikes')} </span>
               <span className="font-bold text-sky-300 font-mono-nums">
                 {bikesCount}/{MAX_BICYCLES}
               </span>
@@ -444,7 +469,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Busy: </span>
+              <span className="text-slate-400">{t(language, 'company.vans')} </span>
               <span className="font-bold text-amber-300 font-mono-nums">
                 {vansCount}/{economyState.parkingSpots}
               </span>
@@ -453,7 +478,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Zespół: </span>
+              <span className="text-slate-400">{t(language, 'company.team')} </span>
               <span className="font-bold text-emerald-300 font-mono-nums">
                 {hiredCouriersCount}/{MAX_EMPLOYEES}
               </span>
@@ -462,9 +487,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap" title={costsBreakdownTitle}>
-              <span className="text-slate-400">Koszty stałe: </span>
+              <span className="text-slate-400">{t(language, 'company.fixedCosts')} </span>
               <span className="font-bold text-rose-400 font-mono-nums">
-                -{formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}/mies.
+                -{formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
+                {perMonth}
               </span>
             </span>
           </div>
@@ -476,20 +502,21 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 onClick={onSaveAndExit}
                 title={
                   activeSlotId
-                    ? `Zapisz stan do slotu #${activeSlotId} i wróć do menu zapisów`
-                    : 'Zapisz i wróć do menu zapisów'
+                    ? t(language, 'company.exitToMenuTitleSlot', { slot: activeSlotId })
+                    : t(language, 'company.exitToMenuTitle')
                 }
                 className="px-2.5 py-1 min-h-[30px] rounded-lg flex items-center gap-1.5 text-xs font-semibold text-amber-200 hover:text-slate-950 bg-slate-800 hover:bg-amber-500 border border-slate-700 hover:border-amber-400 whitespace-nowrap transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>Zapisz i wyjdź</span>
+                <span className="hidden sm:inline">{t(language, 'company.exitToMenuFull')}</span>
+                <span className="sm:hidden">{t(language, 'company.exitToMenuShort')}</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={onClose}
-              aria-label="Zamknij okno Firma"
+              aria-label={t(language, 'company.closeAria')}
               className="min-w-[30px] min-h-[30px] p-1 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
             >
               <X className="w-4 h-4" aria-hidden="true" />
@@ -502,7 +529,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
           <div
             className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain"
             role="tablist"
-            aria-label="Zakładki zarządzania firmą"
+            aria-label={t(language, 'company.tabsAria')}
           >
             <button
               id="company-tab-base"
@@ -518,7 +545,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               }`}
             >
               <Warehouse className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Baza i Parkingi</span>
+              <span>{t(language, 'company.tabBase')}</span>
             </button>
 
             <button
@@ -535,7 +562,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               }`}
             >
               <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Flota</span>
+              <span>{t(language, 'company.tabFleet')}</span>
             </button>
 
             <button
@@ -552,7 +579,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               }`}
             >
               <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Pracownicy</span>
+              <span>{t(language, 'company.tabEmployees')}</span>
             </button>
           </div>
         </div>
@@ -563,7 +590,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
         >
-          {/* TAB 1: BAZA I PARKINGI */}
+          {/* TAB 1: BASE & PARKING */}
           {activeTab === 'base' && (
             <div
               id="company-panel-base"
@@ -571,24 +598,28 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-labelledby="company-tab-base"
               className="grid grid-cols-1 md:grid-cols-2 gap-2.5"
             >
-              {/* Card 1: Magazyn w Bazie */}
+              {/* Card 1: Base Warehouse */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Warehouse className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-                        Magazyn w Bazie
+                        {t(language, 'company.warehouseTitle')}
                       </h3>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0">
-                      Poziom {warehouseLevel}/{MAX_WAREHOUSE_TIER}
+                      {t(language, 'company.levelBadge', {
+                        level: warehouseLevel,
+                        max: MAX_WAREHOUSE_TIER,
+                      })}
                     </span>
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    {warehouseConfig.name}. Rozbudowa powiększa halę Bazy na mapie i zwiększa
-                    limit paczek przyjmowanych podczas odbiorów.
+                    {t(language, 'company.warehouseDesc', {
+                      tierName: translateOrderText(language, warehouseConfig.name),
+                    })}
                   </p>
 
                   {/* Tier progression strip */}
@@ -610,8 +641,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   : 'bg-slate-900/60 border-slate-800 text-slate-500'
                           }`}
                         >
-                          <div>Poz. {tier.tier}</div>
-                          <div>{tier.capacity} szt.</div>
+                          <div>{t(language, 'company.tierShort', { tier: tier.tier })}</div>
+                          <div>{t(language, 'company.pcsShort', { count: tier.capacity })}</div>
                         </div>
                       );
                     })}
@@ -620,23 +651,28 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   {/* Current vs next specs */}
                   <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2.5 py-1.5 space-y-1 text-[11px] font-mono-nums">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Pojemność:</span>
+                      <span className="text-slate-400">{t(language, 'company.capacityLabel')}</span>
                       <span className="text-slate-100 font-semibold">
                         {nextWarehouseUpgrade
-                          ? `${nextWarehouseUpgrade.currentCapacity} → ${nextWarehouseUpgrade.nextCapacity} paczek`
-                          : `${warehouseConfig.capacity} paczek (maks.)`}
+                          ? t(language, 'company.capacityUpgrade', {
+                              from: nextWarehouseUpgrade.currentCapacity,
+                              to: nextWarehouseUpgrade.nextCapacity,
+                            })
+                          : t(language, 'company.capacityMax', {
+                              count: warehouseConfig.capacity,
+                            })}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Koszt utrzymania Bazy:</span>
+                      <span className="text-slate-400">{t(language, 'company.baseUpkeepLabel')}</span>
                       <span className="text-rose-300 font-semibold">
                         {nextWarehouseUpgrade
-                          ? `${formatCurrencyUsd(nextWarehouseUpgrade.currentMonthlyUpkeepCost, false)} → ${formatCurrencyUsd(nextWarehouseUpgrade.nextMonthlyUpkeepCost, false)}/mies.`
-                          : `${formatCurrencyUsd(warehouseConfig.monthlyUpkeepCost, false)}/mies.`}
+                          ? `${formatCurrencyUsd(nextWarehouseUpgrade.currentMonthlyUpkeepCost, false)} → ${formatCurrencyUsd(nextWarehouseUpgrade.nextMonthlyUpkeepCost, false)}${perMonth}`
+                          : `${formatCurrencyUsd(warehouseConfig.monthlyUpkeepCost, false)}${perMonth}`}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Zapełnienie:</span>
+                      <span className="text-slate-400">{t(language, 'company.occupancyLabel')}</span>
                       <span className="text-amber-300 font-semibold">
                         {economyState.warehousePackages}/{economyState.warehouseCapacity} ({warehouseFillPercent}%)
                       </span>
@@ -648,12 +684,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   <div className="min-w-0 leading-tight">
                     <span className="block text-[11px] text-slate-400 font-mono-nums">
                       {nextWarehouseUpgrade
-                        ? `Koszt: ${formatCurrencyUsd(nextWarehouseUpgrade.cost, false)}`
-                        : 'Osiągnięto maks. poziom'}
+                        ? t(language, 'company.costLabel', {
+                            amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
+                          })
+                        : t(language, 'company.maxLevelReached')}
                     </span>
                     {nextWarehouseUpgrade && !canUpgradeWarehouse && (
                       <span className="block text-[11px] font-semibold text-rose-300 font-mono-nums">
-                        {formatMissingFunds(nextWarehouseUpgrade.cost, economyState.balance)}
+                        {formatMissingFunds(
+                          nextWarehouseUpgrade.cost,
+                          economyState.balance,
+                          language
+                        )}
                       </span>
                     )}
                   </div>
@@ -668,20 +710,22 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     }`}
                   >
                     {nextWarehouseUpgrade
-                      ? `Rozbuduj (${formatCurrencyUsd(nextWarehouseUpgrade.cost, false)})`
-                      : 'Maksymalny poziom'}
+                      ? t(language, 'company.upgradeBtn', {
+                          amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
+                        })
+                      : t(language, 'company.maxLevelBtn')}
                   </button>
                 </div>
               </article>
 
-              {/* Card 2: Miejsca parkingowe */}
+              {/* Card 2: Parking Spots */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <ParkingSquare className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-                        Miejsca parkingowe
+                        {t(language, 'company.parkingTitle')}
                       </h3>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[11px] font-bold text-sky-300 font-mono-nums shrink-0">
@@ -690,14 +734,16 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    Stanowiska postojowe dla busów na placu Bazy. Zakup każdego busa dostawczego
-                    wymaga posiadania wolnego miejsca parkingowego przy Bazie.
+                    {t(language, 'company.parkingDesc')}
                   </p>
 
-                  {/* 8-slot visual grid (2 rows x 4 spots matching map layout) */}
+                  {/* 8-slot visual grid */}
                   <div
                     className="grid grid-cols-4 gap-1"
-                    aria-label={`Wykupione miejsca parkingowe: ${economyState.parkingSpots} z ${MAX_PARKING_SPOTS}`}
+                    aria-label={t(language, 'company.parkingGridAria', {
+                      current: economyState.parkingSpots,
+                      max: MAX_PARKING_SPOTS,
+                    })}
                   >
                     {Array.from({ length: MAX_PARKING_SPOTS }, (_, idx) => {
                       const unlocked = idx < economyState.parkingSpots;
@@ -718,20 +764,29 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
                   <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2.5 py-1.5 space-y-1 text-[11px] font-mono-nums">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Stanowiska na placu Bazy:</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.parkingSpotsLabel')}
+                      </span>
                       <span className="text-slate-100 font-semibold">
-                        {economyState.parkingSpots} / {MAX_PARKING_SPOTS} miejsc
+                        {t(language, 'company.parkingSpotsValue', {
+                          current: economyState.parkingSpots,
+                          max: MAX_PARKING_SPOTS,
+                        })}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Cena za miejsce:</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.parkingPriceLabel')}
+                      </span>
                       <span className="text-emerald-300 font-semibold">
-                        {formatCurrencyUsd(PARKING_SPOT_COST, false)} (jednorazowo)
+                        {formatCurrencyUsd(PARKING_SPOT_COST, false)} {t(language, 'company.oneTime')}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Koszt miesięczny:</span>
-                      <span className="text-slate-300 font-semibold">$0/mies.</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.monthlyCostLabel')}
+                      </span>
+                      <span className="text-slate-300 font-semibold">$0{perMonth}</span>
                     </div>
                   </div>
                 </div>
@@ -740,12 +795,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   <div className="min-w-0 leading-tight">
                     <span className="block text-[11px] text-slate-400">
                       {nextParkingUpgrade
-                        ? `Miejsce #${nextParkingUpgrade.nextSpotNumber} pojawi się na mapie`
-                        : 'Komplet 8 miejsc wykupiony'}
+                        ? t(language, 'company.parkingNextHint', {
+                            spot: nextParkingUpgrade.nextSpotNumber,
+                          })
+                        : t(language, 'company.parkingAllBought')}
                     </span>
                     {nextParkingUpgrade && !canBuyParkingSpot && (
                       <span className="block text-[11px] font-semibold text-rose-300 font-mono-nums">
-                        {formatMissingFunds(nextParkingUpgrade.cost, economyState.balance)}
+                        {formatMissingFunds(
+                          nextParkingUpgrade.cost,
+                          economyState.balance,
+                          language
+                        )}
                       </span>
                     )}
                   </div>
@@ -760,15 +821,17 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     }`}
                   >
                     {nextParkingUpgrade
-                      ? `Kup miejsce (${formatCurrencyUsd(nextParkingUpgrade.cost, false)})`
-                      : 'Maks. miejsc (8/8)'}
+                      ? t(language, 'company.buySpotBtn', {
+                          amount: formatCurrencyUsd(nextParkingUpgrade.cost, false),
+                        })
+                      : t(language, 'company.maxSpotsBtn')}
                   </button>
                 </div>
               </article>
             </div>
           )}
 
-          {/* TAB 2: FLOTA */}
+          {/* TAB 2: FLEET */}
           {activeTab === 'fleet' && (
             <div
               id="company-panel-fleet"
@@ -776,14 +839,14 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-labelledby="company-tab-fleet"
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5"
             >
-              {/* Card 1: Rowery kurierskie (Interactive Stage 1) */}
+              {/* Card 1: Courier Bikes */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
-                        Rowery kurierskie
+                        {t(language, 'company.bikesTitle')}
                       </h3>
                     </div>
                     <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[11px] font-bold text-sky-300 font-mono-nums shrink-0">
@@ -792,27 +855,32 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    Zwrotna flota rowerowa do szybkich kursów miejskich. Pierwszy rower wliczony w
-                    bazowy koszt Bazy.
+                    {t(language, 'company.bikesDesc')}
                   </p>
 
                   <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2.5 py-1.5 space-y-1 text-[11px] font-mono-nums">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Ładowność:</span>
+                      <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
                       <span className="text-slate-100 font-semibold">
-                        {BIKE_COURIER_CAPACITY} paczek
+                        {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Ubezpieczenie (2. i 3.):</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.bikeInsuranceLabel')}
+                      </span>
                       <span className="text-rose-300 font-semibold">
-                        +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}/mies.
+                        +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                        {perMonth}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Aktualnie ubezp.:</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.currentInsuranceLabel')}
+                      </span>
                       <span className="text-slate-200 font-semibold">
-                        +{formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}/mies.
+                        +{formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}
+                        {perMonth}
                       </span>
                     </div>
                   </div>
@@ -821,7 +889,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 <div className="pt-2 border-t border-slate-800 space-y-1.5">
                   {!bikesMaxed && !canBuyBicycle && (
                     <p className="text-[11px] font-semibold text-rose-300 font-mono-nums leading-snug">
-                      {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance)}
+                      {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance, language)}
                     </p>
                   )}
                   <button
@@ -835,24 +903,29 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     }`}
                   >
                     {bikesMaxed
-                      ? `Limit osiągnięty (${MAX_BICYCLES}/${MAX_BICYCLES})`
-                      : `Kup rower (${formatCurrencyUsd(BICYCLE_PURCHASE_COST, false)})`}
+                      ? t(language, 'company.limitReached', {
+                          current: MAX_BICYCLES,
+                          max: MAX_BICYCLES,
+                        })
+                      : t(language, 'company.buyBikeBtn', {
+                          amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
+                        })}
                   </button>
                 </div>
               </article>
 
-              {/* Card 2: Używany bus dostawczy 20 paczek (Active Stage 2A) */}
+              {/* Card 2: Used Delivery Van */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5">
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 leading-tight">
-                        Używany bus dostawczy
+                        {t(language, 'company.usedVanTitle')}
                       </h3>
                     </div>
                     <span
-                      title="Posiadane busy / miejsca parkingowe"
+                      title={t(language, 'company.vansCountTitle')}
                       className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0 whitespace-nowrap"
                     >
                       {vansCount} / {economyState.parkingSpots}
@@ -860,27 +933,32 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    Klasa {VAN_COURIER_CAPACITY} paczek. Zwiększa ładowność pojedynczego kursu
-                    i wymaga wolnego stanowiska postojowego przy Bazie.
+                    {t(language, 'company.usedVanDesc', { capacity: VAN_COURIER_CAPACITY })}
                   </p>
 
                   <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2.5 py-1.5 space-y-1 text-[11px] font-mono-nums">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Ładowność:</span>
+                      <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
                       <span className="text-slate-100 font-semibold">
-                        {VAN_COURIER_CAPACITY} paczek
+                        {t(language, 'company.packagesCount', { count: VAN_COURIER_CAPACITY })}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Ubezpieczenie (szt.):</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.vanInsuranceLabel')}
+                      </span>
                       <span className="text-rose-300 font-semibold">
-                        +{formatCurrencyUsd(USED_VAN_INSURANCE_COST, false)}/mies.
+                        +{formatCurrencyUsd(USED_VAN_INSURANCE_COST, false)}
+                        {perMonth}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400">Aktualnie ubezp.:</span>
+                      <span className="text-slate-400">
+                        {t(language, 'company.currentInsuranceLabel')}
+                      </span>
                       <span className="text-slate-200 font-semibold">
-                        +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}/mies.
+                        +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}
+                        {perMonth}
                       </span>
                     </div>
                   </div>
@@ -890,11 +968,17 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   {!vansMaxed && !canBuyUsedVan && (
                     <div className="space-y-0.5 text-[11px] font-semibold leading-snug">
                       {!hasFreeParkingForVan && (
-                        <p className="text-amber-300">Wymaga wolnego parkingu</p>
+                        <p className="text-amber-300">
+                          {t(language, 'company.requiresFreeParking')}
+                        </p>
                       )}
                       {economyState.balance < USED_VAN_PURCHASE_COST && (
                         <p className="text-rose-300 font-mono-nums">
-                          {formatMissingFunds(USED_VAN_PURCHASE_COST, economyState.balance)}
+                          {formatMissingFunds(
+                            USED_VAN_PURCHASE_COST,
+                            economyState.balance,
+                            language
+                          )}
                         </p>
                       )}
                     </div>
@@ -910,45 +994,49 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     }`}
                   >
                     {vansMaxed
-                      ? `Limit osiągnięty (${MAX_VANS}/${MAX_VANS})`
-                      : `Kup busa (${formatCurrencyUsd(USED_VAN_PURCHASE_COST, false)})`}
+                      ? t(language, 'company.limitReached', {
+                          current: MAX_VANS,
+                          max: MAX_VANS,
+                        })
+                      : t(language, 'company.buyVanBtn', {
+                          amount: formatCurrencyUsd(USED_VAN_PURCHASE_COST, false),
+                        })}
                   </button>
                 </div>
               </article>
 
-              {/* Card 3: Bus dostawczy 30 paczek (Preview Future) */}
+              {/* Card 3: Heavy Delivery Van (Coming Soon) */}
               <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-3 [@media(max-height:540px)]:p-2.5 flex flex-col justify-between gap-2.5 opacity-85">
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Truck className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 leading-tight">
-                        Bus dostawczy
+                        {t(language, 'company.heavyVanTitle')}
                       </h3>
                     </div>
                     <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-semibold text-amber-300 shrink-0">
-                      Wkrótce
+                      {t(language, 'company.comingSoon')}
                     </span>
                   </div>
 
                   <p className="text-[11px] font-semibold text-slate-200">
-                    Klasa 30 paczek — ciężka flota miejska
+                    {t(language, 'company.heavyVanSubtitle')}
                   </p>
                   <p className="text-[11px] text-slate-400 leading-snug">
-                    Najwyższa pojemność pojedynczego kursu przeznaczona do dużych kontraktów
-                    długoterminowych i hurtowni.
+                    {t(language, 'company.heavyVanDesc')}
                   </p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono-nums text-slate-400">
-                  <span>Ładowność: 30 paczek</span>
-                  <span>Wymaga parkingu</span>
+                  <span>{t(language, 'company.heavyVanCapacity')}</span>
+                  <span>{t(language, 'company.requiresParking')}</span>
                 </div>
               </article>
             </div>
           )}
 
-          {/* TAB 3: PRACOWNICY */}
+          {/* TAB 3: STAFF */}
           {activeTab === 'employees' && (
             <div
               id="company-panel-employees"
@@ -961,23 +1049,32 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <Users className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
                   <h3 className="text-xs sm:text-sm font-bold text-slate-100">
-                    Zespół kurierów ({hiredCouriersCount} / {MAX_EMPLOYEES})
+                    {t(language, 'company.teamHeader', {
+                      hired: hiredCouriersCount,
+                      max: MAX_EMPLOYEES,
+                    })}
                   </h3>
                   <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono-nums text-slate-300">
-                    Licencje: {economyState.maxEmployees}/{MAX_EMPLOYEES}
+                    {t(language, 'company.licensesBadge', {
+                      current: economyState.maxEmployees,
+                      max: MAX_EMPLOYEES,
+                    })}
                   </span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono-nums">
                   <span className="text-slate-400">
-                    Pensje:{' '}
+                    {t(language, 'company.salariesLabel')}{' '}
                     <span className="font-bold text-rose-300">
-                      {formatCurrencyUsd(monthlyCosts.salariesCost, false)}/mies.
+                      {formatCurrencyUsd(monthlyCosts.salariesCost, false)}
+                      {perMonth}
                     </span>
                   </span>
                   <span className="text-slate-600" aria-hidden="true">•</span>
                   <span className="text-slate-400">
-                    Rower: {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)} | Rower + Bus:{' '}
+                    {t(language, 'company.qualBike')}:{' '}
+                    {formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)} |{' '}
+                    {t(language, 'company.qualBikeAndVan')}:{' '}
                     {formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}
                   </span>
                 </div>
@@ -994,13 +1091,14 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   // 1. Unlocked & Hired Slot
                   if (courier.unlocked && courier.hired) {
                     const roleHeading = courier.isOwner
-                      ? '#1 Właściciel'
-                      : `#${courier.slotIndex} Kurier`;
+                      ? t(language, 'company.ownerRoleHeading')
+                      : t(language, 'company.courierRoleHeading', { slot: courier.slotIndex });
                     const hasVanQualification =
                       courier.isOwner || courier.qualification === 'bike_and_van';
-                    const qualificationLabel = hasVanQualification ? 'Rower + Bus' : 'Rower';
+                    const qualificationLabel = hasVanQualification
+                      ? t(language, 'company.qualBikeAndVan')
+                      : t(language, 'company.qualBike');
 
-                    // Strictly free vehicles (not assigned to any other courier) matching this courier's qualifications
                     const availableVehicles = ownedFleet.filter(
                       (vehicle) =>
                         canCourierDriveVehicle(courier, vehicle.type) &&
@@ -1030,7 +1128,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                     : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                                 }`}
                               >
-                                {slotAtBase ? 'W Bazie' : 'W trasie'}
+                                {slotAtBase
+                                  ? t(language, 'company.statusAvailable')
+                                  : t(language, 'company.statusOnRoute')}
                               </span>
                               <span
                                 className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
@@ -1050,7 +1150,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
                               }`}
                             >
-                              {formatCurrencyUsd(courier.monthlySalary, false)}/mies.
+                              {formatCurrencyUsd(courier.monthlySalary, false)}
+                              {perMonth}
                             </span>
                           </div>
 
@@ -1061,16 +1162,17 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 htmlFor={`courier-vehicle-${courier.slotIndex}`}
                                 className="text-[11px] text-slate-400"
                               >
-                                Przypisany pojazd:
+                                {t(language, 'company.assignedVehicleLabel')}
                               </label>
                               {!slotAtBase && (
                                 <span className="text-[10px] text-amber-300/90">
-                                  Zmiana po powrocie do Bazy
+                                  {t(language, 'company.changeAtBaseHint')}
                                 </span>
                               )}
                             </div>
 
                             <CourierVehicleDropdown
+                              language={language}
                               courier={courier}
                               effectiveAssigned={effectiveAssigned}
                               availableVehicles={availableVehicles}
@@ -1101,12 +1203,17 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
                           <span className="text-[11px] text-slate-400">
                             {courier.isOwner
-                              ? 'Właściciel firmy — uprawnienia Rower + Bus'
+                              ? t(language, 'company.ownerFooterDesc')
                               : effectiveAssigned
-                                ? `Ładowność: ${effectiveAssigned.type === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY} paczek`
+                                ? t(language, 'company.courierPayload', {
+                                    count:
+                                      effectiveAssigned.type === 'van'
+                                        ? VAN_COURIER_CAPACITY
+                                        : BIKE_COURIER_CAPACITY,
+                                  })
                                 : hasVanQualification
-                                  ? 'Przypisz wolny rower lub busa'
-                                  : 'Przypisz wolny rower lub awansuj'}
+                                  ? t(language, 'company.assignBikeOrVan')
+                                  : t(language, 'company.assignBikeOrPromote')}
                           </span>
 
                           {!courier.isOwner && (
@@ -1114,12 +1221,14 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               {!hasVanQualification && (
                                 <button
                                   type="button"
-                                  title={`Zmień uprawnienia na Rower + Bus (pensja ${formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}/mies.)`}
+                                  title={t(language, 'company.promoteTitle', {
+                                    salary: formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false),
+                                  })}
                                   onClick={() => onPromoteCourier(courier.slotIndex)}
                                   className="px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                                 >
                                   <ArrowUpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                                  <span>Awansuj (Rower + Bus)</span>
+                                  <span>{t(language, 'company.promoteBtn')}</span>
                                 </button>
                               )}
 
@@ -1134,7 +1243,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 }`}
                               >
                                 <UserMinus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                                <span>Zwolnij</span>
+                                <span>{t(language, 'company.fireBtn')}</span>
                               </button>
                             </div>
                           )}
@@ -1143,7 +1252,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     );
                   }
 
-                  // 2. Unlocked but Vacant Slot (License purchased, choose qualification profile to hire)
+                  // 2. Unlocked but Vacant Slot
                   if (courier.unlocked && !courier.hired) {
                     return (
                       <article
@@ -1155,17 +1264,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             <div className="flex items-center gap-1.5 min-w-0">
                               <UserPlus className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
                               <h4 className="font-bold text-slate-100 truncate">
-                                #{courier.slotIndex} Kurier
+                                {t(language, 'company.courierRoleHeading', {
+                                  slot: courier.slotIndex,
+                                })}
                               </h4>
                             </div>
                             <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-semibold shrink-0">
-                              Wolne stanowisko
+                              {t(language, 'company.vacantBadge')}
                             </span>
                           </div>
 
                           <p className="text-[11px] text-slate-400 leading-snug">
-                            Licencja aktywna. Wybierz profil uprawnień pracownika (bez opłaty
-                            wstępnej — kuriera rowerowego możesz później awansować):
+                            {t(language, 'company.vacantDesc')}
                           </p>
                         </div>
 
@@ -1177,7 +1287,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           >
                             <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                             <span>
-                              Zatrudnij: Rower ({formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false)}/mies.)
+                              {t(language, 'company.hireBikeBtn', {
+                                salary: formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false),
+                              })}
                             </span>
                           </button>
 
@@ -1188,7 +1300,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           >
                             <Car className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                             <span>
-                              Zatrudnij: Rower + Bus ({formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false)}/mies.)
+                              {t(language, 'company.hireVanBtn', {
+                                salary: formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false),
+                              })}
                             </span>
                           </button>
                         </div>
@@ -1196,7 +1310,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     );
                   }
 
-                  // 3. Locked Slot (Sequential License Purchase #2..#6)
+                  // 3. Locked Slot
                   const licenseCost = getEmployeeLicenseCost(courier.slotIndex) ?? 0;
                   const isNextToUnlock = courier.slotIndex === economyState.maxEmployees + 1;
                   const canBuyLicense = isNextToUnlock && economyState.balance >= licenseCost;
@@ -1215,25 +1329,31 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           <div className="flex items-center gap-1.5 min-w-0">
                             <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                             <h4 className="font-bold text-slate-200 truncate">
-                              #{courier.slotIndex} Stanowisko kurierskie
+                              {t(language, 'company.lockedSlotHeading', {
+                                slot: courier.slotIndex,
+                              })}
                             </h4>
                           </div>
                           <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-semibold shrink-0">
-                            Zablokowane
+                            {t(language, 'company.lockedBadge')}
                           </span>
                         </div>
 
                         <p className="text-[11px] text-slate-400 leading-snug">
                           {isNextToUnlock
-                            ? `Jednorazowy zakup licencji na ${courier.slotIndex}. stanowisko pozwala zatrudnić kolejnego kuriera.`
-                            : `Wymaga wcześniejszego wykupienia licencji na stanowisko #${courier.slotIndex - 1}.`}
+                            ? t(language, 'company.lockedNextDesc', { slot: courier.slotIndex })
+                            : t(language, 'company.lockedPrevDesc', {
+                                prevSlot: courier.slotIndex - 1,
+                              })}
                         </p>
                       </div>
 
                       <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
                         <div className="min-w-0 leading-tight">
                           <span className="block text-[11px] text-slate-400 font-mono-nums">
-                            Licencja: {formatCurrencyUsd(licenseCost, false)}
+                            {t(language, 'company.licenseCostLabel', {
+                              amount: formatCurrencyUsd(licenseCost, false),
+                            })}
                           </span>
                           {!canBuyLicense && (
                             <span
@@ -1242,8 +1362,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               }`}
                             >
                               {!isNextToUnlock
-                                ? `Wymaga licencji #${courier.slotIndex - 1}`
-                                : formatMissingFunds(licenseCost, economyState.balance)}
+                                ? t(language, 'company.requiresPrevLicense', {
+                                    prevSlot: courier.slotIndex - 1,
+                                  })
+                                : formatMissingFunds(licenseCost, economyState.balance, language)}
                             </span>
                           )}
                         </div>
@@ -1257,7 +1379,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
                           }`}
                         >
-                          Kup licencję ({formatCurrencyUsd(licenseCost, false)})
+                          {t(language, 'company.buyLicenseBtn', {
+                            amount: formatCurrencyUsd(licenseCost, false),
+                          })}
                         </button>
                       </div>
                     </article>

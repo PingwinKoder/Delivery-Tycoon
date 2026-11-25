@@ -113,6 +113,20 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isVisible, view]);
 
+  const [isSettledVisible, setIsSettledVisible] = useState<boolean>(isVisible);
+
+  // Release will-change-[opacity] cleanly after the 300ms fade-in completes
+  useEffect(() => {
+    if (!isVisible) {
+      setIsSettledVisible(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setIsSettledVisible(true);
+    }, 340);
+    return () => window.clearTimeout(timer);
+  }, [isVisible]);
+
   const handleConfirmDelete = (slotId: SaveSlotId) => {
     setConfirmDeleteSlotId(null);
     onDeleteSlot(slotId);
@@ -120,9 +134,16 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 transition-opacity duration-500 ease-out touch-none ${
+      onTransitionEnd={(e) => {
+        if (isVisible && e.target === e.currentTarget && e.propertyName === 'opacity') {
+          setIsSettledVisible(true);
+        }
+      }}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 transition-opacity duration-300 ease-out touch-none ${
         isVisible
-          ? 'opacity-100 pointer-events-auto will-change-auto'
+          ? isSettledVisible
+            ? 'opacity-100 pointer-events-auto will-change-auto'
+            : 'opacity-100 pointer-events-auto will-change-[opacity]'
           : 'opacity-0 pointer-events-none will-change-[opacity]'
       }`}
       role="dialog"
@@ -134,7 +155,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
       onTouchMove={(e) => e.stopPropagation()}
     >
       {view === 'menu' ? (
-        <div className="w-[92vw] max-w-sm [@media(max-height:540px)]:max-w-xs flex flex-col rounded-xl bg-slate-900/95 border border-slate-700 shadow-lg overflow-hidden text-slate-100 touch-auto">
+        <div className="w-[92vw] max-w-sm [@media(max-height:540px)]:max-w-xs flex flex-col rounded-xl bg-slate-900/95 border border-slate-700 shadow-md overflow-hidden text-slate-100 touch-auto">
           {/* Brand Header */}
           <div className="px-4 py-4 [@media(max-height:540px)]:px-3.5 [@media(max-height:540px)]:py-2.5 bg-slate-950/85 border-b border-slate-700/90 flex flex-col items-center text-center gap-2 [@media(max-height:540px)]:gap-1">
             <div className="w-11 h-11 [@media(max-height:540px)]:w-8 [@media(max-height:540px)]:h-8 rounded-xl bg-orange-500/15 border border-orange-500/50 text-orange-400 flex items-center justify-center shadow-sm">
@@ -212,7 +233,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
           </div>
         </div>
       ) : (
-        <div className="w-[95vw] max-w-3xl max-h-[92vh] [@media(max-height:540px)]:max-h-[96vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain">
+        <div className="w-[95vw] max-w-3xl max-h-[92vh] [@media(max-height:540px)]:max-h-[96vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700 shadow-md overflow-hidden text-slate-100 touch-auto overscroll-contain">
           {/* Compact Header: Back Button + Load Game Title */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 [@media(max-height:540px)]:px-3 [@media(max-height:540px)]:py-2 bg-slate-950/85 border-b border-slate-700">
             <div className="flex items-center gap-2.5 min-w-0">

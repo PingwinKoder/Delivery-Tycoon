@@ -107,6 +107,8 @@ export interface MapCanvasController {
   setPanoramicOverview: () => void;
   armIntroFlyIn: () => void;
   beginArmedIntroFlyIn: () => void;
+  armOutroFlyOut: () => void;
+  beginArmedOutroFlyOut: () => void;
   dispatchCourierToBuilding: (building: Building) => boolean;
   recallCourierToBase: () => WarehouseLoadedBatch[];
   getInFlightCargo: () => WarehouseLoadedBatch[];
@@ -134,6 +136,7 @@ interface MapCanvasProps {
   onFpsChange?: (fps: number) => void;
   onMapReady?: () => void;
   onIntroFlyInComplete?: () => void;
+  onOutroFlyOutComplete?: () => void;
   onCourierAtBaseChange?: (atBase: boolean) => void;
   onCourierStatusChange?: (status: CourierFleetStatusSnapshot) => void;
   onLoadFromWarehouse?: (
@@ -158,10 +161,13 @@ interface MapCanvasProps {
 const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 const FPS_SAMPLE_WINDOW_MS = 500;
 const FRAME_INTERVAL_MS = 1000 / 60.5;
-const MAX_CANVAS_DPR = 2;
+const MAX_MOBILE_CANVAS_DPR = 1.5;
+const MAX_DESKTOP_CANVAS_DPR = 2;
 const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
 const CAMERA_INTRO_DURATION_MS = 2500;
 const CAMERA_INTRO_DURATION_SEC = CAMERA_INTRO_DURATION_MS / 1000;
+const CAMERA_OUTRO_DURATION_MS = 1800;
+const CAMERA_OUTRO_DURATION_SEC = CAMERA_OUTRO_DURATION_MS / 1000;
 /** Optimal panoramic zoom multiplier (~0.75x keeps Start Screen sharp & 60 FPS on mobile) */
 const OVERVIEW_ZOOM_RATIO = 0.75;
 /** Scenic framing offset relative to Base focus for the Start Screen panorama */
@@ -169,6 +175,7 @@ const OVERVIEW_BASE_OFFSET_X = 200;
 const OVERVIEW_BASE_OFFSET_Y = -145;
 
 interface CameraIntroTransition {
+  direction: 'in' | 'out';
   phase: 'armed' | 'running';
   started: boolean;
   elapsedSec: number;
@@ -460,6 +467,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   onFpsChange,
   onMapReady,
   onIntroFlyInComplete,
+  onOutroFlyOutComplete,
   onCourierAtBaseChange,
   onCourierStatusChange,
   onLoadFromWarehouse,
@@ -539,6 +547,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
+    onOutroFlyOutComplete,
     onCourierAtBaseChange,
     onCourierStatusChange,
     onLoadFromWarehouse,
@@ -566,6 +575,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
+    onOutroFlyOutComplete,
     onCourierAtBaseChange,
     onCourierStatusChange,
     onLoadFromWarehouse,
@@ -660,6 +670,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         targetCameraRef.current = baseCam;
         // Hold camera at exact panoramic coordinates until state reset & localStorage save settle
         cameraIntroRef.current = {
+          direction: 'in',
           phase: 'armed',
           started: false,
           elapsedSec: 0,
@@ -671,7 +682,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       },
       beginArmedIntroFlyIn: () => {
         const current = cameraIntroRef.current;
-        if (current) {
+        if (current && current.direction === 'in') {
           current.phase = 'running';
           // Begin strictly at 0% on the first rendered rAF frame; accumulate clamped dt thereafter
           current.started = false;
@@ -681,6 +692,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           const viewport = viewportRef.current;
           const pan = getPanoramicCamera(viewport, propsRef.current.baseNode);
           cameraIntroRef.current = {
+            direction: 'in',
             phase: 'running',
             started: false,
             elapsedSec: 0,
@@ -688,6 +700,45 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             fromX: pan.x,
             fromY: pan.y,
             fromEffectiveZoom: pan.effectiveZoom,
+          };
+        }
+      },
+      armOutroFlyOut: () => {
+        const viewport = viewportRef.current;
+        const fromEffectiveZoom = getEffectiveZoom(cameraRef.current.zoom, viewport, MAP_SIZE);
+        cameraVelocityRef.current = { vx: 0, vy: 0 };
+        pressedArrowKeysRef.current.clear();
+        // Hold exact current gameplay camera coordinates until mist mounts at opacity 0
+        cameraIntroRef.current = {
+          direction: 'out',
+          phase: 'armed',
+          started: false,
+          elapsedSec: 0,
+          durationSec: CAMERA_OUTRO_DURATION_SEC,
+          fromX: cameraRef.current.x,
+          fromY: cameraRef.current.y,
+          fromEffectiveZoom,
+        };
+      },
+      beginArmedOutroFlyOut: () => {
+        const current = cameraIntroRef.current;
+        if (current && current.direction === 'out') {
+          current.phase = 'running';
+          current.started = false;
+          current.elapsedSec = 0;
+          current.durationSec = CAMERA_OUTRO_DURATION_SEC;
+        } else {
+          const viewport = viewportRef.current;
+          const fromEffectiveZoom = getEffectiveZoom(cameraRef.current.zoom, viewport, MAP_SIZE);
+          cameraIntroRef.current = {
+            direction: 'out',
+            phase: 'running',
+            started: false,
+            elapsedSec: 0,
+            durationSec: CAMERA_OUTRO_DURATION_SEC,
+            fromX: cameraRef.current.x,
+            fromY: cameraRef.current.y,
+            fromEffectiveZoom,
           };
         }
       },
@@ -870,7 +921,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const rect = container.getBoundingClientRect();
       const width = Math.max(1, Math.round(rect.width));
       const height = Math.max(1, Math.round(rect.height));
-      const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), MAX_CANVAS_DPR);
+      const isMobileOrTouch =
+        window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 1024;
+      const maxDpr = isMobileOrTouch ? MAX_MOBILE_CANVAS_DPR : MAX_DESKTOP_CANVAS_DPR;
+      const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), maxDpr);
 
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
@@ -1399,7 +1453,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           renderCamY = activeIntro.fromY;
           renderEffectiveZoom = activeIntro.fromEffectiveZoom;
           renderCacheZoomKey = activeIntro.fromEffectiveZoom;
-          ambientTrafficAlpha = 1;
+          ambientTrafficAlpha = activeIntro.direction === 'in' ? 1 : 0;
         } else {
           if (!activeIntro.started) {
             activeIntro.started = true;
@@ -1410,36 +1464,66 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           const rawT = Math.min(1, activeIntro.elapsedSec / activeIntro.durationSec);
           const eased = easeOutCubic(rawT);
 
-          const baseFocus = getBaseFocusPoint(propsRef.current.baseNode);
-          const baseCam = createInitialCamera(viewportRef.current, MAP_SIZE, baseFocus);
-          const toEffectiveZoom = getEffectiveZoom(baseCam.zoom, viewportRef.current, MAP_SIZE);
+          if (activeIntro.direction === 'in') {
+            const baseFocus = getBaseFocusPoint(propsRef.current.baseNode);
+            const baseCam = createInitialCamera(viewportRef.current, MAP_SIZE, baseFocus);
+            const toEffectiveZoom = getEffectiveZoom(baseCam.zoom, viewportRef.current, MAP_SIZE);
 
-          const safeFromZoom = Math.max(0.05, activeIntro.fromEffectiveZoom);
-          renderEffectiveZoom = safeFromZoom * Math.pow(toEffectiveZoom / safeFromZoom, eased);
-          const interpX = activeIntro.fromX + (baseCam.x - activeIntro.fromX) * eased;
-          const interpY = activeIntro.fromY + (baseCam.y - activeIntro.fromY) * eased;
-          const clampedCenter = clampWorldCenterForEffectiveZoom(
-            interpX,
-            interpY,
-            renderEffectiveZoom,
-            viewportRef.current
-          );
-          renderCamX = clampedCenter.x;
-          renderCamY = clampedCenter.y;
-          renderCacheZoomKey = renderEffectiveZoom;
-          ambientTrafficAlpha = Math.max(0, 1 - eased * 1.4);
+            const safeFromZoom = Math.max(0.05, activeIntro.fromEffectiveZoom);
+            renderEffectiveZoom = safeFromZoom * Math.pow(toEffectiveZoom / safeFromZoom, eased);
+            const interpX = activeIntro.fromX + (baseCam.x - activeIntro.fromX) * eased;
+            const interpY = activeIntro.fromY + (baseCam.y - activeIntro.fromY) * eased;
+            const clampedCenter = clampWorldCenterForEffectiveZoom(
+              interpX,
+              interpY,
+              renderEffectiveZoom,
+              viewportRef.current
+            );
+            renderCamX = clampedCenter.x;
+            renderCamY = clampedCenter.y;
+            renderCacheZoomKey = renderEffectiveZoom;
+            ambientTrafficAlpha = Math.max(0, 1 - eased * 1.4);
 
-          if (rawT >= 1) {
-            cameraRef.current = baseCam;
-            targetCameraRef.current = baseCam;
-            cameraVelocityRef.current = { vx: 0, vy: 0 };
-            cameraIntroRef.current = null;
-            renderCamX = baseCam.x;
-            renderCamY = baseCam.y;
-            renderEffectiveZoom = toEffectiveZoom;
-            renderCacheZoomKey = baseCam.zoom;
-            ambientTrafficAlpha = 0;
-            propsRef.current.onIntroFlyInComplete?.();
+            if (rawT >= 1) {
+              cameraRef.current = baseCam;
+              targetCameraRef.current = baseCam;
+              cameraVelocityRef.current = { vx: 0, vy: 0 };
+              cameraIntroRef.current = null;
+              renderCamX = baseCam.x;
+              renderCamY = baseCam.y;
+              renderEffectiveZoom = toEffectiveZoom;
+              renderCacheZoomKey = baseCam.zoom;
+              ambientTrafficAlpha = 0;
+              propsRef.current.onIntroFlyInComplete?.();
+            }
+          } else {
+            const panCam = getPanoramicCamera(viewportRef.current, propsRef.current.baseNode);
+            const safeFromZoom = Math.max(0.05, activeIntro.fromEffectiveZoom);
+            renderEffectiveZoom =
+              safeFromZoom * Math.pow(panCam.effectiveZoom / safeFromZoom, eased);
+            const interpX = activeIntro.fromX + (panCam.x - activeIntro.fromX) * eased;
+            const interpY = activeIntro.fromY + (panCam.y - activeIntro.fromY) * eased;
+            const clampedCenter = clampWorldCenterForEffectiveZoom(
+              interpX,
+              interpY,
+              renderEffectiveZoom,
+              viewportRef.current
+            );
+            renderCamX = clampedCenter.x;
+            renderCamY = clampedCenter.y;
+            renderCacheZoomKey = renderEffectiveZoom;
+            ambientTrafficAlpha = Math.min(1, eased * 1.25);
+
+            if (rawT >= 1) {
+              cameraVelocityRef.current = { vx: 0, vy: 0 };
+              cameraIntroRef.current = null;
+              renderCamX = panCam.x;
+              renderCamY = panCam.y;
+              renderEffectiveZoom = panCam.effectiveZoom;
+              renderCacheZoomKey = panCam.effectiveZoom;
+              ambientTrafficAlpha = 1;
+              propsRef.current.onOutroFlyOutComplete?.();
+            }
           }
         }
       } else if (propsRef.current.overviewMode) {

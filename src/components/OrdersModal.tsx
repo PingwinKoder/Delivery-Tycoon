@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Boxes, CalendarDays, Check, ClipboardList, Files, X } from 'lucide-react';
+import {
+  getMonthName,
+  getWeekdayName,
+  t,
+  translateOrderText,
+} from '../i18n/translations';
 import type {
   ActiveOrder,
   OrderEconomyState,
@@ -10,9 +16,6 @@ import {
   DAYS_PER_WEEK,
   MINUTES_PER_DAY,
   MINUTES_PER_HOUR,
-  POLISH_MONTHS,
-  POLISH_WEEKDAYS,
-  POLISH_WEEKDAYS_SHORT,
   getCalendarDateFromGameDay,
   getGameClockDisplay,
 } from '../utils/gameClock';
@@ -23,11 +26,13 @@ import {
   getScheduledTasksForWeekday,
   roundCurrency,
 } from '../utils/orderEconomy';
+import type { SupportedLanguage } from '../utils/settingsSystem';
 
 type OrdersTabId = 'offers' | 'active' | 'schedule';
 
 interface OrdersModalProps {
   isOpen: boolean;
+  language: SupportedLanguage;
   economyState: OrderEconomyState;
   gameMinutes: number;
   taskAssignmentsByTaskId?: Readonly<Record<string, number>>;
@@ -42,15 +47,20 @@ interface OrdersModalProps {
   ) => void;
 }
 
-function formatDurationLabel(offer: OrderOffer): string {
+function formatDurationLabel(offer: OrderOffer, lang: SupportedLanguage): string {
   if (offer.kind === 'long_term') {
-    return `${offer.durationMonths} mies.`;
+    return t(lang, 'orders.durationMonths', { months: offer.durationMonths });
   }
-  return offer.durationDays === 1 ? '1 dzień' : `${offer.durationDays} dni`;
+  return offer.durationDays === 1
+    ? t(lang, 'orders.durationDaysOne')
+    : t(lang, 'orders.durationDaysMany', { days: offer.durationDays });
 }
 
-function formatPolishPackages(count: number): string {
+function formatLocalizedPackages(count: number, lang: SupportedLanguage): string {
   const abs = Math.abs(count);
+  if (lang === 'en') {
+    return abs === 1 ? `${count} package` : `${count} packages`;
+  }
   const mod10 = abs % 10;
   const mod100 = abs % 100;
   if (abs === 1) return `${count} paczkę`;
@@ -60,13 +70,20 @@ function formatPolishPackages(count: number): string {
   return `${count} paczek`;
 }
 
-function formatWeekdaysList(weekdays: readonly number[]): string {
-  return weekdays.map((wd) => POLISH_WEEKDAYS_SHORT[wd] ?? '').filter(Boolean).join(', ');
+function formatWeekdaysList(weekdays: readonly number[], lang: SupportedLanguage): string {
+  return weekdays
+    .map((wd) => getWeekdayName(lang, wd, true))
+    .filter(Boolean)
+    .join(', ');
 }
 
-function formatTimeRemaining(targetMinutes: number, currentMinutes: number): string {
+function formatTimeRemaining(
+  targetMinutes: number,
+  currentMinutes: number,
+  lang: SupportedLanguage
+): string {
   const diffMin = Math.max(0, Math.floor(targetMinutes - currentMinutes));
-  if (diffMin <= 0) return 'wygasa teraz';
+  if (diffMin <= 0) return t(lang, 'orders.expiresNow');
 
   const totalHours = Math.floor(diffMin / MINUTES_PER_HOUR);
   const days = Math.floor(totalHours / 24);
@@ -75,53 +92,62 @@ function formatTimeRemaining(targetMinutes: number, currentMinutes: number): str
   if (days >= 30) {
     const months = Math.floor(days / 30);
     const remDays = days % 30;
-    if (remDays === 0) return `${months} mies.`;
-    return `${months} mies. ${remDays} ${remDays === 1 ? 'dzień' : 'dni'}`;
+    if (remDays === 0) return t(lang, 'orders.timeMonthsOnly', { months });
+    const dayWord =
+      remDays === 1 ? t(lang, 'orders.daySingular') : t(lang, 'orders.dayPlural');
+    return t(lang, 'orders.timeMonthsDays', { months, days: remDays, dayWord });
   }
   if (days >= 1) {
-    const dayWord = days === 1 ? 'dzień' : 'dni';
-    return hours > 0 ? `${days} ${dayWord} ${hours} godz.` : `${days} ${dayWord}`;
+    const dayWord =
+      days === 1 ? t(lang, 'orders.daySingular') : t(lang, 'orders.dayPlural');
+    return hours > 0
+      ? t(lang, 'orders.timeDaysHours', { days, dayWord, hours })
+      : t(lang, 'orders.timeDaysOnly', { days, dayWord });
   }
   if (totalHours >= 1) {
-    return `${totalHours} godz.`;
+    return t(lang, 'orders.timeHoursOnly', { hours: totalHours });
   }
-  return `${diffMin} min`;
+  return t(lang, 'orders.timeMinutesOnly', { minutes: diffMin });
 }
 
 function formatSatisfactionValue(value: number): string {
   return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
-function getSatisfactionVisuals(satisfaction: number): {
+function getSatisfactionVisuals(
+  satisfaction: number,
+  lang: SupportedLanguage
+): {
   textClass: string;
   label: string;
 } {
   if (satisfaction >= 75) {
     return {
       textClass: 'text-emerald-400',
-      label: 'Wysokie',
+      label: t(lang, 'orders.satHigh'),
     };
   }
   if (satisfaction >= 45) {
     return {
       textClass: 'text-amber-300',
-      label: 'Średnie',
+      label: t(lang, 'orders.satMedium'),
     };
   }
   if (satisfaction >= 20) {
     return {
       textClass: 'text-orange-400',
-      label: 'Zagrożone',
+      label: t(lang, 'orders.satRisk'),
     };
   }
   return {
     textClass: 'text-rose-400',
-    label: 'Krytyczne',
+    label: t(lang, 'orders.satCritical'),
   };
 }
 
 export const OrdersModal: React.FC<OrdersModalProps> = ({
   isOpen,
+  language,
   economyState,
   gameMinutes,
   taskAssignmentsByTaskId,
@@ -140,14 +166,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
   const unreadOffersCount = useMemo(() => countUnreadOffers(economyState), [economyState]);
 
-  // Default Plan tygodnia selector to today whenever the modal opens
+  // Default Weekly Plan selector to today whenever the modal opens
   useEffect(() => {
     if (isOpen) {
       setSelectedWeekday(latestDayIndexRef.current);
     }
   }, [isOpen]);
 
-  // Mark all currently listed pending offers as seen immediately when the "Nowe oferty" tab is open
+  // Mark all currently listed pending offers as seen immediately when the "New Offers" tab is open
   useEffect(() => {
     if (isOpen && activeTab === 'offers' && unreadOffersCount > 0) {
       onMarkOffersSeen();
@@ -169,30 +195,41 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const nextMonthName = POLISH_MONTHS[(clock.monthIndex + 1) % 12].name;
+  const nextMonthName = getMonthName(language, (clock.monthIndex + 1) % 12, false);
   const accruedLongTerm = economyState.pendingMonthlyLongTermPayout;
   const monthlyCosts = useMemo(() => calculateMonthlyCompanyCosts(economyState), [economyState]);
   const monthlyNetForecast = roundCurrency(accruedLongTerm - monthlyCosts.totalFixedCosts);
   const monthlyCostsBreakdownTitle = useMemo(() => {
     const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
     const parts: string[] = [
-      `Utrzymanie Bazy (Poz. ${warehouseLevel}): ${formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}`,
+      t(language, 'orders.costBaseUpkeep', {
+        level: warehouseLevel,
+        amount: formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false),
+      }),
     ];
     if (monthlyCosts.salariesCost > 0) {
-      parts.push(`Pensje pracowników: ${formatCurrencyUsd(monthlyCosts.salariesCost, false)}`);
+      parts.push(
+        t(language, 'orders.costSalaries', {
+          amount: formatCurrencyUsd(monthlyCosts.salariesCost, false),
+        })
+      );
     }
     if (monthlyCosts.courierInsuranceCost > 0) {
       parts.push(
-        `Ubezpieczenie dodatkowych rowerów: ${formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}`
+        t(language, 'orders.costBikeInsurance', {
+          amount: formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false),
+        })
       );
     }
     if (monthlyCosts.vanInsuranceCost > 0) {
       parts.push(
-        `Ubezpieczenie busów: ${formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false)}`
+        t(language, 'orders.costVanInsurance', {
+          amount: formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false),
+        })
       );
     }
     return parts.join(' | ');
-  }, [monthlyCosts, economyState.warehouseLevel, economyState.warehouseTier]);
+  }, [language, monthlyCosts, economyState.warehouseLevel, economyState.warehouseTier]);
 
   const weeklyColumns = useMemo(() => {
     const weekMondayGameDay = clock.gameDay - clock.dayIndex;
@@ -211,14 +248,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         : rawTasks;
       return {
         weekdayIndex,
-        weekdayName: POLISH_WEEKDAYS[weekdayIndex],
-        weekdayShort: POLISH_WEEKDAYS_SHORT[weekdayIndex],
-        dateLabel: `${date.dayOfMonth} ${date.monthShort}`,
+        weekdayName: getWeekdayName(language, weekdayIndex, false),
+        weekdayShort: getWeekdayName(language, weekdayIndex, true),
+        dateLabel: `${date.dayOfMonth} ${getMonthName(language, date.monthIndex, true)}`,
         isToday,
         tasks,
       };
     });
-  }, [economyState, clock.gameDay, clock.dayIndex, taskAssignmentsByTaskId]);
+  }, [economyState, clock.gameDay, clock.dayIndex, taskAssignmentsByTaskId, language]);
 
   const selectedDay = weeklyColumns[selectedWeekday] ?? weeklyColumns[clock.dayIndex] ?? weeklyColumns[0];
 
@@ -236,18 +273,18 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
-        className="w-[94vw] max-w-4xl h-[min(84vh,680px)] max-h-[84vh] [@media(max-height:540px)]:h-[95vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-2xl overflow-hidden text-slate-100 touch-auto overscroll-contain"
+        className="w-[94vw] max-w-4xl h-[min(84vh,680px)] max-h-[84vh] [@media(max-height:540px)]:h-[95vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Compact Single-Line Company Status Bar */}
         <div className="flex items-center justify-between gap-2 px-3 py-2 [@media(max-height:540px)]:px-2.5 [@media(max-height:540px)]:py-1.5 bg-[#182030] border-b border-slate-700/80">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs min-w-0 leading-tight">
             <h2 id="orders-modal-heading" className="sr-only">
-              Panel zleceń firmy
+              {t(language, 'orders.headingSr')}
             </h2>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Ukończone: </span>
+              <span className="text-slate-400">{t(language, 'orders.completed')} </span>
               <span className="font-bold text-slate-100 font-mono-nums">
                 {economyState.completedOrdersCount}
               </span>
@@ -256,7 +293,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             <span className="text-slate-600" aria-hidden="true">|</span>
 
             <span className="whitespace-nowrap">
-              <span className="text-slate-400">Zadowolenie (Rok {clock.year}): </span>
+              <span className="text-slate-400">
+                {t(language, 'orders.satisfactionYear', { year: clock.year })}{' '}
+              </span>
               <span className="font-bold text-amber-300 font-mono-nums">
                 {formatSatisfactionValue(economyState.annualSatisfactionAvg)}
               </span>
@@ -266,7 +305,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
             <span className="flex flex-wrap items-baseline gap-x-1">
               <span className="text-slate-400 whitespace-nowrap">
-                Rozliczenie 1 {nextMonthName}:
+                {t(language, 'orders.settlementDate', { month: nextMonthName })}
               </span>
               <span className="font-mono-nums font-semibold text-emerald-400 whitespace-nowrap">
                 +{formatCurrencyUsd(accruedLongTerm, false)}
@@ -292,7 +331,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Zamknij okno Zlecenia"
+            aria-label={t(language, 'orders.closeAria')}
             className="min-w-[30px] min-h-[30px] p-1 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
           >
             <X className="w-4 h-4" aria-hidden="true" />
@@ -304,7 +343,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           <div
             className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain"
             role="tablist"
-            aria-label="Zakładki panelu zleceń"
+            aria-label={t(language, 'orders.tabsAria')}
           >
             <button
               id="tab-offers"
@@ -320,7 +359,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               }`}
             >
               <Files className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Nowe oferty</span>
+              <span>{t(language, 'orders.tabOffers')}</span>
               <span
                 className={`font-mono-nums ${
                   activeTab === 'offers' ? 'text-slate-900' : 'text-slate-400'
@@ -330,7 +369,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               </span>
               {activeTab !== 'offers' && unreadOffersCount > 0 && (
                 <span
-                  aria-label={`${unreadOffersCount} nieprzeczytanych`}
+                  aria-label={t(language, 'orders.unreadCountAria', { count: unreadOffersCount })}
                   className="ml-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold font-mono-nums inline-flex items-center justify-center"
                 >
                   {unreadOffersCount}
@@ -352,7 +391,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               }`}
             >
               <ClipboardList className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Aktualne</span>
+              <span>{t(language, 'orders.tabActive')}</span>
               <span
                 className={`font-mono-nums ${
                   activeTab === 'active' ? 'text-slate-900' : 'text-slate-400'
@@ -376,7 +415,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               }`}
             >
               <CalendarDays className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>Plan tygodnia</span>
+              <span>{t(language, 'orders.tabSchedule')}</span>
             </button>
           </div>
         </div>
@@ -387,16 +426,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
         >
-          {/* TAB 1: NOWE OFERTY */}
+          {/* TAB 1: NEW OFFERS */}
           {activeTab === 'offers' && (
             <div id="panel-offers" role="tabpanel" aria-labelledby="tab-offers">
               {economyState.pendingOffers.length === 0 ? (
                 <div className="py-8 px-4 text-center border border-slate-800 rounded-lg bg-slate-900/60">
                   <p className="text-xs sm:text-sm font-semibold text-slate-200">
-                    Brak oczekujących ofert zleceń
+                    {t(language, 'orders.offersEmptyTitle')}
                   </p>
                   <p className="mt-1 text-xs text-slate-400">
-                    Nowe propozycje od lokalnych firm pojawią się automatycznie wraz z upływem dni.
+                    {t(language, 'orders.offersEmptyDesc')}
                   </p>
                 </div>
               ) : (
@@ -405,6 +444,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     <OfferCard
                       key={offer.id}
                       offer={offer}
+                      language={language}
                       gameMinutes={gameMinutes}
                       onAccept={onAcceptOffer}
                       onReject={onRejectOffer}
@@ -415,16 +455,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: AKTUALNE */}
+          {/* TAB 2: ACTIVE ORDERS */}
           {activeTab === 'active' && (
             <div id="panel-active" role="tabpanel" aria-labelledby="tab-active">
               {economyState.activeOrders.length === 0 ? (
                 <div className="py-8 px-4 text-center border border-slate-800 rounded-lg bg-slate-900/60">
                   <p className="text-xs sm:text-sm font-semibold text-slate-200">
-                    Brak aktywnych zleceń
+                    {t(language, 'orders.activeEmptyTitle')}
                   </p>
                   <p className="mt-1 text-xs text-slate-400">
-                    Przejdź do zakładki „Nowe oferty”, aby przyjąć pierwsze zlecenie lub kontrakt.
+                    {t(language, 'orders.activeEmptyDesc')}
                   </p>
                 </div>
               ) : (
@@ -433,6 +473,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     <ActiveOrderCard
                       key={order.id}
                       order={order}
+                      language={language}
                       gameMinutes={gameMinutes}
                       storedInWarehouse={economyState.warehouseInventory[order.id] ?? 0}
                     />
@@ -442,14 +483,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: PLAN TYGODNIA — compact day tiles + single-row task strips */}
+          {/* TAB 3: WEEKLY PLAN */}
           {activeTab === 'schedule' && selectedDay && (
             <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" className="space-y-2">
-              {/* Tier 1: 7 Compact Day-Selector Tiles (Pon – Nd) */}
+              {/* Tier 1: 7 Compact Day-Selector Tiles */}
               <div
                 className="grid grid-cols-7 gap-1"
                 role="group"
-                aria-label="Wybór dnia tygodnia"
+                aria-label={t(language, 'orders.weekdayGroupAria')}
               >
                 {weeklyColumns.map((day) => {
                   const isSelected = day.weekdayIndex === selectedDay.weekdayIndex;
@@ -486,7 +527,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         </div>
                         {day.isToday && (
                           <span className="hidden md:inline px-1 py-0.5 rounded bg-amber-400/20 text-[9px] font-bold text-amber-300 shrink-0 leading-none">
-                            Dziś
+                            {t(language, 'orders.todayBadge')}
                           </span>
                         )}
                       </div>
@@ -500,25 +541,28 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             : 'text-slate-500'
                         }`}
                       >
-                        {day.tasks.length} zad.
+                        {t(language, 'orders.tasksCountShort', { count: day.tasks.length })}
                       </span>
                     </button>
                   );
                 })}
               </div>
 
-              {/* Tier 2: Compact Single-Row Task List (no repeated header bar) */}
+              {/* Tier 2: Compact Single-Row Task List */}
               <section
-                aria-label={`Zadania na ${selectedDay.weekdayName}, ${selectedDay.dateLabel}`}
+                aria-label={t(language, 'orders.scheduleDayAria', {
+                  weekday: selectedDay.weekdayName,
+                  date: selectedDay.dateLabel,
+                })}
                 className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1.5"
               >
                 {selectedDay.tasks.length === 0 ? (
                   <div className="py-6 px-3 text-center rounded-md bg-slate-900/50 border border-slate-800/80">
                     <p className="text-xs font-semibold text-slate-300">
-                      Brak zaplanowanych zadań na ten dzień
+                      {t(language, 'orders.scheduleEmptyTitle')}
                     </p>
                     <p className="mt-0.5 text-[11px] text-slate-500">
-                      Przyjmij nowe oferty w zakładce „Nowe oferty” lub wybierz inny dzień powyżej.
+                      {t(language, 'orders.scheduleEmptyDesc')}
                     </p>
                   </div>
                 ) : (
@@ -530,6 +574,8 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       const pickedUp = Math.max(0, Math.min(totalPkgs, task.pickedUpCount));
                       const delivered = Math.max(0, Math.min(totalPkgs, task.deliveredCount));
                       const allPickedUp = totalPkgs > 0 && pickedUp >= totalPkgs;
+                      const translatedClient = translateOrderText(language, task.clientName);
+                      const translatedAddress = translateOrderText(language, task.pickupAddress);
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
@@ -541,7 +587,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
                           <p
                             className="flex-1 min-w-0 truncate text-xs text-slate-100"
-                            title={`#${task.orderNumber} • ${task.clientName} (${task.pickupAddress})`}
+                            title={`#${task.orderNumber} • ${translatedClient} (${translatedAddress})`}
                           >
                             <span className="font-mono-nums font-semibold text-amber-300">
                               #{task.orderNumber}
@@ -549,14 +595,20 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             <span className="text-slate-500 mx-1" aria-hidden="true">
                               •
                             </span>
-                            <span className="font-semibold">{task.clientName}</span>
-                            <span className="text-slate-400"> ({task.pickupAddress})</span>
+                            <span className="font-semibold">{translatedClient}</span>
+                            <span className="text-slate-400"> ({translatedAddress})</span>
                           </p>
 
                           <div className="flex items-center gap-1 shrink-0 tabular-nums text-[11px]">
                             <span
-                              title={`Odebrane paczki: ${pickedUp}/${totalPkgs}`}
-                              aria-label={`Odebrane paczki: ${pickedUp} z ${totalPkgs}`}
+                              title={t(language, 'orders.pickedUpTooltip', {
+                                picked: pickedUp,
+                                total: totalPkgs,
+                              })}
+                              aria-label={t(language, 'orders.pickedUpAria', {
+                                picked: pickedUp,
+                                total: totalPkgs,
+                              })}
                               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none whitespace-nowrap ${
                                 allPickedUp
                                   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
@@ -570,8 +622,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             </span>
 
                             <span
-                              title={`Dostarczone paczki: ${delivered}/${totalPkgs}`}
-                              aria-label={`Dostarczone paczki: ${delivered} z ${totalPkgs}`}
+                              title={t(language, 'orders.deliveredTooltip', {
+                                delivered,
+                                total: totalPkgs,
+                              })}
+                              aria-label={t(language, 'orders.deliveredAria', {
+                                delivered,
+                                total: totalPkgs,
+                              })}
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none whitespace-nowrap bg-emerald-500/15 text-emerald-400 border-emerald-400/40"
                             >
                               <Check className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" aria-hidden="true" />
@@ -585,8 +643,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             <span
                               title={
                                 task.assignedCourierId === 1
-                                  ? 'W trakcie realizacji: Właściciel (#1)'
-                                  : `W trakcie realizacji: Kurier #${task.assignedCourierId}`
+                                  ? t(language, 'orders.inProgressOwner')
+                                  : t(language, 'orders.inProgressCourier', {
+                                      slot: task.assignedCourierId,
+                                    })
                               }
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
                                 task.assignedCourierId === 1
@@ -595,8 +655,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               }`}
                             >
                               {task.assignedCourierId === 1
-                                ? 'Właściciel'
-                                : `Kurier #${task.assignedCourierId}`}
+                                ? t(language, 'orders.ownerBadge')
+                                : t(language, 'orders.courierBadge', {
+                                    slot: task.assignedCourierId,
+                                  })}
                             </span>
                           )}
 
@@ -611,8 +673,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   'up'
                                 )
                               }
-                              aria-label={`Zwiększ priorytet w ${selectedDay.weekdayName}: #${task.orderNumber} ${task.clientName}`}
-                              title="Wyżej w kolejności"
+                              aria-label={t(language, 'orders.moveUpAria', {
+                                weekday: selectedDay.weekdayName,
+                                orderNumber: task.orderNumber,
+                                clientName: translatedClient,
+                              })}
+                              title={t(language, 'orders.moveUpTitle')}
                               className={`w-7 h-7 rounded-md text-[11px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isFirst
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
@@ -631,8 +697,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   'down'
                                 )
                               }
-                              aria-label={`Zmniejsz priorytet w ${selectedDay.weekdayName}: #${task.orderNumber} ${task.clientName}`}
-                              title="Niżej w kolejności"
+                              aria-label={t(language, 'orders.moveDownAria', {
+                                weekday: selectedDay.weekdayName,
+                                orderNumber: task.orderNumber,
+                                clientName: translatedClient,
+                              })}
+                              title={t(language, 'orders.moveDownTitle')}
                               className={`w-7 h-7 rounded-md text-[11px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isLast
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
@@ -657,40 +727,53 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 };
 
 // ============================================================================
-// Offer Card (Tab 1: Nowe oferty) — Compact Multi-Column Card
+// Offer Card (Tab 1: New Offers)
 // ============================================================================
 
 interface OfferCardProps {
   offer: OrderOffer;
+  language: SupportedLanguage;
   gameMinutes: number;
   onAccept: (offerId: string) => void;
   onReject: (offerId: string) => void;
 }
 
-const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onReject }) => {
+const OfferCard: React.FC<OfferCardProps> = ({
+  offer,
+  language,
+  gameMinutes,
+  onAccept,
+  onReject,
+}) => {
   const isLongTerm = offer.kind === 'long_term';
-  const durationLabel = formatDurationLabel(offer);
-  const expiresRemaining = formatTimeRemaining(offer.expiresAtMinutes, gameMinutes);
+  const durationLabel = formatDurationLabel(offer, language);
+  const rawRemaining = formatTimeRemaining(offer.expiresAtMinutes, gameMinutes, language);
+  const expiresLabel =
+    offer.expiresAtMinutes - gameMinutes <= 0
+      ? rawRemaining
+      : t(language, 'orders.expiresInPrefix', { time: rawRemaining });
   const expiresUrgent = offer.expiresAtMinutes - gameMinutes < MINUTES_PER_DAY;
+  const translatedClient = translateOrderText(language, offer.clientName);
+  const translatedAddress = translateOrderText(language, offer.pickupLocation.address);
 
   const paramsSummary =
     offer.kind === 'long_term'
-      ? `${durationLabel} • ${offer.packagesPerWeek}/tydz. (${formatWeekdaysList(offer.pickupWeekdays)}) • ${formatCurrencyUsd(offer.ratePerPackage)}/szt.`
-      : `${durationLabel} • ${formatPolishPackages(offer.totalPackages)} • ${formatCurrencyUsd(offer.ratePerPackage)}/szt.`;
+      ? `${durationLabel} • ${offer.packagesPerWeek}${t(language, 'orders.perWeekShort')} (${formatWeekdaysList(offer.pickupWeekdays, language)}) • ${formatCurrencyUsd(offer.ratePerPackage)}${t(language, 'orders.perPkgShort')}`
+      : `${durationLabel} • ${formatLocalizedPackages(offer.totalPackages, language)} • ${formatCurrencyUsd(offer.ratePerPackage)}${t(language, 'orders.perPkgShort')}`;
 
   return (
     <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-2 gap-1">
       {/* 1. Order type + expiry */}
       <div className="flex items-center justify-between gap-1.5 text-[11px] leading-tight">
         <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
-          {isLongTerm ? 'Długoterminowe' : 'Krótkoterminowe'}
+          {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
         </span>
         <span
           className={`font-mono-nums shrink-0 ${
             expiresUrgent ? 'text-rose-400 font-semibold' : 'text-slate-400'
           }`}
         >
-          {expiresRemaining}
+          {expiresLabel}
         </span>
       </div>
 
@@ -698,17 +781,17 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
       <div className="min-w-0">
         <h3
           className="text-xs font-semibold text-slate-100 truncate leading-snug"
-          title={`#${offer.orderNumber} • ${offer.clientName}`}
+          title={`#${offer.orderNumber} • ${translatedClient}`}
         >
           <span className="font-mono-nums text-amber-300">#{offer.orderNumber}</span>
           <span className="text-slate-500 mx-1" aria-hidden="true">•</span>
-          <span>{offer.clientName}</span>
+          <span>{translatedClient}</span>
         </h3>
         <p
           className="text-[11px] text-slate-400 truncate leading-tight"
-          title={offer.pickupLocation.address}
+          title={translatedAddress}
         >
-          {offer.pickupLocation.address}
+          {translatedAddress}
         </p>
       </div>
 
@@ -720,7 +803,7 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
         {paramsSummary}
       </p>
 
-      {/* 4. Bottom action bar: total payout left + low Accept/Reject buttons right */}
+      {/* 4. Bottom action bar */}
       <div className="flex items-center justify-between gap-1.5 pt-1.5 mt-0.5 border-t border-slate-800">
         <div className="min-w-0 leading-none">
           <span className="text-sm font-bold text-emerald-400 font-mono-nums">
@@ -730,7 +813,8 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
           </span>
           {offer.kind === 'long_term' && (
             <span className="ml-1 text-[10px] text-slate-400 font-mono-nums whitespace-nowrap">
-              ({formatCurrencyUsd(offer.estimatedMonthlyPayout, false)}/m)
+              ({formatCurrencyUsd(offer.estimatedMonthlyPayout, false)}
+              {t(language, 'orders.perMonthShort')})
             </span>
           )}
         </div>
@@ -741,14 +825,14 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
             onClick={() => onAccept(offer.id)}
             className="px-2.5 py-1 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-300"
           >
-            Przyjmij
+            {t(language, 'orders.accept')}
           </button>
           <button
             type="button"
             onClick={() => onReject(offer.id)}
             className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
           >
-            Odrzuć
+            {t(language, 'orders.reject')}
           </button>
         </div>
       </div>
@@ -757,24 +841,29 @@ const OfferCard: React.FC<OfferCardProps> = ({ offer, gameMinutes, onAccept, onR
 };
 
 // ============================================================================
-// Active Order Card (Tab 2: Aktualne) — Compact Multi-Column Card
+// Active Order Card (Tab 2: Active)
 // ============================================================================
 
 interface ActiveOrderCardProps {
   order: ActiveOrder;
+  language: SupportedLanguage;
   gameMinutes: number;
   storedInWarehouse: number;
 }
 
 const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
   order,
+  language,
   gameMinutes,
   storedInWarehouse,
 }) => {
   const isLongTerm = order.kind === 'long_term';
-  const remainingText = formatTimeRemaining(order.endMinutes, gameMinutes);
+  const remainingText = formatTimeRemaining(order.endMinutes, gameMinutes, language);
   const endDate = getCalendarDateFromGameDay(order.endGameDay);
-  const satisfactionVis = getSatisfactionVisuals(order.satisfaction);
+  const endDateShort = `${endDate.dayOfMonth} ${getMonthName(language, endDate.monthIndex, true)}`;
+  const satisfactionVis = getSatisfactionVisuals(order.satisfaction, language);
+  const translatedClient = translateOrderText(language, order.clientName);
+  const translatedAddress = translateOrderText(language, order.pickupLocation.address);
 
   const weeklyTarget = order.weekly.expectedPackagesThisWeek;
   const pickedUpThisWeek = order.weekly.pickedUpPackagesThisWeek;
@@ -794,20 +883,26 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       : pickedUpThisWeek;
 
   const progressText = isLongTerm
-    ? `Odb. ${pickedUpThisWeek}/${weeklyTarget} • Dost. ${deliveredThisWeek}/${weeklyTarget}`
-    : `Odb. ${shortTermPickedUp}/${shortTermTotal} • Dost. ${order.deliveredPackagesTotal}/${shortTermTotal}`;
+    ? t(language, 'orders.progressSummary', {
+        picked: pickedUpThisWeek,
+        delivered: deliveredThisWeek,
+        total: weeklyTarget,
+      })
+    : t(language, 'orders.progressSummary', {
+        picked: shortTermPickedUp,
+        delivered: order.deliveredPackagesTotal,
+        total: shortTermTotal,
+      });
 
   return (
     <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-2 gap-1">
       {/* 1. Order type + remaining time */}
       <div className="flex items-center justify-between gap-1.5 text-[11px] leading-tight">
         <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
-          {isLongTerm ? 'Długoterminowe' : 'Krótkoterminowe'}
+          {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
         </span>
         <span className="text-slate-300 font-mono-nums shrink-0">
-          {isLongTerm
-            ? `${remainingText} • ${endDate.dayOfMonth} ${endDate.monthShort}`
-            : remainingText}
+          {isLongTerm ? `${remainingText} • ${endDateShort}` : remainingText}
         </span>
       </div>
 
@@ -815,17 +910,17 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       <div className="min-w-0">
         <h3
           className="text-xs font-semibold text-slate-100 truncate leading-snug"
-          title={`#${order.orderNumber} • ${order.clientName}`}
+          title={`#${order.orderNumber} • ${translatedClient}`}
         >
           <span className="font-mono-nums text-amber-300">#{order.orderNumber}</span>
           <span className="text-slate-500 mx-1" aria-hidden="true">•</span>
-          <span>{order.clientName}</span>
+          <span>{translatedClient}</span>
         </h3>
         <p
           className="text-[11px] text-slate-400 truncate leading-tight"
-          title={order.pickupLocation.address}
+          title={translatedAddress}
         >
-          {order.pickupLocation.address}
+          {translatedAddress}
         </p>
       </div>
 
@@ -835,13 +930,14 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
           <CalendarDays className="w-3 h-3 text-sky-400 shrink-0" aria-hidden="true" />
           <span className="truncate">
             <span className="text-slate-400">
-              {order.pickupWeekdays.length > 1 ? 'Dni realizacji: ' : 'Dzień realizacji: '}
+              {order.pickupWeekdays.length > 1
+                ? `${t(language, 'orders.deliveryDayPlural')} `
+                : `${t(language, 'orders.deliveryDaySingle')} `}
             </span>
             <span className="font-semibold text-sky-200">
               {order.pickupWeekdays.length === 1
-                ? (POLISH_WEEKDAYS[order.pickupWeekdays[0]] ??
-                    formatWeekdaysList(order.pickupWeekdays))
-                : formatWeekdaysList(order.pickupWeekdays)}
+                ? getWeekdayName(language, order.pickupWeekdays[0], false)
+                : formatWeekdaysList(order.pickupWeekdays, language)}
             </span>
           </span>
         </div>
@@ -852,22 +948,22 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
         <span className="text-slate-200 truncate">{progressText}</span>
         <span className="font-bold text-emerald-400 shrink-0">
           {order.kind === 'long_term'
-            ? `${formatCurrencyUsd(order.accruedMonthlyPayout, false)}/m`
+            ? `${formatCurrencyUsd(order.accruedMonthlyPayout, false)}${t(language, 'orders.perMonthShort')}`
             : formatCurrencyUsd(order.totalExpectedPayout)}
         </span>
       </div>
 
-      {/* 4. Compact satisfaction bar (h-1.5) */}
+      {/* 4. Compact satisfaction bar */}
       <div className="pt-1 mt-0.5 border-t border-slate-800 space-y-1">
         <div className="flex items-center justify-between gap-1 text-[11px] leading-none">
-          <span className="text-slate-400">Zadowolenie</span>
+          <span className="text-slate-400">{t(language, 'orders.satisfactionLabel')}</span>
           <span className={`font-bold font-mono-nums ${satisfactionVis.textClass}`}>
             {order.satisfaction}% • {satisfactionVis.label}
           </span>
         </div>
         <div
           role="progressbar"
-          aria-label={`Zadowolenie klienta ${order.clientName}`}
+          aria-label={t(language, 'orders.satisfactionAria', { client: translatedClient })}
           aria-valuenow={order.satisfaction}
           aria-valuemin={0}
           aria-valuemax={100}

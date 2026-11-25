@@ -4,10 +4,11 @@ import { CompanyModal } from './components/CompanyModal';
 import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
 import { OrdersModal } from './components/OrdersModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { SettingsModal } from './components/SettingsModal';
+import { SettingsModal, type SettingsOpenedFrom } from './components/SettingsModal';
 import { SkipTimeModal } from './components/SkipTimeModal';
 import { StartScreenModal } from './components/StartScreenModal';
 import { Toolbar } from './components/Toolbar';
+import { t } from './i18n/translations';
 import {
   PROCEDURAL_BUILDINGS,
   applyWarehouseTierToBuildings,
@@ -300,8 +301,10 @@ export function App() {
   const [activeSlotId, setActiveSlotId] = useState<SaveSlotId | null>(null);
   const [startScreenOpen, setStartScreenOpen] = useState<boolean>(true);
   const [startScreenMounted, setStartScreenMounted] = useState<boolean>(true);
+  const [inStartPanorama, setInStartPanorama] = useState<boolean>(true);
+  const [mistMounted, setMistMounted] = useState<boolean>(true);
   const [mistVisible, setMistVisible] = useState<boolean>(true);
-  const [introActive, setIntroActive] = useState<boolean>(false);
+  const [cameraTransition, setCameraTransition] = useState<'to-game' | 'to-menu' | null>(null);
   const [hudVisible, setHudVisible] = useState<boolean>(false);
   const [mapReady, setMapReady] = useState<boolean>(false);
   const [startDataReady, setStartDataReady] = useState<boolean>(false);
@@ -309,6 +312,8 @@ export function App() {
 
   const [settings, setSettings] = useState<GameSettings>(() => loadGameSettings());
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+  const [settingsOpenedFrom, setSettingsOpenedFrom] = useState<SettingsOpenedFrom>('start');
+  const [exitConfirmOpen, setExitConfirmOpen] = useState<boolean>(false);
 
   // Tracks per-slot courier Base presence (#1–#6) and live Plan tygodnia task assignments
   const [courierAtBaseBySlot, setCourierAtBaseBySlot] = useState<Record<number, boolean>>(
@@ -400,23 +405,73 @@ export function App() {
 
   const handleIntroFlyInComplete = useCallback(() => {
     setStartScreenMounted(false);
-    setIntroActive(false);
+    setCameraTransition(null);
+    // Completely unmount the full-screen mist DOM layer during normal gameplay for max mobile FPS
+    setMistMounted(false);
   }, []);
+
+  const handleOutroFlyOutComplete = useCallback(() => {
+    setInStartPanorama(true);
+    setCameraTransition(null);
+    setStartScreenMounted(true);
+    clearIntroRafs();
+    // Wait two animation frames so StartScreenModal paints cleanly at opacity 0 before fading in
+    const raf1 = window.requestAnimationFrame(() => {
+      const raf2 = window.requestAnimationFrame(() => {
+        introRafIdsRef.current = [];
+        setStartScreenOpen(true);
+      });
+      introRafIdsRef.current = [raf2];
+    });
+    introRafIdsRef.current = [raf1];
+  }, [clearIntroRafs]);
 
   const handleUpdateSettings = useCallback((patch: Partial<GameSettings>) => {
     setSettings((prev) => saveGameSettings({ ...prev, ...patch }));
   }, []);
 
-  const handleOpenSettings = useCallback(() => {
+  const handleOpenSettingsFromStart = useCallback(() => {
+    setSettingsOpenedFrom('start');
+    setSettingsOpen(true);
+  }, []);
+
+  const handleOpenSettingsFromGame = useCallback(() => {
     setOrdersOpen(false);
     setCompanyOpen(false);
     setSkipTimeOpen(false);
+    setExitConfirmOpen(false);
+    setSettingsOpenedFrom('game');
     setSettingsOpen(true);
   }, []);
 
   const handleCloseSettings = useCallback(() => {
     setSettingsOpen(false);
   }, []);
+
+  const handleRequestExitToMenu = useCallback(() => {
+    setSettingsOpen(false);
+    setCompanyOpen(false);
+    setOrdersOpen(false);
+    setSkipTimeOpen(false);
+    setExitConfirmOpen(true);
+  }, []);
+
+  const handleCancelExitToMenu = useCallback(() => {
+    setExitConfirmOpen(false);
+  }, []);
+
+  // Escape dismisses the exit confirmation dialog
+  useEffect(() => {
+    if (!exitConfirmOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setExitConfirmOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [exitConfirmOpen]);
 
   const applyEconomyUpdate = useCallback(
     (updater: (prev: OrderEconomyState) => OrderEconomyState): OrderEconomyState => {
@@ -496,8 +551,12 @@ export function App() {
       setCompanyOpen(false);
       setSkipTimeOpen(false);
       setSettingsOpen(false);
+      setExitConfirmOpen(false);
       setHudVisible(false);
-      setIntroActive(true);
+      setInStartPanorama(false);
+      setMistMounted(true);
+      setMistVisible(true);
+      setCameraTransition('to-game');
       setStartScreenOpen(false);
       setGameSpeed(1);
 
@@ -547,8 +606,12 @@ export function App() {
       setCompanyOpen(false);
       setSkipTimeOpen(false);
       setSettingsOpen(false);
+      setExitConfirmOpen(false);
       setHudVisible(false);
-      setIntroActive(true);
+      setInStartPanorama(false);
+      setMistMounted(true);
+      setMistVisible(true);
+      setCameraTransition('to-game');
       setStartScreenOpen(false);
       setGameSpeed(1);
 
@@ -566,26 +629,58 @@ export function App() {
     setSaveSlots(getAllSaveSlots());
   }, []);
 
-  const handleSaveAndExit = useCallback(() => {
-    clearIntroRafs();
-    const slotId = activeSlotIdRef.current;
-    if (slotId !== null) {
-      persistGameToSlot(slotId, economyStateRef.current, exactGameMinutesRef.current);
-    } else {
-      setSaveSlots(getAllSaveSlots());
-    }
-    setGameSpeed(0);
-    setCompanyOpen(false);
-    setOrdersOpen(false);
-    setSkipTimeOpen(false);
-    setSettingsOpen(false);
-    setIntroActive(false);
-    setHudVisible(false);
-    setMistVisible(true);
-    setStartScreenMounted(true);
-    setStartScreenOpen(true);
-    canvasControllerRef.current?.setPanoramicOverview();
-  }, [clearIntroRafs, persistGameToSlot]);
+  const beginMirrorReturnToStartScreen = useCallback(
+    (shouldSave: boolean) => {
+      clearIntroRafs();
+      if (shouldSave) {
+        const slotId = activeSlotIdRef.current;
+        if (slotId !== null) {
+          persistGameToSlot(slotId, economyStateRef.current, exactGameMinutesRef.current);
+        } else {
+          setSaveSlots(getAllSaveSlots());
+        }
+      } else {
+        setSaveSlots(getAllSaveSlots());
+      }
+
+      // Lock current camera coordinates before mounting mist at opacity 0
+      canvasControllerRef.current?.armOutroFlyOut();
+
+      setGameSpeed(0);
+      setCompanyOpen(false);
+      setOrdersOpen(false);
+      setSkipTimeOpen(false);
+      setSettingsOpen(false);
+      setExitConfirmOpen(false);
+      setHudVisible(false);
+      setInStartPanorama(false);
+      setStartScreenOpen(false);
+      setStartScreenMounted(false);
+      setMistMounted(true);
+      setMistVisible(false);
+      setCameraTransition('to-menu');
+
+      // Wait two frames so mist mounts at opacity 0 before starting synchronized 1.8s fly-out & fog roll-in
+      const raf1 = window.requestAnimationFrame(() => {
+        const raf2 = window.requestAnimationFrame(() => {
+          introRafIdsRef.current = [];
+          canvasControllerRef.current?.beginArmedOutroFlyOut();
+          setMistVisible(true);
+        });
+        introRafIdsRef.current = [raf2];
+      });
+      introRafIdsRef.current = [raf1];
+    },
+    [clearIntroRafs, persistGameToSlot]
+  );
+
+  const handleConfirmSaveAndExit = useCallback(() => {
+    beginMirrorReturnToStartScreen(true);
+  }, [beginMirrorReturnToStartScreen]);
+
+  const handleConfirmExitWithoutSaving = useCallback(() => {
+    beginMirrorReturnToStartScreen(false);
+  }, [beginMirrorReturnToStartScreen]);
 
   // Auto-save trigger #2: save immediately whenever completedOrdersCount increases
   useEffect(() => {
@@ -616,7 +711,12 @@ export function App() {
   //   (prevents React re-renders during the 1.2s intro fly-in)
   // - Daytime runs at user's chosen speed (1x/2x/4x -> 2/4/8 in-game min/s)
   // - Night hours (from seasonal closing time until 08:00) auto-switch to 15x when allCouriersAtBase is true
-  const isPausedByOverlay = startScreenOpen || introActive || settingsOpen;
+  const isPausedByOverlay =
+    startScreenOpen ||
+    inStartPanorama ||
+    cameraTransition !== null ||
+    settingsOpen ||
+    exitConfirmOpen;
 
   useEffect(() => {
     if (isPausedByOverlay || gameSpeed === 0) return;
@@ -979,19 +1079,22 @@ export function App() {
         gameSpeed={effectiveSimSpeed}
         gameMinutesRef={exactGameMinutesRef}
         economyStateRef={economyStateRef}
-        overviewMode={startScreenOpen}
+        overviewMode={inStartPanorama || startScreenOpen}
         interactionBlocked={
           startScreenOpen ||
-          introActive ||
+          inStartPanorama ||
+          cameraTransition !== null ||
           ordersOpen ||
           skipTimeOpen ||
           companyOpen ||
-          settingsOpen
+          settingsOpen ||
+          exitConfirmOpen
         }
         sessionEpoch={sessionEpoch}
         onFpsChange={setFps}
         onMapReady={handleMapReady}
         onIntroFlyInComplete={handleIntroFlyInComplete}
+        onOutroFlyOutComplete={handleOutroFlyOutComplete}
         onCourierAtBaseChange={handleCourierAtBaseChange}
         onCourierStatusChange={handleCourierStatusChange}
         onLoadFromWarehouse={handleLoadFromWarehouse}
@@ -1001,14 +1104,20 @@ export function App() {
         controllerRef={canvasControllerRef}
       />
 
-      {/* Lightweight uniform semi-transparent mist veil (zero gradients/blur, unmounted once fly-in completes) */}
-      {(mistVisible || introActive) && (
+      {/* Lightweight uniform semi-transparent mist veil — completely unmounted during normal gameplay */}
+      {mistMounted && (
         <div
           aria-hidden="true"
           className={`fixed inset-0 z-10 pointer-events-none bg-[rgba(15,23,42,0.82)] transition-opacity ease-out ${
-            mistVisible
-              ? 'duration-500 opacity-100 will-change-auto'
-              : 'duration-[2500ms] opacity-0 will-change-[opacity]'
+            cameraTransition === 'to-menu'
+              ? mistVisible
+                ? 'duration-[1800ms] opacity-100 will-change-[opacity]'
+                : 'duration-0 opacity-0 will-change-[opacity]'
+              : cameraTransition === 'to-game'
+                ? mistVisible
+                  ? 'duration-0 opacity-100 will-change-auto'
+                  : 'duration-[2500ms] opacity-0 will-change-[opacity]'
+                : 'duration-500 opacity-100 will-change-auto'
           }`}
         />
       )}
@@ -1035,11 +1144,12 @@ export function App() {
         onOpenSkipTime={handleOpenSkipTime}
         onOpenOrders={handleOpenOrders}
         onOpenCompany={handleOpenCompany}
-        onOpenSettings={handleOpenSettings}
+        onOpenSettings={handleOpenSettingsFromGame}
       />
 
       <OrdersModal
         isOpen={ordersOpen}
+        language={settings.language}
         economyState={economyState}
         gameMinutes={gameMinutes}
         taskAssignmentsByTaskId={taskAssignmentsByTaskId}
@@ -1052,11 +1162,12 @@ export function App() {
 
       <CompanyModal
         isOpen={companyOpen}
+        language={settings.language}
         economyState={economyState}
         isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
         courierAtBaseBySlot={courierAtBaseBySlot}
         activeSlotId={activeSlotId}
-        onSaveAndExit={handleSaveAndExit}
+        onSaveAndExit={handleRequestExitToMenu}
         onClose={handleCloseCompany}
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}
@@ -1072,6 +1183,7 @@ export function App() {
 
       <SkipTimeModal
         isOpen={skipTimeOpen}
+        language={settings.language}
         nextDayMorningMinutes={nextDayMorningMinutes}
         nextScheduledOrderMinutes={nextScheduledOrderMinutes}
         onClose={handleCloseSkipTime}
@@ -1087,18 +1199,79 @@ export function App() {
           onStartNewGame={handleStartNewGame}
           onLoadGame={handleLoadGame}
           onDeleteSlot={handleDeleteSaveSlot}
-          onOpenSettings={handleOpenSettings}
+          onOpenSettings={handleOpenSettingsFromStart}
         />
       )}
 
       <SettingsModal
         isOpen={settingsOpen}
+        openedFrom={settingsOpenedFrom}
         settings={settings}
         onUpdateSettings={handleUpdateSettings}
+        onRequestExitToMenu={
+          settingsOpenedFrom === 'game' ? handleRequestExitToMenu : undefined
+        }
         onClose={handleCloseSettings}
       />
 
-      <PWAInstallButton />
+      {/* Compact Save-Before-Exit Confirmation Dialog */}
+      {exitConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/75 touch-none"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="exit-confirm-heading"
+          onClick={handleCancelExitToMenu}
+          onWheel={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+        >
+          <div
+            className="w-[92vw] max-w-sm rounded-xl bg-slate-900 border border-slate-700 shadow-lg overflow-hidden text-slate-100 touch-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 bg-slate-950/85 border-b border-slate-800">
+              <h2
+                id="exit-confirm-heading"
+                className="text-sm sm:text-base font-bold text-slate-100 leading-tight"
+              >
+                {t(settings.language, 'exitConfirm.title')}
+              </h2>
+              <p className="text-xs text-slate-300 mt-1 leading-snug">
+                {t(settings.language, 'exitConfirm.question')}
+              </p>
+            </div>
+
+            <div className="p-3.5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={handleConfirmSaveAndExit}
+                className="w-full py-2.5 px-4 rounded-lg bg-orange-500 hover:bg-orange-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400"
+              >
+                {t(settings.language, 'exitConfirm.saveAndExit')}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmExitWithoutSaving}
+                className="w-full py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/60 text-xs sm:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+              >
+                {t(settings.language, 'exitConfirm.exitWithoutSaving')}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCancelExitToMenu}
+                className="w-full py-2 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 text-xs font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+              >
+                {t(settings.language, 'exitConfirm.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PWAInstallButton language={settings.language} />
     </main>
   );
 }

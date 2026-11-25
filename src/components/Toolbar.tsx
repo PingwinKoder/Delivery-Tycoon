@@ -12,7 +12,7 @@ import {
   Signpost,
   SkipForward,
 } from 'lucide-react';
-import { t } from '../i18n/translations';
+import { getMonthName, getWeekdayName, t } from '../i18n/translations';
 import {
   GAME_SPEED_OPTIONS,
   type GameSpeed,
@@ -89,6 +89,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   }, [hudVisible]);
 
   const clock = getGameClockDisplay(gameMinutes);
+  const weekdayFull = getWeekdayName(language, clock.dayIndex, false);
+  const weekdayShort = getWeekdayName(language, clock.dayIndex, true);
+  const monthFull = getMonthName(language, clock.monthIndex, false);
+  const monthShort = getMonthName(language, clock.monthIndex, true);
   const formattedBalance = formatBalanceUsd(balance);
   const interactiveClass = hudVisible ? 'pointer-events-auto' : 'pointer-events-none';
   const ordersLabel = t(language, 'hud.orders');
@@ -99,7 +103,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     ? hudSettled
       ? 'opacity-100 transform-none will-change-auto'
       : 'will-change-[opacity,transform] transition-[opacity,transform] ease-out duration-[1200ms] delay-[800ms] opacity-100 [transform:translate3d(0,0,0)]'
-    : 'transition-[opacity,transform] ease-out duration-300 delay-0 opacity-0 [transform:translate3d(0,-16px,0)] will-change-auto';
+    : 'transition-[opacity,transform] ease-out duration-500 delay-0 opacity-0 [transform:translate3d(0,-16px,0)] will-change-auto';
 
   return (
     <header
@@ -120,7 +124,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2.5 [@media(max-height:540px)]:gap-1.5 min-w-0">
             {/* Account Balance directly on bar surface */}
             <div
-              aria-label={`Saldo konta: ${formattedBalance}`}
+              aria-label={t(language, 'hud.balanceAria', { amount: formattedBalance })}
               className="text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold text-emerald-400 tabular-nums whitespace-nowrap shrink-0"
             >
               {formattedBalance}
@@ -130,7 +134,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
             {/* Weekday, Calendar Date, Year & Clock directly on bar surface */}
             <div
-              aria-label={`${clock.weekday}, ${clock.dayOfMonth} ${clock.monthName}, Rok ${clock.year}, godzina ${clock.timeText}`}
+              aria-label={t(language, 'hud.dateAria', {
+                weekday: weekdayFull,
+                day: clock.dayOfMonth,
+                month: monthFull,
+                year: clock.year,
+                time: clock.timeText,
+              })}
               className="flex items-center gap-1 sm:gap-1.5 [@media(max-height:540px)]:gap-1 text-[11px] sm:text-xs [@media(max-height:540px)]:text-[11px] font-semibold text-slate-100 whitespace-nowrap shrink-0"
             >
               {isNightMode ? (
@@ -147,24 +157,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 />
               )}
               <span className="inline [@media(min-width:1024px)_and_(min-height:541px)]:hidden">
-                {clock.weekdayShort}
+                {weekdayShort}
               </span>
               <span className="hidden [@media(min-width:1024px)_and_(min-height:541px)]:inline">
-                {clock.weekday}
+                {weekdayFull}
               </span>
               <span className="text-slate-500" aria-hidden="true">|</span>
               <span className="inline [@media(min-width:1024px)_and_(min-height:541px)]:hidden text-slate-200 tabular-nums">
-                {clock.dayOfMonth} {clock.monthShort}
+                {clock.dayOfMonth} {monthShort}
               </span>
               <span className="hidden [@media(min-width:1024px)_and_(min-height:541px)]:inline text-slate-200 tabular-nums">
-                {clock.dayOfMonth} {clock.monthName}
+                {clock.dayOfMonth} {monthFull}
               </span>
               <span className="text-slate-500" aria-hidden="true">|</span>
               <span className="inline [@media(min-width:1024px)_and_(min-height:541px)]:hidden text-slate-300 tabular-nums">
-                R{clock.year}
+                {t(language, 'hud.yearShort', { year: clock.year })}
               </span>
               <span className="hidden [@media(min-width:1024px)_and_(min-height:541px)]:inline text-slate-300 tabular-nums">
-                Rok {clock.year}
+                {t(language, 'hud.yearFull', { year: clock.year })}
               </span>
               <span className="text-slate-500" aria-hidden="true">|</span>
               <span
@@ -183,7 +193,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <div className="flex items-center gap-0.5 sm:gap-1 [@media(max-height:540px)]:gap-0.5 shrink-0">
             <div
               role="group"
-              aria-label="Tempo gry"
+              aria-label={t(language, 'hud.speedGroupAria')}
               className="flex items-center gap-0.5 shrink-0"
             >
               {GAME_SPEED_OPTIONS.map((speed) => {
@@ -198,8 +208,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                       onChangeGameSpeed(speed);
                     }}
                     aria-pressed={isActive}
-                    aria-label={isPause ? 'Pauza' : `Tempo gry ${speed}x`}
-                    title={isPause ? 'Pauza' : `Tempo ${speed}x`}
+                    aria-label={
+                      isPause
+                        ? t(language, 'hud.pause')
+                        : t(language, 'hud.speedAria', { speed })
+                    }
+                    title={
+                      isPause
+                        ? t(language, 'hud.pause')
+                        : t(language, 'hud.speedTitle', { speed })
+                    }
                     className={`h-7 min-w-[28px] min-[560px]:h-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[26px] sm:min-h-[40px] sm:min-w-[36px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:min-w-[28px] px-1.5 min-[560px]:px-1 sm:px-2 [@media(max-height:540px)]:px-1.5 rounded-md text-xs [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                       isActive
                         ? isPause
@@ -226,8 +244,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 e.currentTarget.blur();
                 onOpenSkipTime();
               }}
-              aria-label="Pomiń czas"
-              title="Pomiń dzień lub przejdź do zlecenia"
+              aria-label={t(language, 'hud.skipTimeAria')}
+              title={t(language, 'hud.skipTimeTitle')}
               className="h-7 w-7 min-[560px]:h-auto min-[560px]:w-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 px-1.5 min-[560px]:px-2 [@media(max-height:540px)]:px-1.5 rounded-md text-slate-200 hover:text-white hover:bg-slate-700/70 flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
             >
               <SkipForward className="w-3.5 h-3.5 min-[560px]:w-4 min-[560px]:h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
@@ -236,9 +254,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* Left Map View Toolbar:
-          - On desktop (>=1360px): aligned at top-3.5 in top-left corner
-          - On mobile/tablet (<1360px): positioned cleanly below the top-center bar with zero overlap */}
+      {/* Left Map View Toolbar */}
       <div
         className={`fixed left-2 sm:left-3 [@media(max-height:540px)]:left-1.5 top-[68px] min-[560px]:top-[58px] [@media(max-height:540px)_and_(min-width:560px)_and_(max-width:1359px)]:top-[46px] min-[1360px]:top-3.5 z-20 ${interactiveClass} max-w-[calc(100%-64px)] sm:max-w-none flex items-center gap-1 sm:gap-1.5 [@media(max-height:540px)]:gap-1 px-1.5 sm:px-2 [@media(max-height:540px)]:px-1.5 py-1.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] [@media(max-height:540px)]:bg-slate-900/95 border border-slate-700/90 shadow-lg`}
       >
@@ -249,7 +265,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onToggleFootprintOnly();
           }}
           aria-pressed={footprintOnly}
-          aria-label="Podstawy budynków"
+          aria-label={t(language, 'hud.footprintsFull')}
           className={`min-h-[38px] sm:min-h-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(max-height:540px)]:px-2 py-1.5 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
             footprintOnly
               ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
@@ -257,8 +273,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }`}
         >
           <Layers className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span className="2xl:hidden">Podstawy</span>
-          <span className="hidden 2xl:inline">Podstawy budynków</span>
+          <span className="2xl:hidden">{t(language, 'hud.footprintsShort')}</span>
+          <span className="hidden 2xl:inline">{t(language, 'hud.footprintsFull')}</span>
         </button>
 
         <button
@@ -268,7 +284,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onToggleStreetNames();
           }}
           aria-pressed={showStreetNames}
-          aria-label="Nazwy ulic"
+          aria-label={t(language, 'hud.streetsFull')}
           className={`min-h-[38px] sm:min-h-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(max-height:540px)]:px-2 py-1.5 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
             showStreetNames
               ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 hover:bg-sky-500/35'
@@ -276,8 +292,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }`}
         >
           <Signpost className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span className="sm:hidden">Ulice</span>
-          <span className="hidden sm:inline">Nazwy ulic</span>
+          <span className="sm:hidden">{t(language, 'hud.streetsShort')}</span>
+          <span className="hidden sm:inline">{t(language, 'hud.streetsFull')}</span>
         </button>
 
         <button
@@ -287,30 +303,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onToggleGrid();
           }}
           aria-pressed={showGrid}
-          aria-label={showGrid ? 'Ukryj siatkę dróg' : 'Pokaż siatkę dróg'}
+          aria-label={showGrid ? t(language, 'hud.hideGridFull') : t(language, 'hud.showGridFull')}
           className="min-h-[38px] sm:min-h-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(max-height:540px)]:px-2 py-1.5 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
         >
           {showGrid ? (
             <>
               <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="sm:hidden">Siatka</span>
-              <span className="hidden sm:inline 2xl:hidden">Ukryj siatkę</span>
-              <span className="hidden 2xl:inline">Ukryj siatkę dróg</span>
+              <span className="sm:hidden">{t(language, 'hud.gridShort')}</span>
+              <span className="hidden sm:inline 2xl:hidden">{t(language, 'hud.hideGridShort')}</span>
+              <span className="hidden 2xl:inline">{t(language, 'hud.hideGridFull')}</span>
             </>
           ) : (
             <>
               <Eye className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span className="sm:hidden">Siatka</span>
-              <span className="hidden sm:inline 2xl:hidden">Pokaż siatkę</span>
-              <span className="hidden 2xl:inline">Pokaż siatkę dróg</span>
+              <span className="sm:hidden">{t(language, 'hud.gridShort')}</span>
+              <span className="hidden sm:inline 2xl:hidden">{t(language, 'hud.showGridShort')}</span>
+              <span className="hidden 2xl:inline">{t(language, 'hud.showGridFull')}</span>
             </>
           )}
         </button>
       </div>
 
-      {/* Right Top Action Cluster: compact Settings gear beside "Zlecenia" + "Firma" + FPS badge */}
+      {/* Right Top Action Cluster: Settings + Orders + Company + FPS badge */}
       <div className="fixed right-2 sm:right-3 [@media(max-height:540px)]:right-1.5 top-2 min-[1360px]:top-3.5 z-20 flex flex-col sm:flex-row items-end sm:items-start gap-1.5 [@media(max-height:540px)]:gap-1 pointer-events-none">
-        {/* Compact Settings gear button (sits beside Orders on >=640px/landscape, stacks neatly on narrow portrait) */}
         <button
           type="button"
           onClick={(e) => {
@@ -333,7 +348,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           />
         </button>
 
-        {/* Right Vertical Action Column: "Zlecenia" + "Firma" + compact FPS counter directly underneath */}
         <div className="order-1 sm:order-2 flex flex-col items-end gap-1.5 [@media(max-height:540px)]:gap-1 pointer-events-none">
           <div className="flex flex-col items-stretch gap-1.5 [@media(max-height:540px)]:gap-1 shrink-0 pointer-events-none">
             <button
@@ -394,7 +408,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </div>
 
           <div
-            aria-label={fps !== null ? `Wydajność: ${fps} klatek na sekundę` : 'Pomiar FPS'}
+            aria-label={
+              fps !== null
+                ? t(language, 'hud.fpsAria', { fps })
+                : t(language, 'hud.fpsMeasuringAria')
+            }
             className="pointer-events-none select-none px-2 py-0.5 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] font-semibold tabular-nums leading-tight flex items-center gap-1"
           >
             <span
