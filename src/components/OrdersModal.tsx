@@ -554,7 +554,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                   weekday: selectedDay.weekdayName,
                   date: selectedDay.dateLabel,
                 })}
-                className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1.5"
+                className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1"
               >
                 {selectedDay.tasks.length === 0 ? (
                   <div className="py-6 px-3 text-center rounded-md bg-slate-900/50 border border-slate-800/80">
@@ -566,7 +566,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     </p>
                   </div>
                 ) : (
-                  <ol className="flex flex-col gap-1">
+                  <ol className="flex flex-col gap-0.5">
                     {selectedDay.tasks.map((task, idx) => {
                       const isFirst = idx === 0;
                       const isLast = idx === selectedDay.tasks.length - 1;
@@ -579,14 +579,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
-                          className="rounded-md bg-[#182030] border border-slate-700/85 py-1 px-2 flex items-center gap-1.5 text-xs min-w-0"
+                          className="rounded-md bg-[#182030] border border-slate-700/85 py-0.5 px-2 flex items-center gap-1.5 text-xs min-w-0"
                         >
-                          <span className="font-mono-nums font-bold text-amber-400 min-w-[22px] shrink-0">
-                            #{task.priorityRank}
-                          </span>
-
                           <p
-                            className="flex-1 min-w-0 truncate text-xs text-slate-100"
+                            className="flex-1 min-w-0 truncate text-xs leading-tight text-slate-100"
                             title={`#${task.orderNumber} • ${translatedClient} (${translatedAddress})`}
                           >
                             <span className="font-mono-nums font-semibold text-amber-300">
@@ -609,13 +605,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 picked: pickedUp,
                                 total: totalPkgs,
                               })}
-                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1 px-1.5 py-[2px] rounded border leading-none whitespace-nowrap ${
                                 allPickedUp
                                   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
                                   : 'bg-sky-500/15 text-sky-300 border-sky-400/40'
                               }`}
                             >
-                              <Boxes className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                              <Boxes className="w-3 h-3 shrink-0" aria-hidden="true" />
                               <span className="font-semibold">
                                 {pickedUp}/{totalPkgs}
                               </span>
@@ -630,9 +626,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 delivered,
                                 total: totalPkgs,
                               })}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border leading-none whitespace-nowrap bg-emerald-500/15 text-emerald-400 border-emerald-400/40"
+                              className="inline-flex items-center gap-1 px-1.5 py-[2px] rounded border leading-none whitespace-nowrap bg-emerald-500/15 text-emerald-400 border-emerald-400/40"
                             >
-                              <Check className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" aria-hidden="true" />
+                              <Check className="w-3 h-3 shrink-0 stroke-[2.5]" aria-hidden="true" />
                               <span className="font-semibold">
                                 {delivered}/{totalPkgs}
                               </span>
@@ -648,7 +644,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                       slot: task.assignedCourierId,
                                     })
                               }
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
+                              className={`px-1.5 py-[2px] rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
                                 task.assignedCourierId === 1
                                   ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
                                   : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
@@ -662,7 +658,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             </span>
                           )}
 
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-0.5 shrink-0">
                             <button
                               type="button"
                               disabled={isFirst}
@@ -679,7 +675,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 clientName: translatedClient,
                               })}
                               title={t(language, 'orders.moveUpTitle')}
-                              className={`w-7 h-7 rounded-md text-[11px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                              className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isFirst
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -703,7 +699,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 clientName: translatedClient,
                               })}
                               title={t(language, 'orders.moveDownTitle')}
-                              className={`w-7 h-7 rounded-md text-[11px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                              className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isLast
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'

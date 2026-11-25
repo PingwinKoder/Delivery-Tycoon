@@ -1135,8 +1135,6 @@ export function App() {
         economyState={economyState}
         isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
         courierAtBaseBySlot={courierAtBaseBySlot}
-        activeSlotId={activeSlotId}
-        onSaveAndExit={handleRequestExitToMenu}
         onClose={handleCloseCompany}
         onUpgradeWarehouse={handleUpgradeWarehouse}
         onBuyParkingSpot={handleBuyParkingSpot}
