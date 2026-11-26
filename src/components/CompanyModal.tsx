@@ -157,10 +157,10 @@ const VanPreviewIllustration: React.FC<VanPreviewIllustrationProps> = ({ conditi
           ];
 
   return (
-    <div className="w-full h-14 rounded-md bg-slate-950/85 border border-slate-800/90 flex items-center justify-center px-2 overflow-hidden">
+    <div className="w-full h-10 [@media(min-width:1024px)_and_(min-height:541px)]:h-16 rounded-md bg-slate-950/85 border border-slate-800/90 flex items-center justify-center px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 overflow-hidden">
       <svg
         viewBox="0 0 128 58"
-        className="w-full max-w-[126px] h-12"
+        className="w-full max-w-[104px] h-9 [@media(min-width:1024px)_and_(min-height:541px)]:max-w-[156px] [@media(min-width:1024px)_and_(min-height:541px)]:h-14"
         aria-hidden="true"
         focusable="false"
       >
@@ -391,7 +391,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         onClick={() => {
           if (!disabled) onToggle();
         }}
-        className={`w-full rounded-md border px-2.5 py-1.5 text-xs font-mono-nums flex items-center justify-between gap-2 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+        className={`w-full rounded-md border px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
           disabled
             ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
             : isOpen
@@ -399,21 +399,21 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
               : 'bg-slate-950 border-slate-700 text-slate-100 hover:border-slate-500 cursor-pointer'
         }`}
       >
-        <span className="flex items-center gap-2 min-w-0 truncate">
+        <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
           {effectiveAssigned?.type === 'van' ? (
-            <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+            <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
           ) : effectiveAssigned?.type === 'bike' ? (
-            <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+            <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
           ) : (
-            <Ban className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+            <Ban className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-500 shrink-0" aria-hidden="true" />
           )}
           <span className="font-semibold truncate">{triggerLabel}</span>
           {triggerCapacity && (
-            <span className="text-[11px] text-slate-400 shrink-0">({triggerCapacity})</span>
+            <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 shrink-0">({triggerCapacity})</span>
           )}
           {triggerDurability !== null && (
             <span
-              className={`text-[11px] font-bold shrink-0 ${getDurabilityTextClass(triggerDurability)}`}
+              className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold shrink-0 ${getDurabilityTextClass(triggerDurability)}`}
             >
               {triggerDurability}%
             </span>
@@ -421,7 +421,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         </span>
 
         <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${
+          className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-400 shrink-0 transition-transform ${
             isOpen ? 'rotate-180 text-amber-300' : ''
           }`}
           aria-hidden="true"
@@ -433,7 +433,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           id={`courier-vehicle-menu-${courier.slotIndex}`}
           role="listbox"
           aria-label={t(language, 'company.selectVehicleAria', { name: courierAriaName })}
-          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-lg py-1 max-h-48 overflow-y-auto overscroll-contain ${
+          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-lg py-1 max-h-44 [@media(min-width:1024px)_and_(min-height:541px)]:max-h-60 overflow-y-auto overscroll-contain ${
             openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
           }`}
         >
@@ -445,18 +445,18 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                   onSelect(null);
                   onClose();
                 }}
-                className={`w-full px-2.5 py-1.5 text-left text-xs font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
                   effectiveAssigned === null
                     ? 'bg-amber-500/15 text-amber-200 font-semibold'
                     : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
                 }`}
               >
-                <span className="flex items-center gap-2 min-w-0 truncate">
-                  <Ban className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+                <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
+                  <Ban className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-500 shrink-0" aria-hidden="true" />
                   <span className="truncate">{t(language, 'company.noVehicle')}</span>
                 </span>
                 {effectiveAssigned === null && (
-                  <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                  <Check className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
                 )}
               </button>
             </li>
@@ -483,35 +483,35 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                     onSelect(vehicle);
                     onClose();
                   }}
-                  className={`w-full px-2.5 py-1.5 text-left text-xs font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                  className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
                     isSelected
                       ? 'bg-amber-500/15 text-amber-200 font-semibold'
                       : 'text-slate-200 hover:bg-slate-900 hover:text-white'
                   }`}
                 >
-                  <span className="flex items-center gap-2 min-w-0 truncate">
+                  <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
                     {isVan ? (
-                      <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                      <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
                     ) : (
-                      <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+                      <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
                     )}
                     <span className="truncate">{label}</span>
                     <span
-                      className={`text-[11px] shrink-0 ${
+                      className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs shrink-0 ${
                         isSelected ? 'text-amber-300/90' : 'text-slate-400'
                       }`}
                     >
                       ({capacityLabel})
                     </span>
                     <span
-                      className={`text-[11px] font-bold shrink-0 ${getDurabilityTextClass(optionDurability)}`}
+                      className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold shrink-0 ${getDurabilityTextClass(optionDurability)}`}
                     >
                       {optionDurability}%
                     </span>
                   </span>
 
                   {isSelected && (
-                    <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                    <Check className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
                   )}
                 </button>
               </li>
@@ -519,7 +519,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           })}
 
           {availableVehicles.length === 0 && (
-            <li className="px-2.5 py-1.5 text-[11px] text-slate-500">
+            <li className="px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-500">
               {t(language, 'company.noFreeVehicles')}
             </li>
           )}
@@ -667,7 +667,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 bg-slate-950/80 touch-none"
+      className="fixed inset-0 z-40 flex items-center justify-center p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 bg-slate-950/80 touch-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="company-modal-heading"
@@ -677,15 +677,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
-        className="w-[94vw] max-w-4xl max-h-[84vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
+        className="w-[94vw] max-w-4xl max-h-[84vh] [@media(max-height:540px)]:max-h-[95vh] [@media(min-width:1024px)_and_(min-height:541px)]:w-[90vw] [@media(min-width:1024px)_and_(min-height:541px)]:max-w-[1160px] [@media(min-width:1024px)_and_(min-height:541px)]:max-h-[90vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Compact Header & Single-Line Company Summary Bar */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2 [@media(max-height:540px)]:px-2.5 [@media(max-height:540px)]:py-1.5 bg-[#182030] border-b border-slate-700/80">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs min-w-0 leading-tight">
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Building2 className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-              <h2 id="company-modal-heading" className="text-xs sm:text-sm font-bold text-slate-100">
+        <div className="flex items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 bg-[#182030] border-b border-slate-700/80">
+          <div className="flex flex-wrap items-center gap-x-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-x-3 gap-y-0.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0 leading-tight">
+            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 shrink-0">
+              <Building2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
+              <h2 id="company-modal-heading" className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
                 {t(language, 'company.title')}
               </h2>
             </div>
@@ -750,16 +750,16 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label={t(language, 'company.closeAria')}
-            className="min-w-[30px] min-h-[30px] p-1 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+            className="min-w-[26px] min-h-[26px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[38px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[38px] p-1 [@media(min-width:1024px)_and_(min-height:541px)]:p-1.5 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
           >
-            <X className="w-4 h-4" aria-hidden="true" />
+            <X className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Compact Navigation Tabs Bar */}
-        <div className="px-3 py-1.5 [@media(max-height:540px)]:px-2.5 bg-[#151d2c] border-b border-slate-800">
+        <div className="px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 bg-[#151d2c] border-b border-slate-800">
           <div
-            className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain"
+            className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 overflow-x-auto overscroll-x-contain"
             role="tablist"
             aria-label={t(language, 'company.tabsAria')}
           >
@@ -770,13 +770,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-selected={activeTab === 'base'}
               aria-controls="company-panel-base"
               onClick={() => setActiveTab('base')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'base'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <Warehouse className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <Warehouse className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabBase')}</span>
             </button>
 
@@ -787,13 +787,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-selected={activeTab === 'fleet'}
               aria-controls="company-panel-fleet"
               onClick={() => setActiveTab('fleet')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'fleet'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabFleet')}</span>
             </button>
 
@@ -804,13 +804,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-selected={activeTab === 'employees'}
               aria-controls="company-panel-employees"
               onClick={() => setActiveTab('employees')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'employees'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <Users className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <Users className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabEmployees')}</span>
             </button>
           </div>
@@ -818,7 +818,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
         {/* Scrollable Content */}
         <div
-          className="flex-1 overflow-y-auto overscroll-contain p-2 sm:p-2.5 [@media(max-height:540px)]:p-1.5"
+          className="flex-1 overflow-y-auto overscroll-contain p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4"
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
         >
@@ -828,19 +828,19 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               id="company-panel-base"
               role="tabpanel"
               aria-labelledby="company-tab-base"
-              className="grid grid-cols-1 md:grid-cols-2 [@media(max-height:540px)]:grid-cols-2 gap-2"
+              className="grid grid-cols-1 md:grid-cols-2 [@media(max-height:540px)]:grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3.5"
             >
               {/* Card 1: Base Warehouse */}
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5">
-                <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Warehouse className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                      <Warehouse className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
+                      <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
                         {t(language, 'company.warehouseTitle')}
                       </h3>
                     </div>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0">
+                    <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-amber-500/15 border border-amber-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-amber-300 font-mono-nums shrink-0">
                       {t(language, 'company.levelBadge', {
                         level: warehouseLevel,
                         max: MAX_WAREHOUSE_TIER,
@@ -848,14 +848,14 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-tight">
+                  <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
                     {t(language, 'company.warehouseDesc', {
                       tierName: translateOrderText(language, warehouseConfig.name),
                     })}
                   </p>
 
                   {/* Tier progression strip */}
-                  <div className="grid grid-cols-4 gap-1 text-center font-mono-nums">
+                  <div className="grid grid-cols-4 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-center font-mono-nums">
                     {WAREHOUSE_TIERS.map((tier) => {
                       const isCurrent = tier.tier === warehouseLevel;
                       const isUnlocked = tier.tier <= warehouseLevel;
@@ -863,7 +863,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       return (
                         <div
                           key={tier.tier}
-                          className={`rounded border px-1 py-0.5 text-[10px] leading-tight ${
+                          className={`rounded border px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight ${
                             isCurrent
                               ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
                               : isNext
@@ -881,7 +881,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
 
                   {/* Current vs next specs */}
-                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
+                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-slate-400">{t(language, 'company.capacityLabel')}</span>
                       <span className="text-slate-100 font-semibold">
@@ -912,9 +912,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2">
+                <div className="pt-1 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                   <div className="min-w-0 leading-tight">
-                    <span className="block text-[11px] text-slate-400 font-mono-nums">
+                    <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 font-mono-nums">
                       {nextWarehouseUpgrade
                         ? t(language, 'company.costLabel', {
                             amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
@@ -922,7 +922,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         : t(language, 'company.maxLevelReached')}
                     </span>
                     {nextWarehouseUpgrade && !canUpgradeWarehouse && (
-                      <span className="block text-[11px] font-semibold text-rose-300 font-mono-nums">
+                      <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums">
                         {formatMissingFunds(
                           nextWarehouseUpgrade.cost,
                           economyState.balance,
@@ -935,7 +935,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     type="button"
                     disabled={!canUpgradeWarehouse}
                     onClick={onUpgradeWarehouse}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                    className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                       canUpgradeWarehouse
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                         : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
@@ -951,27 +951,27 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               </article>
 
               {/* Card 2: Parking Spots */}
-              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5">
-                <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <ParkingSquare className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                      <ParkingSquare className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-sky-400 shrink-0" aria-hidden="true" />
+                      <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
                         {t(language, 'company.parkingTitle')}
                       </h3>
                     </div>
-                    <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[11px] font-bold text-sky-300 font-mono-nums shrink-0">
+                    <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-sky-300 font-mono-nums shrink-0">
                       {economyState.parkingSpots} / {MAX_PARKING_SPOTS}
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-tight">
+                  <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
                     {t(language, 'company.parkingDesc')}
                   </p>
 
                   {/* 8-slot visual grid */}
                   <div
-                    className="grid grid-cols-4 gap-1"
+                    className="grid grid-cols-4 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5"
                     aria-label={t(language, 'company.parkingGridAria', {
                       current: economyState.parkingSpots,
                       max: MAX_PARKING_SPOTS,
@@ -982,7 +982,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       return (
                         <div
                           key={idx}
-                          className={`rounded border px-1 py-0.5 text-center text-[10px] font-mono-nums leading-tight ${
+                          className={`rounded border px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 text-center text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums leading-tight ${
                             unlocked
                               ? 'bg-sky-500/20 border-sky-400/70 text-sky-200 font-bold'
                               : 'bg-slate-900/60 border-slate-800 text-slate-500'
@@ -994,7 +994,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     })}
                   </div>
 
-                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
+                  <div className="rounded-md bg-slate-900/70 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-slate-400">
                         {t(language, 'company.parkingSpotsLabel')}
@@ -1023,9 +1023,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2">
+                <div className="pt-1 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                   <div className="min-w-0 leading-tight">
-                    <span className="block text-[11px] text-slate-400">
+                    <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
                       {nextParkingUpgrade
                         ? t(language, 'company.parkingNextHint', {
                             spot: nextParkingUpgrade.nextSpotNumber,
@@ -1033,7 +1033,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         : t(language, 'company.parkingAllBought')}
                     </span>
                     {nextParkingUpgrade && !canBuyParkingSpot && (
-                      <span className="block text-[11px] font-semibold text-rose-300 font-mono-nums">
+                      <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums">
                         {formatMissingFunds(
                           nextParkingUpgrade.cost,
                           economyState.balance,
@@ -1046,7 +1046,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     type="button"
                     disabled={!canBuyParkingSpot}
                     onClick={onBuyParkingSpot}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                    className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                       canBuyParkingSpot
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                         : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
@@ -1069,23 +1069,23 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               id="company-panel-fleet"
               role="tabpanel"
               aria-labelledby="company-tab-fleet"
-              className="space-y-2.5"
+              className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3.5"
             >
               {/* Delivery Vans 6-Model Dealership Panel */}
-              <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-100">
+              <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
+                  <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                    <Car className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
+                    <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
                       {t(language, 'company.vansCatalogTitle')}
                     </h3>
                     <span
                       title={t(language, 'company.vansCountTitle')}
-                      className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[11px] font-bold text-amber-300 font-mono-nums shrink-0"
+                      className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-amber-500/15 border border-amber-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-amber-300 font-mono-nums shrink-0"
                     >
                       {vansCount} / {economyState.parkingSpots}
                     </span>
-                    <span className="hidden sm:inline text-[11px] text-slate-400">
+                    <span className="hidden sm:inline text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
                       {vanShopCondition === 'used'
                         ? t(language, 'company.vanUsedTrait')
                         : t(language, 'company.vanNewTrait')}
@@ -1102,7 +1102,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       type="button"
                       aria-pressed={vanShopCondition === 'used'}
                       onClick={() => setVanShopCondition('used')}
-                      className={`px-3 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                         vanShopCondition === 'used'
                           ? 'bg-amber-500 text-slate-950'
                           : 'text-slate-300 hover:text-white'
@@ -1114,7 +1114,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       type="button"
                       aria-pressed={vanShopCondition === 'new'}
                       onClick={() => setVanShopCondition('new')}
-                      className={`px-3 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                         vanShopCondition === 'new'
                           ? 'bg-sky-400 text-slate-950'
                           : 'text-slate-300 hover:text-white'
@@ -1126,7 +1126,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </div>
 
                 {/* 3 Van Tier Cards (Lite / Standard / Pro) */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
                   {VAN_MODEL_IDS_BY_CONDITION[vanShopCondition].map((modelId) => {
                     const spec = VAN_MODELS[modelId];
                     const canAfford = economyState.balance >= spec.purchasePrice;
@@ -1138,15 +1138,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     return (
                       <article
                         key={modelId}
-                        className="rounded-lg bg-slate-900/75 border border-slate-700/80 p-2 flex flex-col justify-between gap-2"
+                        className="rounded-lg bg-slate-900/75 border border-slate-700/80 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
                       >
-                        <div className="space-y-1.5">
+                        <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
                           <div className="flex items-center justify-between gap-1.5">
-                            <h4 className="text-xs font-bold text-slate-100 truncate">
+                            <h4 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100 truncate">
                               {condLabel} {tierLabel}
                             </h4>
                             <span
-                              className={`px-1.5 py-0.5 rounded text-[11px] font-bold font-mono-nums shrink-0 border ${
+                              className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums shrink-0 border ${
                                 spec.condition === 'new'
                                   ? 'bg-sky-500/15 border-sky-400/45 text-sky-300'
                                   : 'bg-amber-500/15 border-amber-400/45 text-amber-300'
@@ -1158,7 +1158,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
                           <VanPreviewIllustration condition={spec.condition} tier={spec.tier} />
 
-                          <div className="rounded-md bg-slate-950/75 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
+                          <div className="rounded-md bg-slate-950/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-slate-400">
                                 {t(language, 'company.payloadLabel')}
@@ -1176,7 +1176,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 {perMonth}
                               </span>
                             </div>
-                            <div className="text-[10px] text-slate-400 pt-0.5 border-t border-slate-800/80">
+                            <div className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 pt-0.5 border-t border-slate-800/80">
                               {roofLabel}
                             </div>
                           </div>
@@ -1184,7 +1184,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
                         <div className="space-y-1">
                           {!vansMaxed && !canPurchase && (
-                            <div className="space-y-0.5 text-[11px] font-semibold leading-tight">
+                            <div className="space-y-0.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold leading-tight">
                               {!hasFreeParkingForVan && (
                                 <p className="text-amber-300">
                                   {t(language, 'company.requiresFreeParking')}
@@ -1205,7 +1205,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             type="button"
                             disabled={!canPurchase}
                             onClick={() => onBuyVan(modelId)}
-                            className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                            className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                               canPurchase
                                 ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                                 : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
@@ -1228,27 +1228,27 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               </section>
 
               {/* Bottom Row: Courier Bikes & Owned Fleet List */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3.5">
                 {/* Card: Courier Bikes */}
-                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col justify-between gap-2 [@media(max-height:540px)]:gap-1.5">
-                  <div className="space-y-1.5 [@media(max-height:540px)]:space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
-                        <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                  <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                        <Bike className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-sky-400 shrink-0" aria-hidden="true" />
+                        <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
                           {t(language, 'company.bikesTitle')}
                         </h3>
                       </div>
-                      <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-[11px] font-bold text-sky-300 font-mono-nums shrink-0">
+                      <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-sky-300 font-mono-nums shrink-0">
                         {bikesCount} / {MAX_BICYCLES}
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-slate-400 leading-tight">
+                    <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
                       {t(language, 'company.bikesDesc')}
                     </p>
 
-                    <div className="rounded-md bg-slate-900/70 border border-slate-800 px-2 py-1 space-y-0.5 text-[11px] font-mono-nums">
+                    <div className="rounded-md bg-slate-900/70 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-400">
                           {t(language, 'company.payloadLabel')}
@@ -1278,9 +1278,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-1.5 border-t border-slate-800 space-y-1">
+                  <div className="pt-1 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 space-y-1">
                     {!bikesMaxed && !canBuyBicycle && (
-                      <p className="text-[11px] font-semibold text-rose-300 font-mono-nums leading-tight">
+                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums leading-tight">
                         {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance, language)}
                       </p>
                     )}
@@ -1288,7 +1288,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       type="button"
                       disabled={!canBuyBicycle}
                       onClick={onBuyBicycle}
-                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                      className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                         canBuyBicycle
                           ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                           : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
@@ -1307,21 +1307,21 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </article>
 
                 {/* Card: Owned Fleet Roster */}
-                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 [@media(max-height:540px)]:p-2 flex flex-col gap-1.5">
+                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-100">
+                    <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
                       {t(language, 'company.ownedFleetTitle', {
                         count: ownedFleet.length,
                       })}
                     </h3>
-                    <span className="text-[11px] font-mono-nums text-rose-300 font-semibold">
+                    <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums text-rose-300 font-semibold">
                       {t(language, 'company.currentInsuranceLabel')}{' '}
                       +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost + monthlyCosts.courierInsuranceCost, false)}
                       {perMonth}
                     </span>
                   </div>
 
-                  <div className="space-y-1.5 max-h-52 overflow-y-auto overscroll-contain pr-0.5">
+                  <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2 max-h-44 [@media(min-width:1024px)_and_(min-height:541px)]:max-h-72 overflow-y-auto overscroll-contain pr-0.5">
                     {ownedVans.map((van) => {
                       const vehicleSel: ActiveVehicleSelection = { type: 'van', index: van.index };
                       const spec = getVanModelSpec(van.modelId);
@@ -1346,11 +1346,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       return (
                         <div
                           key={van.id}
-                          className="rounded-md bg-slate-900/75 border border-slate-800 px-2 py-1.5 flex flex-col gap-1 text-[11px] font-mono-nums"
+                          className="rounded-md bg-slate-900/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                              <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
                               <span className="font-semibold text-slate-100 truncate">
                                 {t(language, 'company.vehicleVanFull', {
                                   index: van.index,
@@ -1362,7 +1362,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 ({t(language, 'company.packagesCount', { count: spec.capacity })})
                               </span>
                             </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
                               <span
                                 title={
                                   isSlowed
@@ -1371,7 +1371,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                         percent: roundedDurability,
                                       })
                                 }
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getDurabilityBadgeClass(durability)}`}
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                               >
                                 {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
                               </span>
@@ -1380,7 +1380,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 {perMonth}
                               </span>
                               <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border ${
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border ${
                                   driverName
                                     ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                     : 'bg-slate-800 border-slate-700 text-slate-400'
@@ -1394,15 +1394,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
 
                           {(repairPending || repairEligible) && (
-                            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                            <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
                               {repairPending ? (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
-                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                                     <span>{t(language, 'company.repairQueuedBadge')}</span>
                                   </span>
                                   {repairReadiness && !repairReadiness.ready && (
-                                    <span className="text-[10px] font-sans text-amber-300/90">
+                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
                                       {repairReadiness.reason === 'no_van_license'
                                         ? t(language, 'company.repairNeedsVanLicense')
                                         : t(language, 'company.repairNeedsCourier')}
@@ -1412,11 +1412,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               ) : (
                                 <>
                                   {!canAffordRepair ? (
-                                    <span className="text-[10px] text-rose-300 font-semibold">
+                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
                                       {formatMissingFunds(repairCost, economyState.balance, language)}
                                     </span>
                                   ) : (
-                                    <span className="text-[10px] font-sans text-slate-400">
+                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
                                       {isSlowed
                                         ? t(language, 'company.durabilitySlowHint')
                                         : t(language, 'company.repairReadyHint')}
@@ -1431,13 +1431,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                         ? formatMissingFunds(repairCost, economyState.balance, language)
                                         : undefined
                                     }
-                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                                       canAffordRepair
                                         ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                         : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                                     }`}
                                   >
-                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                                     <span>
                                       {t(language, 'company.sendToMechanicBtn', {
                                         amount: formatCurrencyUsd(repairCost, false),
@@ -1476,11 +1476,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       return (
                         <div
                           key={`bike-${bikeIndex}`}
-                          className="rounded-md bg-slate-900/60 border border-slate-800/80 px-2 py-1.5 flex flex-col gap-1 text-[11px] font-mono-nums"
+                          className="rounded-md bg-slate-900/60 border border-slate-800/80 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <Bike className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                              <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
                               <span className="font-semibold text-slate-200 truncate">
                                 {t(language, 'company.vehicleBike', { index: bikeIndex })}
                               </span>
@@ -1488,7 +1488,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 ({t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })})
                               </span>
                             </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
                               <span
                                 title={
                                   isSlowed
@@ -1497,12 +1497,12 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                         percent: roundedDurability,
                                       })
                                 }
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getDurabilityBadgeClass(durability)}`}
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                               >
                                 {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
                               </span>
                               <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border shrink-0 ${
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border shrink-0 ${
                                   driverName
                                     ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                     : 'bg-slate-800 border-slate-700 text-slate-400'
@@ -1516,15 +1516,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
 
                           {(repairPending || repairEligible) && (
-                            <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                            <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
                               {repairPending ? (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
-                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                                     <span>{t(language, 'company.repairQueuedBadge')}</span>
                                   </span>
                                   {repairReadiness && !repairReadiness.ready && (
-                                    <span className="text-[10px] font-sans text-amber-300/90">
+                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
                                       {t(language, 'company.repairNeedsCourier')}
                                     </span>
                                   )}
@@ -1532,11 +1532,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               ) : (
                                 <>
                                   {!canAffordRepair ? (
-                                    <span className="text-[10px] text-rose-300 font-semibold">
+                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
                                       {formatMissingFunds(repairCost, economyState.balance, language)}
                                     </span>
                                   ) : (
-                                    <span className="text-[10px] font-sans text-slate-400">
+                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
                                       {isSlowed
                                         ? t(language, 'company.durabilitySlowHint')
                                         : t(language, 'company.repairReadyHint')}
@@ -1551,13 +1551,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                         ? formatMissingFunds(repairCost, economyState.balance, language)
                                         : undefined
                                     }
-                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                                       canAffordRepair
                                         ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                         : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                                     }`}
                                   >
-                                    <Wrench className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                                     <span>
                                       {t(language, 'company.sendToMechanicBtn', {
                                         amount: formatCurrencyUsd(repairCost, false),
@@ -1573,7 +1573,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     })}
 
                     {ownedVans.length === 0 && (
-                      <p className="text-[11px] text-slate-400 pt-1 leading-snug">
+                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 pt-1 leading-snug">
                         {t(language, 'company.ownedFleetEmptyVans')}
                       </p>
                     )}
@@ -1589,19 +1589,19 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               id="company-panel-employees"
               role="tabpanel"
               aria-labelledby="company-tab-employees"
-              className="space-y-2.5"
+              className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3.5"
             >
               {/* Compact Team Overview Header */}
-              <div className="rounded-lg bg-[#182030] border border-slate-700/85 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Users className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-100">
+              <div className="rounded-lg bg-[#182030] border border-slate-700/85 px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 flex flex-wrap items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                  <Users className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
+                  <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
                     {t(language, 'company.teamHeader', {
                       hired: hiredCouriersCount,
                       max: MAX_EMPLOYEES,
                     })}
                   </h3>
-                  <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono-nums text-slate-300">
+                  <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums text-slate-300">
                     {t(language, 'company.licensesBadge', {
                       current: economyState.maxEmployees,
                       max: MAX_EMPLOYEES,
@@ -1609,7 +1609,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono-nums">
+                <div className="flex flex-wrap items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                   <span className="text-slate-400">
                     {t(language, 'company.salariesLabel')}{' '}
                     <span className="font-bold text-rose-300">
@@ -1628,7 +1628,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               </div>
 
               {/* 6-Slot Staff Roster Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3.5">
                 {couriers.map((courier) => {
                   const slotAtBase = isSlotAtBase(courier.slotIndex);
                   const effectiveAssigned = courier.isOwner
@@ -1655,21 +1655,21 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     return (
                       <article
                         key={courier.id}
-                        className="rounded-lg bg-[#182030] border border-slate-700/85 p-2.5 flex flex-col justify-between gap-2 text-xs"
+                        className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm"
                       >
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                        <div className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
                               {effectiveAssigned?.type === 'van' ? (
-                                <Car className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                                <Car className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
                               ) : effectiveAssigned?.type === 'bike' ? (
-                                <Bike className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                                <Bike className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-sky-400 shrink-0" aria-hidden="true" />
                               ) : (
-                                <Users className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
+                                <Users className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-slate-400 shrink-0" aria-hidden="true" />
                               )}
                               <h4 className="font-bold text-slate-100 truncate">{roleHeading}</h4>
                               <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${
                                   slotAtBase
                                     ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                     : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
@@ -1680,7 +1680,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   : t(language, 'company.statusOnRoute')}
                               </span>
                               <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 ${
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${
                                   hasVanQualification
                                     ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                                     : 'bg-sky-500/15 border-sky-400/40 text-sky-300'
@@ -1691,7 +1691,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             </div>
 
                             <span
-                              className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono-nums border shrink-0 ${
+                              className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums border shrink-0 ${
                                 courier.isOwner
                                   ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                   : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
@@ -1707,12 +1707,12 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             <div className="flex items-center justify-between gap-2">
                               <label
                                 htmlFor={`courier-vehicle-${courier.slotIndex}`}
-                                className="text-[11px] text-slate-400"
+                                className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400"
                               >
                                 {t(language, 'company.assignedVehicleLabel')}
                               </label>
                               {!slotAtBase && (
-                                <span className="text-[10px] text-amber-300/90">
+                                <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-amber-300/90">
                                   {t(language, 'company.changeAtBaseHint')}
                                 </span>
                               )}
@@ -1748,8 +1748,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
                         </div>
 
-                        <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
-                          <span className="text-[11px] text-slate-400 font-mono-nums">
+                        <div className="pt-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
+                          <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 font-mono-nums">
                             {courier.isOwner
                               ? `${t(language, 'company.ownerFooterDesc')} • ${t(
                                   language,
@@ -1774,7 +1774,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </span>
 
                           {!courier.isOwner && (
-                            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 shrink-0 ml-auto">
                               {!hasVanQualification && (
                                 <button
                                   type="button"
@@ -1782,9 +1782,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                     salary: formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false),
                                   })}
                                   onClick={() => onPromoteCourier(courier.slotIndex)}
-                                  className="px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                                 >
-                                  <ArrowUpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                  <ArrowUpCircle className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                                   <span>{t(language, 'company.promoteBtn')}</span>
                                 </button>
                               )}
@@ -1793,13 +1793,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 type="button"
                                 disabled={!slotAtBase}
                                 onClick={() => onFireCourier(courier.slotIndex)}
-                                className={`px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                                   slotAtBase
                                     ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/45 text-rose-300 cursor-pointer'
                                     : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
                                 }`}
                               >
-                                <UserMinus className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                <UserMinus className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                                 <span>{t(language, 'company.fireBtn')}</span>
                               </button>
                             </div>
@@ -1814,35 +1814,35 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     return (
                       <article
                         key={courier.id}
-                        className="rounded-lg bg-[#182030] border border-sky-500/40 p-2.5 flex flex-col justify-between gap-2 text-xs"
+                        className="rounded-lg bg-[#182030] border border-sky-500/40 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm"
                       >
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <UserPlus className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                        <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                              <UserPlus className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-sky-400 shrink-0" aria-hidden="true" />
                               <h4 className="font-bold text-slate-100 truncate">
                                 {t(language, 'company.courierRoleHeading', {
                                   slot: courier.slotIndex,
                                 })}
                               </h4>
                             </div>
-                            <span className="px-2 py-0.5 rounded bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-semibold shrink-0">
+                            <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold shrink-0">
                               {t(language, 'company.vacantBadge')}
                             </span>
                           </div>
 
-                          <p className="text-[11px] text-slate-400 leading-snug">
+                          <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-snug">
                             {t(language, 'company.vacantDesc')}
                           </p>
                         </div>
 
-                        <div className="pt-2 border-t border-slate-800 flex flex-col gap-1.5">
+                        <div className="pt-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
                           <button
                             type="button"
                             onClick={() => onHireCourier(courier.slotIndex, 'bike_only')}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums flex items-center justify-center gap-1.5 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                            className="w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                           >
-                            <Bike className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                             <span>
                               {t(language, 'company.hireBikeBtn', {
                                 salary: formatCurrencyUsd(HIRED_BIKE_COURIER_SALARY, false),
@@ -1853,9 +1853,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           <button
                             type="button"
                             onClick={() => onHireCourier(courier.slotIndex, 'bike_and_van')}
-                            className="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold font-mono-nums flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                            className="w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                           >
-                            <Car className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                             <span>
                               {t(language, 'company.hireVanBtn', {
                                 salary: formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false),
@@ -1875,28 +1875,28 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   return (
                     <article
                       key={courier.id}
-                      className={`rounded-lg bg-[#151d2b] border p-2.5 flex flex-col justify-between gap-2 text-xs ${
+                      className={`rounded-lg bg-[#151d2b] border p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm ${
                         isNextToUnlock
                           ? 'border-amber-400/45'
                           : 'border-slate-800 opacity-75'
                       }`}
                     >
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                      <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                            <Lock className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-400 shrink-0" aria-hidden="true" />
                             <h4 className="font-bold text-slate-200 truncate">
                               {t(language, 'company.lockedSlotHeading', {
                                 slot: courier.slotIndex,
                               })}
                             </h4>
                           </div>
-                          <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-semibold shrink-0">
+                          <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded bg-slate-800 border border-slate-700 text-slate-400 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold shrink-0">
                             {t(language, 'company.lockedBadge')}
                           </span>
                         </div>
 
-                        <p className="text-[11px] text-slate-400 leading-snug">
+                        <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-snug">
                           {isNextToUnlock
                             ? t(language, 'company.lockedNextDesc', { slot: courier.slotIndex })
                             : t(language, 'company.lockedPrevDesc', {
@@ -1905,11 +1905,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         </p>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                      <div className="pt-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                         <div className="min-w-0 leading-tight">
                           {!canBuyLicense && (
                             <span
-                              className={`block text-[11px] font-semibold font-mono-nums ${
+                              className={`block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold font-mono-nums ${
                                 !isNextToUnlock ? 'text-amber-300' : 'text-rose-300'
                               }`}
                             >
@@ -1925,7 +1925,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           type="button"
                           disabled={!canBuyLicense}
                           onClick={onBuyEmployeeLicense}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                          className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                             canBuyLicense
                               ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                               : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'

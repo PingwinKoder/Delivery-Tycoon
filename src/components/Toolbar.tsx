@@ -118,19 +118,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {/* Top-center docked status bar (flush to top: 0, solid #182030, rounded bottom corners only) */}
       <div className="flex justify-center pl-1.5 pr-[54px] min-[560px]:px-2 [@media(max-height:540px)]:px-1.5">
         <div
-          className={`${interactiveClass} max-w-full flex flex-col min-[560px]:flex-row items-center gap-1 min-[560px]:gap-1.5 sm:gap-2.5 [@media(max-height:540px)]:gap-1.5 px-2.5 min-[560px]:px-2 sm:px-3.5 [@media(max-height:540px)]:px-2 py-1 min-[560px]:py-1.5 [@media(max-height:540px)]:py-1 rounded-b-xl rounded-t-none bg-[#182030] [@media(max-height:540px)]:bg-slate-900/95 border-x border-b border-t-0 border-slate-700/90 shadow-lg`}
+          className={`${interactiveClass} max-w-full flex flex-col min-[560px]:flex-row items-center gap-1 min-[560px]:gap-1.5 sm:gap-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 [@media(max-height:540px)]:gap-1.5 px-2.5 min-[560px]:px-2 sm:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(max-height:540px)]:px-2 py-1 min-[560px]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-b-xl rounded-t-none bg-[#182030] [@media(max-height:540px)]:bg-slate-900/95 border-x border-b border-t-0 border-slate-700/90 shadow-lg`}
         >
           {/* Balance + Date/Clock group */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 [@media(max-height:540px)]:gap-1.5 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 [@media(max-height:540px)]:gap-1.5 min-w-0">
             {/* Account Balance directly on bar surface */}
             <div
               aria-label={t(language, 'hud.balanceAria', { amount: formattedBalance })}
-              className="text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold text-emerald-400 tabular-nums whitespace-nowrap shrink-0"
+              className="text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[15.5px] [@media(max-height:540px)]:text-xs font-bold text-emerald-400 tabular-nums whitespace-nowrap shrink-0"
             >
               {formattedBalance}
             </div>
 
-            <div className="w-px h-4 min-[560px]:h-5 [@media(max-height:540px)]:h-4 bg-slate-700/80 shrink-0" aria-hidden="true" />
+            <div className="w-px h-4 min-[560px]:h-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-[22px] [@media(max-height:540px)]:h-4 bg-slate-700/80 shrink-0" aria-hidden="true" />
 
             {/* Weekday, Calendar Date, Year & Clock directly on bar surface */}
             <div
@@ -141,16 +141,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 year: clock.year,
                 time: clock.timeText,
               })}
-              className="flex items-center gap-1 sm:gap-1.5 [@media(max-height:540px)]:gap-1 text-[11px] sm:text-xs [@media(max-height:540px)]:text-[11px] font-semibold text-slate-100 whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 sm:gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 text-[11px] sm:text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-semibold text-slate-100 whitespace-nowrap shrink-0"
             >
               {isNightMode ? (
                 <Moon
-                  className="w-3.5 h-3.5 shrink-0 text-indigo-300"
+                  className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 text-indigo-300"
                   aria-hidden="true"
                 />
               ) : (
                 <Clock
-                  className={`hidden min-[420px]:inline-block w-3.5 h-3.5 shrink-0 ${
+                  className={`hidden min-[420px]:inline-block w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 ${
                     gameSpeed === 0 ? 'text-rose-400' : 'text-amber-400'
                   }`}
                   aria-hidden="true"
@@ -187,14 +187,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </div>
           </div>
 
-          <div className="hidden min-[560px]:block w-px h-5 [@media(max-height:540px)]:h-4 bg-slate-700/80 shrink-0" aria-hidden="true" />
+          <div className="hidden min-[560px]:block w-px h-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-[22px] [@media(max-height:540px)]:h-4 bg-slate-700/80 shrink-0" aria-hidden="true" />
 
           {/* Game Speed Controls + Skip Time Button directly on bar surface */}
-          <div className="flex items-center gap-0.5 sm:gap-1 [@media(max-height:540px)]:gap-0.5 shrink-0">
+          <div className="flex items-center gap-0.5 sm:gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 [@media(max-height:540px)]:gap-0.5 shrink-0">
             <div
               role="group"
               aria-label={t(language, 'hud.speedGroupAria')}
-              className="flex items-center gap-0.5 shrink-0"
+              className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0"
             >
               {GAME_SPEED_OPTIONS.map((speed) => {
                 const isActive = gameSpeed === speed;
@@ -218,7 +218,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         ? t(language, 'hud.pause')
                         : t(language, 'hud.speedTitle', { speed })
                     }
-                    className={`h-7 min-w-[28px] min-[560px]:h-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[26px] sm:min-h-[40px] sm:min-w-[36px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:min-w-[28px] px-1.5 min-[560px]:px-1 sm:px-2 [@media(max-height:540px)]:px-1.5 rounded-md text-xs [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                    className={`h-7 min-w-[28px] min-[560px]:h-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[26px] sm:min-h-[40px] sm:min-w-[36px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:min-w-[28px] px-1.5 min-[560px]:px-1 sm:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(max-height:540px)]:px-1.5 rounded-md text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                       isActive
                         ? isPause
                           ? 'bg-rose-500 text-white shadow-sm'
@@ -227,7 +227,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     }`}
                   >
                     {isPause ? (
-                      <Pause className="w-3.5 h-3.5" aria-hidden="true" />
+                      <Pause className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4" aria-hidden="true" />
                     ) : (
                       <span className="tabular-nums">{speed}x</span>
                     )}
@@ -236,7 +236,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               })}
             </div>
 
-            <div className="w-px h-4 min-[560px]:h-5 [@media(max-height:540px)]:h-4 bg-slate-700/80 mx-0.5 shrink-0" aria-hidden="true" />
+            <div className="w-px h-4 min-[560px]:h-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-[22px] [@media(max-height:540px)]:h-4 bg-slate-700/80 mx-0.5 shrink-0" aria-hidden="true" />
 
             <button
               type="button"
@@ -246,9 +246,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               }}
               aria-label={t(language, 'hud.skipTimeAria')}
               title={t(language, 'hud.skipTimeTitle')}
-              className="h-7 w-7 min-[560px]:h-auto min-[560px]:w-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 px-1.5 min-[560px]:px-2 [@media(max-height:540px)]:px-1.5 rounded-md text-slate-200 hover:text-white hover:bg-slate-700/70 flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
+              className="h-7 w-7 min-[560px]:h-auto min-[560px]:w-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 px-1.5 min-[560px]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(max-height:540px)]:px-1.5 rounded-md text-slate-200 hover:text-white hover:bg-slate-700/70 flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
             >
-              <SkipForward className="w-3.5 h-3.5 min-[560px]:w-4 min-[560px]:h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
+              <SkipForward className="w-3.5 h-3.5 min-[560px]:w-4 min-[560px]:h-4 [@media(min-width:1024px)_and_(min-height:541px)]:w-[18px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[18px] [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -256,7 +256,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Left Map View Toolbar */}
       <div
-        className={`fixed left-2 sm:left-3 [@media(max-height:540px)]:left-1.5 top-[68px] min-[560px]:top-[58px] [@media(max-height:540px)_and_(min-width:560px)_and_(max-width:1359px)]:top-[46px] min-[1360px]:top-3.5 z-20 ${interactiveClass} max-w-[calc(100%-64px)] sm:max-w-none flex items-center gap-1 sm:gap-1.5 [@media(max-height:540px)]:gap-1 px-1.5 sm:px-2 [@media(max-height:540px)]:px-1.5 py-1.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] [@media(max-height:540px)]:bg-slate-900/95 border border-slate-700/90 shadow-lg`}
+        className={`fixed left-2 sm:left-3 [@media(max-height:540px)]:left-1.5 top-[68px] min-[560px]:top-[58px] [@media(min-width:1024px)_and_(min-height:541px)_and_(max-width:1439px)]:top-[68px] [@media(max-height:540px)_and_(min-width:560px)_and_(max-width:1359px)]:top-[46px] min-[1440px]:top-3.5 z-20 ${interactiveClass} max-w-[calc(100%-64px)] sm:max-w-none flex items-center gap-1 sm:gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 px-1.5 sm:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(max-height:540px)]:px-1.5 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg bg-[#182030] [@media(max-height:540px)]:bg-slate-900/95 border border-slate-700/90 shadow-lg`}
       >
         <button
           type="button"
@@ -266,13 +266,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }}
           aria-pressed={footprintOnly}
           aria-label={t(language, 'hud.footprintsFull')}
-          className={`min-h-[38px] sm:min-h-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(max-height:540px)]:px-2 py-1.5 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+          className={`min-h-[38px] sm:min-h-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(max-height:540px)]:px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
             footprintOnly
               ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
               : 'bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80'
           }`}
         >
-          <Layers className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <Layers className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
           <span className="2xl:hidden">{t(language, 'hud.footprintsShort')}</span>
           <span className="hidden 2xl:inline">{t(language, 'hud.footprintsFull')}</span>
         </button>
@@ -285,13 +285,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }}
           aria-pressed={showStreetNames}
           aria-label={t(language, 'hud.streetsFull')}
-          className={`min-h-[38px] sm:min-h-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(max-height:540px)]:px-2 py-1.5 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+          className={`min-h-[38px] sm:min-h-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(max-height:540px)]:px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
             showStreetNames
               ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 hover:bg-sky-500/35'
               : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 border border-slate-700/80'
           }`}
         >
-          <Signpost className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <Signpost className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
           <span className="sm:hidden">{t(language, 'hud.streetsShort')}</span>
           <span className="hidden sm:inline">{t(language, 'hud.streetsFull')}</span>
         </button>
@@ -304,18 +304,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           }}
           aria-pressed={showGrid}
           aria-label={showGrid ? t(language, 'hud.hideGridFull') : t(language, 'hud.showGridFull')}
-          className="min-h-[38px] sm:min-h-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(max-height:540px)]:px-2 py-1.5 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+          className="min-h-[38px] sm:min-h-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(max-height:540px)]:px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
         >
           {showGrid ? (
             <>
-              <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <EyeOff className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span className="sm:hidden">{t(language, 'hud.gridShort')}</span>
               <span className="hidden sm:inline 2xl:hidden">{t(language, 'hud.hideGridShort')}</span>
               <span className="hidden 2xl:inline">{t(language, 'hud.hideGridFull')}</span>
             </>
           ) : (
             <>
-              <Eye className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <Eye className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span className="sm:hidden">{t(language, 'hud.gridShort')}</span>
               <span className="hidden sm:inline 2xl:hidden">{t(language, 'hud.showGridShort')}</span>
               <span className="hidden 2xl:inline">{t(language, 'hud.showGridFull')}</span>
@@ -325,7 +325,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       {/* Right Top Action Cluster: Settings + Orders + Company + FPS badge */}
-      <div className="fixed right-2 sm:right-3 [@media(max-height:540px)]:right-1.5 top-2 min-[1360px]:top-3.5 z-20 flex flex-col sm:flex-row items-end sm:items-start gap-1.5 [@media(max-height:540px)]:gap-1 pointer-events-none">
+      <div className="fixed right-2 sm:right-3 [@media(max-height:540px)]:right-1.5 top-2 min-[1360px]:top-3.5 z-20 flex flex-col sm:flex-row items-end sm:items-start gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 pointer-events-none">
         <button
           type="button"
           onClick={(e) => {
@@ -336,20 +336,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           aria-expanded={settingsOpen}
           aria-label={settingsLabel}
           title={t(language, 'hud.settingsTitle')}
-          className={`${interactiveClass} order-2 sm:order-1 min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 rounded-xl [@media(max-height:540px)]:rounded-lg flex items-center justify-center shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+          className={`${interactiveClass} order-2 sm:order-1 min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[49px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[49px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 rounded-xl [@media(max-height:540px)]:rounded-lg flex items-center justify-center shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
             settingsOpen
               ? 'bg-slate-800 text-amber-300 border-amber-400/70'
               : 'bg-slate-900/95 text-slate-200 hover:bg-slate-800 hover:text-amber-300 border-slate-700/80'
           }`}
         >
           <Settings
-            className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0"
+            className="w-4 h-4 [@media(min-width:1024px)_and_(min-height:541px)]:w-[18px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[18px] [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0"
             aria-hidden="true"
           />
         </button>
 
-        <div className="order-1 sm:order-2 flex flex-col items-end gap-1.5 [@media(max-height:540px)]:gap-1 pointer-events-none">
-          <div className="flex flex-col items-stretch gap-1.5 [@media(max-height:540px)]:gap-1 shrink-0 pointer-events-none">
+        <div className="order-1 sm:order-2 flex flex-col items-end gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 pointer-events-none">
+          <div className="flex flex-col items-stretch gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 shrink-0 pointer-events-none">
             <button
               type="button"
               onClick={(e) => {
@@ -368,18 +368,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                   ? t(language, 'hud.ordersUnreadTitle', { count: unreadOffersCount })
                   : ordersLabel
               }
-              className={`relative ${interactiveClass} min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(max-height:540px)]:px-2 py-2 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`relative ${interactiveClass} min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[49px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:px-[18px] [@media(max-height:540px)]:px-2 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[15.5px] [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 ordersOpen
                   ? 'bg-amber-400 text-slate-950 border-amber-300'
                   : 'bg-amber-500 text-slate-950 hover:bg-amber-400 border-amber-400/80'
               }`}
             >
-              <Files className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
+              <Files className="w-4 h-4 [@media(min-width:1024px)_and_(min-height:541px)]:w-[18px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[18px] [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
               <span className="hidden sm:inline">{ordersLabel}</span>
               {unreadOffersCount > 0 && (
                 <span
                   aria-hidden="true"
-                  className="absolute -top-1.5 -right-1.5 [@media(max-height:540px)]:-top-1 [@media(max-height:540px)]:-right-1 min-w-[20px] h-5 [@media(max-height:540px)]:min-w-[16px] [@media(max-height:540px)]:h-4 px-1.5 [@media(max-height:540px)]:px-1 rounded-full bg-rose-600 text-white text-[11px] [@media(max-height:540px)]:text-[10px] font-bold tabular-nums leading-none flex items-center justify-center border border-slate-950/90 shadow-md pointer-events-none"
+                  className="absolute -top-1.5 -right-1.5 [@media(max-height:540px)]:-top-1 [@media(max-height:540px)]:-right-1 min-w-[20px] h-5 [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[22px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[22px] [@media(max-height:540px)]:min-w-[16px] [@media(max-height:540px)]:h-4 px-1.5 [@media(max-height:540px)]:px-1 rounded-full bg-rose-600 text-white text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs [@media(max-height:540px)]:text-[10px] font-bold tabular-nums leading-none flex items-center justify-center border border-slate-950/90 shadow-md pointer-events-none"
                 >
                   {unreadOffersCount}
                 </span>
@@ -396,13 +396,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               aria-expanded={companyOpen}
               aria-label={companyLabel}
               title={t(language, 'hud.companyTitle')}
-              className={`${interactiveClass} min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(max-height:540px)]:px-2 py-2 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`${interactiveClass} min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[49px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:px-[18px] [@media(max-height:540px)]:px-2 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[15.5px] [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 companyOpen
                   ? 'bg-slate-800 text-amber-300 border-amber-400/70'
                   : 'bg-slate-900/95 text-slate-100 hover:bg-slate-800 border-slate-700/80'
               }`}
             >
-              <Building2 className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0 text-amber-400" aria-hidden="true" />
+              <Building2 className="w-4 h-4 [@media(min-width:1024px)_and_(min-height:541px)]:w-[18px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[18px] [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0 text-amber-400" aria-hidden="true" />
               <span className="hidden sm:inline">{companyLabel}</span>
             </button>
           </div>
@@ -413,7 +413,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 ? t(language, 'hud.fpsAria', { fps })
                 : t(language, 'hud.fpsMeasuringAria')
             }
-            className="pointer-events-none select-none px-2 py-0.5 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] font-semibold tabular-nums leading-tight flex items-center gap-1"
+            className="pointer-events-none select-none px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold tabular-nums leading-tight flex items-center gap-1"
           >
             <span
               className={
@@ -428,7 +428,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             >
               {fps ?? '--'}
             </span>
-            <span className="text-slate-400 text-[10px]">FPS</span>
+            <span className="text-slate-400 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-[11px]">FPS</span>
           </div>
         </div>
       </div>

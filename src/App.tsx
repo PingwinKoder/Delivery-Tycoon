@@ -85,6 +85,7 @@ import {
 import {
   type GameSettings,
   loadGameSettings,
+  requestMobileFullscreen,
   saveGameSettings,
 } from './utils/settingsSystem';
 
@@ -381,6 +382,20 @@ export function App() {
     setSaveSlots(getAllSaveSlots());
     setSettings(loadGameSettings());
     setStartDataReady(true);
+  }, []);
+
+  // Automatically enforce fullscreen mode on mobile devices upon user touch/pointer interaction
+  useEffect(() => {
+    const handleMobileInteraction = () => {
+      requestMobileFullscreen();
+    };
+
+    window.addEventListener('pointerdown', handleMobileInteraction, { passive: true });
+    window.addEventListener('touchend', handleMobileInteraction, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleMobileInteraction);
+      window.removeEventListener('touchend', handleMobileInteraction);
+    };
   }, []);
 
   // Keep the HTML splash screen visible until BOTH MapCanvas rendered its first full frame
@@ -1095,7 +1110,7 @@ export function App() {
   );
 
   return (
-    <main className="relative w-full h-full overflow-hidden">
+    <main className="relative w-full h-[100dvh] overflow-hidden">
       <MapCanvas
         graph={INITIAL_ROAD_GRAPH}
         buildings={mapBuildings}

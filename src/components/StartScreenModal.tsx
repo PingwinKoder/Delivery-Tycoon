@@ -20,7 +20,10 @@ import {
   type SaveSlotEntry,
   type SaveSlotId,
 } from '../utils/saveSystem';
-import type { SupportedLanguage } from '../utils/settingsSystem';
+import {
+  type SupportedLanguage,
+  requestMobileFullscreen,
+} from '../utils/settingsSystem';
 
 export interface StartScreenModalProps {
   isVisible: boolean;
@@ -184,6 +187,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
                 type="button"
                 disabled={firstFreeSlot === null || !isVisible}
                 onClick={() => {
+                  requestMobileFullscreen();
                   if (firstFreeSlot !== null) {
                     setConfirmDeleteSlotId(null);
                     onStartNewGame(firstFreeSlot);
@@ -209,6 +213,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
               type="button"
               disabled={!isVisible}
               onClick={() => {
+                requestMobileFullscreen();
                 setConfirmDeleteSlotId(null);
                 setView('load');
               }}
@@ -309,6 +314,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
                         type="button"
                         disabled={!isVisible}
                         onClick={() => {
+                          requestMobileFullscreen();
                           setConfirmDeleteSlotId(null);
                           onStartNewGame(slotId);
                         }}
@@ -431,6 +437,7 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
                             type="button"
                             disabled={!isVisible}
                             onClick={() => {
+                              requestMobileFullscreen();
                               setConfirmDeleteSlotId(null);
                               onLoadGame(slotId);
                             }}

@@ -300,7 +300,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-3 [@media(max-height:540px)]:p-1.5 bg-slate-950/80 touch-none"
+      className="fixed inset-0 z-40 flex items-center justify-center p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 bg-slate-950/80 touch-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="orders-modal-heading"
@@ -310,12 +310,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       onTouchMove={(e) => e.stopPropagation()}
     >
       <div
-        className="w-[94vw] max-w-4xl h-[min(84vh,680px)] max-h-[84vh] [@media(max-height:540px)]:h-[95vh] [@media(max-height:540px)]:max-h-[95vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
+        className="w-[94vw] max-w-4xl h-[min(84vh,680px)] max-h-[84vh] [@media(max-height:540px)]:h-[95vh] [@media(max-height:540px)]:max-h-[95vh] [@media(min-width:1024px)_and_(min-height:541px)]:w-[90vw] [@media(min-width:1024px)_and_(min-height:541px)]:max-w-[1160px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[min(90vh,860px)] [@media(min-width:1024px)_and_(min-height:541px)]:max-h-[90vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Compact Single-Line Company Status Bar */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2 [@media(max-height:540px)]:px-2.5 [@media(max-height:540px)]:py-1.5 bg-[#182030] border-b border-slate-700/80">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs min-w-0 leading-tight">
+        <div className="flex items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 bg-[#182030] border-b border-slate-700/80">
+          <div className="flex flex-wrap items-center gap-x-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-x-3 gap-y-0.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0 leading-tight">
             <h2 id="orders-modal-heading" className="sr-only">
               {t(language, 'orders.headingSr')}
             </h2>
@@ -369,16 +369,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label={t(language, 'orders.closeAria')}
-            className="min-w-[30px] min-h-[30px] p-1 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+            className="min-w-[26px] min-h-[26px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[38px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[38px] p-1 [@media(min-width:1024px)_and_(min-height:541px)]:p-1.5 rounded-lg flex items-center justify-center shrink-0 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
           >
-            <X className="w-4 h-4" aria-hidden="true" />
+            <X className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Compact Navigation Tabs Bar */}
-        <div className="px-3 py-1.5 [@media(max-height:540px)]:px-2.5 bg-[#151d2c] border-b border-slate-800">
+        <div className="px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 bg-[#151d2c] border-b border-slate-800">
           <div
-            className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain"
+            className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 overflow-x-auto overscroll-x-contain"
             role="tablist"
             aria-label={t(language, 'orders.tabsAria')}
           >
@@ -389,13 +389,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'offers'}
               aria-controls="panel-offers"
               onClick={() => setActiveTab('offers')}
-              className={`relative px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`relative px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'offers'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <Files className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <Files className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'orders.tabOffers')}</span>
               <span
                 className={`font-mono-nums ${
@@ -407,7 +407,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               {activeTab !== 'offers' && unreadOffersCount > 0 && (
                 <span
                   aria-label={t(language, 'orders.unreadCountAria', { count: unreadOffersCount })}
-                  className="ml-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold font-mono-nums inline-flex items-center justify-center"
+                  className="ml-0.5 min-w-[14px] h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[20px] [@media(min-width:1024px)_and_(min-height:541px)]:h-5 px-1 rounded-full bg-rose-600 text-white text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums inline-flex items-center justify-center"
                 >
                   {unreadOffersCount}
                 </span>
@@ -421,13 +421,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'active'}
               aria-controls="panel-active"
               onClick={() => setActiveTab('active')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'active'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <ClipboardList className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <ClipboardList className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'orders.tabActive')}</span>
               <span
                 className={`font-mono-nums ${
@@ -445,13 +445,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'schedule'}
               aria-controls="panel-schedule"
               onClick={() => setActiveTab('schedule')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                 activeTab === 'schedule'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
               }`}
             >
-              <CalendarDays className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <CalendarDays className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'orders.tabSchedule')}</span>
             </button>
           </div>
@@ -459,7 +459,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
         {/* Scrollable Tab Content Area */}
         <div
-          className="flex-1 overflow-y-auto overscroll-contain p-2.5 sm:p-3 [@media(max-height:540px)]:p-2"
+          className="flex-1 overflow-y-auto overscroll-contain p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4"
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
         >
@@ -467,16 +467,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           {activeTab === 'offers' && (
             <div id="panel-offers" role="tabpanel" aria-labelledby="tab-offers">
               {economyState.pendingOffers.length === 0 ? (
-                <div className="py-8 px-4 text-center border border-slate-800 rounded-lg bg-slate-900/60">
-                  <p className="text-xs sm:text-sm font-semibold text-slate-200">
+                <div className="py-6 [@media(min-width:1024px)_and_(min-height:541px)]:py-10 px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-5 text-center border border-slate-800 rounded-lg bg-slate-900/60">
+                  <p className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-semibold text-slate-200">
                     {t(language, 'orders.offersEmptyTitle')}
                   </p>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="mt-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm text-slate-400">
                     {t(language, 'orders.offersEmptyDesc')}
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
                   {economyState.pendingOffers.map((offer) => (
                     <OfferCard
                       key={offer.id}
@@ -496,16 +496,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           {activeTab === 'active' && (
             <div id="panel-active" role="tabpanel" aria-labelledby="tab-active">
               {economyState.activeOrders.length === 0 ? (
-                <div className="py-8 px-4 text-center border border-slate-800 rounded-lg bg-slate-900/60">
-                  <p className="text-xs sm:text-sm font-semibold text-slate-200">
+                <div className="py-6 [@media(min-width:1024px)_and_(min-height:541px)]:py-10 px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-5 text-center border border-slate-800 rounded-lg bg-slate-900/60">
+                  <p className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-semibold text-slate-200">
                     {t(language, 'orders.activeEmptyTitle')}
                   </p>
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="mt-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm text-slate-400">
                     {t(language, 'orders.activeEmptyDesc')}
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
                   {economyState.activeOrders.map((order) => (
                     <ActiveOrderCard
                       key={order.id}
@@ -522,10 +522,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
           {/* TAB 3: WEEKLY PLAN */}
           {activeTab === 'schedule' && selectedDay && (
-            <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" className="space-y-2">
+            <div id="panel-schedule" role="tabpanel" aria-labelledby="tab-schedule" className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
               {/* Tier 1: 7 Compact Day-Selector Tiles */}
               <div
-                className="grid grid-cols-7 gap-1"
+                className="grid grid-cols-7 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2"
                 role="group"
                 aria-label={t(language, 'orders.weekdayGroupAria')}
               >
@@ -537,7 +537,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       type="button"
                       aria-pressed={isSelected}
                       onClick={() => setSelectedWeekday(day.weekdayIndex)}
-                      className={`min-w-0 rounded-lg border p-1.5 text-left flex flex-col justify-between gap-0.5 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+                      className={`min-w-0 rounded-lg border p-1 [@media(min-width:1024px)_and_(min-height:541px)]:p-2.5 text-left flex flex-col justify-between gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
                         isSelected
                           ? 'bg-amber-500/15 border-amber-400 shadow-sm'
                           : day.isToday
@@ -548,14 +548,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       <div className="flex items-center justify-between gap-1 min-w-0">
                         <div className="flex items-baseline gap-1 min-w-0 truncate">
                           <span
-                            className={`text-xs font-bold shrink-0 ${
+                            className={`text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold shrink-0 ${
                               isSelected || day.isToday ? 'text-amber-300' : 'text-slate-100'
                             }`}
                           >
                             {day.weekdayShort}
                           </span>
                           <span
-                            className={`text-[10px] font-mono-nums truncate ${
+                            className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums truncate ${
                               isSelected ? 'text-slate-200' : 'text-slate-400'
                             }`}
                           >
@@ -563,14 +563,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                           </span>
                         </div>
                         {day.isToday && (
-                          <span className="hidden md:inline px-1 py-0.5 rounded bg-amber-400/20 text-[9px] font-bold text-amber-300 shrink-0 leading-none">
+                          <span className="hidden md:inline px-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-1.5 py-0.5 rounded bg-amber-400/20 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-[11px] font-bold text-amber-300 shrink-0 leading-none">
                             {t(language, 'orders.todayBadge')}
                           </span>
                         )}
                       </div>
 
                       <span
-                        className={`text-[10px] font-mono-nums font-semibold leading-none ${
+                        className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums font-semibold leading-none ${
                           day.tasks.length > 0
                             ? isSelected
                               ? 'text-amber-200'
@@ -591,17 +591,17 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                   weekday: selectedDay.weekdayName,
                   date: selectedDay.dateLabel,
                 })}
-                className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1.5 min-h-[196px]"
+                className="rounded-lg bg-[#151d2c] border border-slate-800/90 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3 min-h-[160px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[260px]"
               >
-                <div className="flex items-center justify-between gap-2 px-1 pb-1.5 mb-1 border-b border-slate-800/90">
-                  <div className="flex items-baseline gap-1.5 min-w-0">
-                    <span className="text-xs font-bold text-slate-100 truncate">
+                <div className="flex items-center justify-between gap-2 px-1 pb-1 [@media(min-width:1024px)_and_(min-height:541px)]:pb-2 mb-1 [@media(min-width:1024px)_and_(min-height:541px)]:mb-2 border-b border-slate-800/90">
+                  <div className="flex items-baseline gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                    <span className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
                       {selectedDay.weekdayName}
                     </span>
-                    <span className="text-[11px] text-slate-400 font-mono-nums shrink-0">
+                    <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm text-slate-400 font-mono-nums shrink-0">
                       {selectedDay.dateLabel}
                     </span>
-                    <span className="text-[11px] text-slate-500 font-mono-nums shrink-0">
+                    <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm text-slate-500 font-mono-nums shrink-0">
                       • {t(language, 'orders.tasksCountShort', { count: selectedDay.tasks.length })}
                     </span>
                   </div>
@@ -616,7 +616,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         weekday: selectedDay.weekdayName,
                       })}
                       onClick={() => setSortMenuOpen((prev) => !prev)}
-                      className={`px-2 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                      className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                         selectedDay.tasks.length === 0
                           ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                           : sortMenuOpen
@@ -624,10 +624,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             : 'bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border-slate-700 cursor-pointer'
                       }`}
                     >
-                      <ArrowUpDown className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      <ArrowUpDown className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                       <span>{t(language, 'orders.sortBtn')}</span>
                       <ChevronDown
-                        className={`w-3 h-3 shrink-0 transition-transform duration-150 ${
+                        className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 transition-transform duration-150 ${
                           sortMenuOpen ? 'rotate-180' : ''
                         }`}
                         aria-hidden="true"
@@ -637,9 +637,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                     {sortMenuOpen && (
                       <div
                         role="menu"
-                        className="absolute right-0 top-full mt-1 z-30 w-56 rounded-lg bg-[#182030] border border-slate-700 shadow-lg py-1 text-xs"
+                        className="absolute right-0 top-full mt-1 z-30 w-48 [@media(min-width:1024px)_and_(min-height:541px)]:w-64 rounded-lg bg-[#182030] border border-slate-700 shadow-lg py-1 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm"
                       >
-                        <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <div className="px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 py-1 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold uppercase tracking-wider text-slate-400">
                           {t(language, 'orders.sortGroupType')}
                         </div>
                         <button
@@ -649,7 +649,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'short_term_first');
                             setSortMenuOpen(false);
                           }}
-                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                          className="w-full text-left px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
                         >
                           {t(language, 'orders.sortShortTermFirst')}
                         </button>
@@ -660,14 +660,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'long_term_first');
                             setSortMenuOpen(false);
                           }}
-                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                          className="w-full text-left px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
                         >
                           {t(language, 'orders.sortLongTermFirst')}
                         </button>
 
                         <div className="my-1 border-t border-slate-700/80" />
 
-                        <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        <div className="px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 py-1 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold uppercase tracking-wider text-slate-400">
                           {t(language, 'orders.sortGroupPackages')}
                         </div>
                         <button
@@ -677,7 +677,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'packages_desc');
                             setSortMenuOpen(false);
                           }}
-                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                          className="w-full text-left px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
                         >
                           {t(language, 'orders.sortPackagesDesc')}
                         </button>
@@ -688,7 +688,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             onSortWeeklyTasksPriority(selectedDay.weekdayIndex, 'packages_asc');
                             setSortMenuOpen(false);
                           }}
-                          className="w-full text-left px-2.5 py-1.5 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
+                          className="w-full text-left px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-slate-100 hover:bg-slate-700/80 hover:text-amber-200 transition-colors cursor-pointer touch-manipulation"
                         >
                           {t(language, 'orders.sortPackagesAsc')}
                         </button>
@@ -698,16 +698,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                 </div>
 
                 {selectedDay.tasks.length === 0 ? (
-                  <div className="py-6 px-3 text-center rounded-md bg-slate-900/50 border border-slate-800/80">
-                    <p className="text-xs font-semibold text-slate-300">
+                  <div className="py-5 [@media(min-width:1024px)_and_(min-height:541px)]:py-8 px-3 text-center rounded-md bg-slate-900/50 border border-slate-800/80">
+                    <p className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-300">
                       {t(language, 'orders.scheduleEmptyTitle')}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
+                    <p className="mt-0.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-500">
                       {t(language, 'orders.scheduleEmptyDesc')}
                     </p>
                   </div>
                 ) : (
-                  <ol className="flex flex-col gap-0.5">
+                  <ol className="flex flex-col gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
                     {selectedDay.tasks.map((task, idx) => {
                       const isFirst = idx === 0;
                       const isLast = idx === selectedDay.tasks.length - 1;
@@ -729,14 +729,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         return (
                           <li
                             key={`${selectedDay.weekdayIndex}-${task.taskId}`}
-                            className="rounded-md bg-[#1c2233] border border-amber-500/45 py-1 px-2 flex items-center gap-1.5 text-xs min-w-0"
+                            className="rounded-md bg-[#1c2233] border border-amber-500/45 py-1 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0"
                           >
                             <Wrench
-                              className="w-3.5 h-3.5 text-amber-400 shrink-0"
+                              className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0"
                               aria-hidden="true"
                             />
                             <p
-                              className="flex-1 min-w-0 truncate text-xs leading-tight text-slate-100"
+                              className="flex-1 min-w-0 truncate text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm leading-tight text-slate-100"
                               title={`${repairTitle} (${mechanicLocation})`}
                             >
                               <span className="font-semibold text-amber-200 font-mono-nums">
@@ -754,7 +754,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                         slot: task.assignedCourierId,
                                       })
                                 }
-                                className={`px-1.5 py-[2px] rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
+                                className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${
                                   task.assignedCourierId === 1
                                     ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
                                     : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
@@ -768,14 +768,14 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               </span>
                             ) : task.repairWaitingForCourier ? (
                               <span
-                                className="px-1.5 py-[2px] rounded text-[10px] font-semibold border whitespace-nowrap shrink-0 leading-none bg-amber-500/10 text-amber-300/95 border-amber-400/35"
+                                className="px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border whitespace-nowrap shrink-0 leading-none bg-amber-500/10 text-amber-300/95 border-amber-400/35"
                                 title={t(language, 'orders.repairWaitingCourier')}
                               >
                                 {t(language, 'orders.repairWaitingCourierShort')}
                               </span>
                             ) : null}
 
-                            <div className="flex items-center gap-0.5 shrink-0">
+                            <div className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0">
                               <button
                                 type="button"
                                 disabled={isFirst}
@@ -791,7 +791,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   title: repairTitle,
                                 })}
                                 title={t(language, 'orders.moveUpTitle')}
-                                className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                                className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                   isFirst
                                     ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                     : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -814,7 +814,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   title: repairTitle,
                                 })}
                                 title={t(language, 'orders.moveDownTitle')}
-                                className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                                className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                   isLast
                                     ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                     : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -840,7 +840,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
-                          className={`rounded-md border py-0.5 px-2 flex items-center gap-1.5 text-xs min-w-0 ${
+                          className={`rounded-md border py-0.5 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0 ${
                             isExpiring
                               ? 'animate-expiring-task'
                               : 'bg-[#182030] border-slate-700/85'
@@ -850,13 +850,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             <span
                               title={expiringTooltip}
                               aria-label={expiringTooltip}
-                              className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/25 border border-rose-400/75 text-rose-300 text-[11px] font-extrabold leading-none shrink-0"
+                              className="inline-flex items-center justify-center w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 rounded-full bg-rose-500/25 border border-rose-400/75 text-rose-300 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-extrabold leading-none shrink-0"
                             >
                               !
                             </span>
                           )}
                           <p
-                            className="flex-1 min-w-0 truncate text-xs leading-tight text-slate-100"
+                            className="flex-1 min-w-0 truncate text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm leading-tight text-slate-100"
                             title={`#${task.orderNumber} • ${translatedClient} (${translatedAddress})`}
                           >
                             <span className="font-mono-nums font-semibold text-amber-300">
@@ -869,7 +869,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             <span className="text-slate-400"> ({translatedAddress})</span>
                           </p>
 
-                          <div className="flex items-center gap-1 shrink-0 tabular-nums text-[11px]">
+                          <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0 tabular-nums text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs">
                             <span
                               title={t(language, 'orders.pickedUpTooltip', {
                                 picked: pickedUp,
@@ -879,13 +879,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 picked: pickedUp,
                                 total: totalPkgs,
                               })}
-                              className={`inline-flex items-center gap-1 px-1.5 py-[2px] rounded border leading-none whitespace-nowrap ${
+                              className={`inline-flex items-center gap-1 px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded border leading-none whitespace-nowrap ${
                                 allPickedUp
                                   ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
                                   : 'bg-sky-500/15 text-sky-300 border-sky-400/40'
                               }`}
                             >
-                              <Boxes className="w-3 h-3 shrink-0" aria-hidden="true" />
+                              <Boxes className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                               <span className="font-semibold">
                                 {pickedUp}/{totalPkgs}
                               </span>
@@ -900,9 +900,9 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 delivered,
                                 total: totalPkgs,
                               })}
-                              className="inline-flex items-center gap-1 px-1.5 py-[2px] rounded border leading-none whitespace-nowrap bg-emerald-500/15 text-emerald-400 border-emerald-400/40"
+                              className="inline-flex items-center gap-1 px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded border leading-none whitespace-nowrap bg-emerald-500/15 text-emerald-400 border-emerald-400/40"
                             >
-                              <Check className="w-3 h-3 shrink-0 stroke-[2.5]" aria-hidden="true" />
+                              <Check className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0 stroke-[2.5]" aria-hidden="true" />
                               <span className="font-semibold">
                                 {delivered}/{totalPkgs}
                               </span>
@@ -918,7 +918,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                       slot: task.assignedCourierId,
                                     })
                               }
-                              className={`px-1.5 py-[2px] rounded text-[10px] font-bold border whitespace-nowrap shrink-0 leading-none ${
+                              className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${
                                 task.assignedCourierId === 1
                                   ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
                                   : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
@@ -932,7 +932,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             </span>
                           )}
 
-                          <div className="flex items-center gap-0.5 shrink-0">
+                          <div className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0">
                             <button
                               type="button"
                               disabled={isFirst}
@@ -949,7 +949,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 clientName: translatedClient,
                               })}
                               title={t(language, 'orders.moveUpTitle')}
-                              className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                              className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isFirst
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -973,7 +973,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 clientName: translatedClient,
                               })}
                               title={t(language, 'orders.moveDownTitle')}
-                              className={`w-6 h-6 rounded text-[10px] font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
+                              className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
                                 isLast
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -1032,15 +1032,15 @@ const OfferCard: React.FC<OfferCardProps> = ({
       : `${durationLabel} • ${formatLocalizedPackages(offer.totalPackages, language)} • ${formatCurrencyUsd(offer.ratePerPackage)}${t(language, 'orders.perPkgShort')}`;
 
   return (
-    <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-2 gap-1">
+    <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
       {/* 1. Order type + expiry */}
-      <div className="flex items-center justify-between gap-1.5 text-[11px] leading-tight">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight">
+        <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
           <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
             {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
           </span>
           {offer.kind === 'long_term' && offer.pickupDaysPerWeek === 2 && (
-            <span className="px-1.5 py-[1px] rounded bg-sky-500/15 border border-sky-400/45 text-[10px] font-bold text-sky-200 font-mono-nums whitespace-nowrap shrink-0">
+            <span className="px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded bg-sky-500/15 border border-sky-400/45 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-[11px] font-bold text-sky-200 font-mono-nums whitespace-nowrap shrink-0">
               {t(language, 'orders.freqTwicePerWeek')}
             </span>
           )}
@@ -1057,7 +1057,7 @@ const OfferCard: React.FC<OfferCardProps> = ({
       {/* 2. Client name & street address */}
       <div className="min-w-0">
         <h3
-          className="text-xs font-semibold text-slate-100 truncate leading-snug"
+          className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-100 truncate leading-snug"
           title={`#${offer.orderNumber} • ${translatedClient}`}
         >
           <span className="font-mono-nums text-amber-300">#{offer.orderNumber}</span>
@@ -1065,7 +1065,7 @@ const OfferCard: React.FC<OfferCardProps> = ({
           <span>{translatedClient}</span>
         </h3>
         <p
-          className="text-[11px] text-slate-400 truncate leading-tight"
+          className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 truncate leading-tight"
           title={translatedAddress}
         >
           {translatedAddress}
@@ -1075,14 +1075,14 @@ const OfferCard: React.FC<OfferCardProps> = ({
       {/* 3. Single combined parameters strip */}
       <div className="min-w-0 pt-0.5">
         <p
-          className="text-[11px] text-slate-300 font-mono-nums truncate"
+          className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-300 font-mono-nums truncate"
           title={paramsSummary}
         >
           {paramsSummary}
         </p>
         {offer.kind === 'long_term' && (
           <p
-            className="text-[10px] text-sky-300/90 font-mono-nums truncate leading-tight mt-0.5"
+            className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-sky-300/90 font-mono-nums truncate leading-tight mt-0.5"
             title={t(language, 'orders.deliveryWindow3DaysHint')}
           >
             {t(language, 'orders.deliveryWindow3Days')}
@@ -1091,33 +1091,33 @@ const OfferCard: React.FC<OfferCardProps> = ({
       </div>
 
       {/* 4. Bottom action bar */}
-      <div className="flex items-center justify-between gap-1.5 pt-1.5 mt-0.5 border-t border-slate-800">
+      <div className="flex items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 mt-0.5 border-t border-slate-800">
         <div className="min-w-0 leading-none">
-          <span className="text-sm font-bold text-emerald-400 font-mono-nums">
+          <span className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-emerald-400 font-mono-nums">
             {formatCurrencyUsd(
               offer.kind === 'long_term' ? offer.totalContractValue : offer.totalExpectedPayout
             )}
           </span>
           {offer.kind === 'long_term' && (
-            <span className="ml-1 text-[10px] text-slate-400 font-mono-nums whitespace-nowrap">
+            <span className="ml-1 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 font-mono-nums whitespace-nowrap">
               ({formatCurrencyUsd(offer.estimatedMonthlyPayout, false)}
               {t(language, 'orders.perMonthShort')})
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
           <button
             type="button"
             onClick={() => onAccept(offer.id)}
-            className="px-2.5 py-1 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-300"
+            className="px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-300"
           >
             {t(language, 'orders.accept')}
           </button>
           <button
             type="button"
             onClick={() => onReject(offer.id)}
-            className="px-2.5 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
+            className="px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
           >
             {t(language, 'orders.reject')}
           </button>
@@ -1182,15 +1182,15 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       });
 
   return (
-    <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-2 gap-1">
+    <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
       {/* 1. Order type + remaining time */}
-      <div className="flex items-center justify-between gap-1.5 text-[11px] leading-tight">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="flex items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight">
+        <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
           <span className={`font-medium truncate ${isLongTerm ? 'text-sky-300' : 'text-amber-300'}`}>
             {isLongTerm ? t(language, 'orders.kindLongTerm') : t(language, 'orders.kindShortTerm')}
           </span>
           {order.kind === 'long_term' && order.pickupDaysPerWeek === 2 && (
-            <span className="px-1.5 py-[1px] rounded bg-sky-500/15 border border-sky-400/45 text-[10px] font-bold text-sky-200 font-mono-nums whitespace-nowrap shrink-0">
+            <span className="px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded bg-sky-500/15 border border-sky-400/45 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-[11px] font-bold text-sky-200 font-mono-nums whitespace-nowrap shrink-0">
               {t(language, 'orders.freqTwicePerWeek')}
             </span>
           )}
@@ -1203,7 +1203,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       {/* 2. Client name & street address */}
       <div className="min-w-0">
         <h3
-          className="text-xs font-semibold text-slate-100 truncate leading-snug"
+          className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-100 truncate leading-snug"
           title={`#${order.orderNumber} • ${translatedClient}`}
         >
           <span className="font-mono-nums text-amber-300">#{order.orderNumber}</span>
@@ -1211,7 +1211,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
           <span>{translatedClient}</span>
         </h3>
         <p
-          className="text-[11px] text-slate-400 truncate leading-tight"
+          className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 truncate leading-tight"
           title={translatedAddress}
         >
           {translatedAddress}
@@ -1221,10 +1221,10 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       {/* 2b. Scheduled pickup weekday(s) & 3-day delivery window for long-term contracts */}
       {order.kind === 'long_term' && (
         <div
-          className="flex items-center gap-1 text-[11px] leading-tight"
+          className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight"
           title={t(language, 'orders.deliveryWindow3DaysHint')}
         >
-          <CalendarDays className="w-3 h-3 text-sky-400 shrink-0" aria-hidden="true" />
+          <CalendarDays className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
           <span className="truncate">
             <span className="text-slate-400">
               {order.pickupWeekdays.length > 1
@@ -1245,7 +1245,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       )}
 
       {/* 3. Combined progress & payout row */}
-      <div className="flex items-baseline justify-between gap-1.5 text-[11px] font-mono-nums pt-0.5">
+      <div className="flex items-baseline justify-between gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums pt-0.5">
         <span className="text-slate-200 truncate">{progressText}</span>
         <span className="font-bold text-emerald-400 shrink-0">
           {order.kind === 'long_term'
@@ -1255,8 +1255,8 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       </div>
 
       {/* 4. Compact satisfaction bar */}
-      <div className="pt-1 mt-0.5 border-t border-slate-800 space-y-1">
-        <div className="flex items-center justify-between gap-1 text-[11px] leading-none">
+      <div className="pt-1 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2 mt-0.5 border-t border-slate-800 space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1.5">
+        <div className="flex items-center justify-between gap-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-none">
           <span className="text-slate-400">{t(language, 'orders.satisfactionLabel')}</span>
           <span className={`font-bold font-mono-nums ${satisfactionVis.textClass}`}>
             {order.satisfaction}% • {satisfactionVis.label}
@@ -1268,7 +1268,7 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
           aria-valuenow={order.satisfaction}
           aria-valuemin={0}
           aria-valuemax={100}
-          className={`h-1.5 w-full rounded-full bg-slate-800 overflow-hidden ${satisfactionVis.textClass}`}
+          className={`h-1 [@media(min-width:1024px)_and_(min-height:541px)]:h-2 w-full rounded-full bg-slate-800 overflow-hidden ${satisfactionVis.textClass}`}
         >
           <svg
             viewBox="0 0 100 6"

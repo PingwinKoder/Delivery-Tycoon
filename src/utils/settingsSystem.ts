@@ -74,3 +74,38 @@ export function saveGameSettings(settings: GameSettings): GameSettings {
 
   return normalized;
 }
+
+/**
+ * Requests browser fullscreen mode on mobile / coarse-pointer devices when not already fullscreen.
+ * Uses standard Fullscreen API with webkitRequestFullscreen fallback and ignores promise rejections.
+ */
+export function requestMobileFullscreen(): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  const isMobile =
+    window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 1024;
+  if (!isMobile) return;
+
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  if (doc.fullscreenElement || doc.webkitFullscreenElement) return;
+
+  const root = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void;
+  };
+
+  try {
+    if (typeof root.requestFullscreen === 'function') {
+      const result = root.requestFullscreen();
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => {});
+      }
+    } else if (typeof root.webkitRequestFullscreen === 'function') {
+      const result = root.webkitRequestFullscreen();
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => {});
+      }
+    }
+  } catch {
+    // Gracefully ignore Fullscreen API errors on unsupported browsers
+  }
+}
