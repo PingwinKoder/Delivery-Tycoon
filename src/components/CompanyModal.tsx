@@ -7,6 +7,7 @@ import {
   Car,
   Check,
   ChevronDown,
+  Fuel,
   Lock,
   ParkingSquare,
   UserMinus,
@@ -31,6 +32,8 @@ import type {
 } from '../types/orders';
 import type { SupportedLanguage } from '../utils/settingsSystem';
 import {
+  AUTO_REFUEL_THRESHOLD_RATIO,
+  BASE_FUEL_PRICE_PER_LITER,
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
   COURIER_INSURANCE_COST,
@@ -43,6 +46,7 @@ import {
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
+  REFUEL_AVAILABLE_THRESHOLD_RATIO,
   REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
   SCOOTER_MODELS,
   SCOOTER_MODEL_IDS_ORDER,
@@ -50,6 +54,7 @@ import {
   VAN_MODEL_IDS_BY_CONDITION,
   WAREHOUSE_TIERS,
   calculateMonthlyCompanyCosts,
+  calculateVehicleRefuelCost,
   calculateVehicleRepairCost,
   canCourierDriveVehicle,
   countHiredCouriers,
@@ -413,6 +418,8 @@ interface CompanyModalProps {
   onBuyVan: (modelId: VanModelId) => void;
   onSellVehicle: (vehicle: ActiveVehicleSelection) => void;
   onRequestVehicleRepair: (vehicle: ActiveVehicleSelection) => void;
+  onRequestVehicleRefuel: (vehicle: ActiveVehicleSelection) => void;
+  refuelingVehicleKeys?: readonly string[];
   onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
   onBuyEmployeeLicense: () => void;
   onHireCourier: (slotIndex: number, qualification: CourierQualification) => void;
@@ -624,6 +631,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onBuyVan,
   onSellVehicle,
   onRequestVehicleRepair,
+  onRequestVehicleRefuel,
+  refuelingVehicleKeys,
   onSelectActiveVehicle,
   onBuyEmployeeLicense,
   onHireCourier,
@@ -687,6 +696,25 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
     }
     return keys;
   }, [economyState.couriers, courierAtBaseBySlot]);
+
+  const refuelingKeySet = useMemo(
+    () => new Set<string>(refuelingVehicleKeys ?? []),
+    [refuelingVehicleKeys]
+  );
+
+  const currentFuelPrice =
+    typeof economyState.currentFuelPricePerLiter === 'number' &&
+    Number.isFinite(economyState.currentFuelPricePerLiter)
+      ? economyState.currentFuelPricePerLiter
+      : BASE_FUEL_PRICE_PER_LITER;
+  const previousFuelPrice =
+    typeof economyState.previousFuelPricePerLiter === 'number' &&
+    Number.isFinite(economyState.previousFuelPricePerLiter)
+      ? economyState.previousFuelPricePerLiter
+      : currentFuelPrice;
+  const fuelPriceDelta = currentFuelPrice - previousFuelPrice;
+  const isFuelCheaper = fuelPriceDelta < -0.004;
+  const isFuelMoreExpensive = fuelPriceDelta > 0.004;
 
   const monthlyCosts = useMemo(
     () => calculateMonthlyCompanyCosts(economyState),
@@ -1176,6 +1204,35 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-labelledby="company-tab-fleet"
               className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3.5"
             >
+              {/* Live Fuel Market Price Bar */}
+              <div className="rounded-lg bg-[#182030] border border-slate-700/85 px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
+                  <Fuel className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-emerald-400 shrink-0" aria-hidden="true" />
+                  <span className="text-slate-300 font-semibold">
+                    {t(language, 'company.fuelPriceLabel')}
+                  </span>
+                  <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded bg-slate-950 border border-slate-700 font-mono-nums font-bold text-slate-100">
+                    {t(language, 'company.fuelPricePerLiter', {
+                      price: formatCurrencyUsd(currentFuelPrice, true),
+                    })}
+                  </span>
+                  {(isFuelCheaper || isFuelMoreExpensive) && (
+                    <span
+                      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums font-bold border ${isFuelCheaper
+                          ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                          : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+                        }`}
+                    >
+                      <span>{isFuelCheaper ? '▼' : '▲'}</span>
+                      <span>
+                        {isFuelCheaper ? '-' : '+'}
+                        {formatCurrencyUsd(Math.abs(fuelPriceDelta), true)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* Delivery Vans 6-Model Dealership Panel */}
               <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
@@ -1552,13 +1609,28 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       : null;
                     const sellRefund = getVehicleSellRefund(economyState, vehicleSel);
                     const isVehicleInRoute = inRouteVehicleKeys.has(vehicleKey);
+                    const isRefueling = refuelingKeySet.has(vehicleKey);
+                    const fuelQuote = calculateVehicleRefuelCost(economyState, vehicleSel);
+                    const fuelPercent = Math.round(fuelQuote.fillRatio * 100);
+                    const isFuelEmpty = fuelQuote.currentFuel <= 0.001;
+                    const isFuelLow = fuelQuote.fillRatio <= AUTO_REFUEL_THRESHOLD_RATIO;
+                    const refuelEligible = fuelQuote.fillRatio < REFUEL_AVAILABLE_THRESHOLD_RATIO;
+                    const canAffordRefuel = economyState.balance >= fuelQuote.cost;
+                    const canRequestRefuel =
+                      refuelEligible &&
+                      !isRefueling &&
+                      !repairPending &&
+                      Boolean(driver) &&
+                      canAffordRefuel;
                     const sellBlockedReason = isVehicleInRoute
                       ? t(language, 'company.sellBlockedInRoute')
-                      : repairPending
-                        ? t(language, 'company.sellBlockedRepair')
-                        : totalOwnedVehicles <= 1
-                          ? t(language, 'company.sellBlockedLast')
-                          : null;
+                      : isRefueling
+                        ? t(language, 'company.sellBlockedRefuel')
+                        : repairPending
+                          ? t(language, 'company.sellBlockedRepair')
+                          : totalOwnedVehicles <= 1
+                            ? t(language, 'company.sellBlockedLast')
+                            : null;
                     const canSell = sellBlockedReason === null;
                     const isConfirmingSell = confirmSellKey === vehicleKey;
 
@@ -1650,6 +1722,77 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
                         </div>
 
+                        {/* Fuel Gauge Bar + Refuel Button */}
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                          <div className="flex-1 min-w-[140px] space-y-0.5">
+                            <div className="flex items-center justify-between gap-2 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs">
+                              <span className="inline-flex items-center gap-1 text-slate-300 font-semibold">
+                                <Fuel
+                                  className={`w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0 ${isFuelLow ? 'text-rose-400' : 'text-emerald-400'
+                                    }`}
+                                  aria-hidden="true"
+                                />
+                                <span>
+                                  {t(language, 'company.fuelLevelLabel', {
+                                    current: fuelQuote.currentFuel.toFixed(1),
+                                    max: fuelQuote.tankCapacity,
+                                    percent: fuelPercent,
+                                  })}
+                                </span>
+                              </span>
+                              {(isFuelEmpty || isFuelLow) && (
+                                <span className="font-sans font-semibold text-rose-300">
+                                  {isFuelEmpty
+                                    ? t(language, 'company.fuelReserveWarning')
+                                    : t(language, 'company.fuelLowWarning')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-slate-950 border border-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${isFuelLow
+                                    ? 'bg-rose-500'
+                                    : fuelPercent <= 35
+                                      ? 'bg-amber-400'
+                                      : 'bg-emerald-400'
+                                  }`}
+                                style={{ width: `${Math.max(0, Math.min(100, fuelPercent))}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {isRefueling ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-emerald-500/15 border-emerald-400/45 text-emerald-300 shrink-0">
+                              <Fuel className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                              <span>{t(language, 'company.refuelInProgressBadge')}</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!canRequestRefuel}
+                              onClick={() => onRequestVehicleRefuel(vehicleSel)}
+                              title={
+                                !driver
+                                  ? t(language, 'company.refuelNeedsCourier')
+                                  : !canAffordRefuel
+                                    ? formatMissingFunds(fuelQuote.cost, economyState.balance, language)
+                                    : undefined
+                              }
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors shrink-0 ${canRequestRefuel
+                                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                                  : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                }`}
+                            >
+                              <Fuel className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                              <span>
+                                {t(language, 'company.refuelBtn', {
+                                  amount: formatCurrencyUsd(fuelQuote.cost, true),
+                                })}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+
                         {(repairPending || repairEligible) && (
                           <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
                             {repairPending ? (
@@ -1735,13 +1878,28 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       : null;
                     const sellRefund = getVehicleSellRefund(economyState, vehicleSel);
                     const isVehicleInRoute = inRouteVehicleKeys.has(vehicleKey);
+                    const isRefueling = refuelingKeySet.has(vehicleKey);
+                    const fuelQuote = calculateVehicleRefuelCost(economyState, vehicleSel);
+                    const fuelPercent = Math.round(fuelQuote.fillRatio * 100);
+                    const isFuelEmpty = fuelQuote.currentFuel <= 0.001;
+                    const isFuelLow = fuelQuote.fillRatio <= AUTO_REFUEL_THRESHOLD_RATIO;
+                    const refuelEligible = fuelQuote.fillRatio < REFUEL_AVAILABLE_THRESHOLD_RATIO;
+                    const canAffordRefuel = economyState.balance >= fuelQuote.cost;
+                    const canRequestRefuel =
+                      refuelEligible &&
+                      !isRefueling &&
+                      !repairPending &&
+                      Boolean(driver) &&
+                      canAffordRefuel;
                     const sellBlockedReason = isVehicleInRoute
                       ? t(language, 'company.sellBlockedInRoute')
-                      : repairPending
-                        ? t(language, 'company.sellBlockedRepair')
-                        : totalOwnedVehicles <= 1
-                          ? t(language, 'company.sellBlockedLast')
-                          : null;
+                      : isRefueling
+                        ? t(language, 'company.sellBlockedRefuel')
+                        : repairPending
+                          ? t(language, 'company.sellBlockedRepair')
+                          : totalOwnedVehicles <= 1
+                            ? t(language, 'company.sellBlockedLast')
+                            : null;
                     const canSell = sellBlockedReason === null;
                     const isConfirmingSell = confirmSellKey === vehicleKey;
 
@@ -1833,6 +1991,77 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               </button>
                             )}
                           </div>
+                        </div>
+
+                        {/* Fuel Gauge Bar + Refuel Button */}
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
+                          <div className="flex-1 min-w-[140px] space-y-0.5">
+                            <div className="flex items-center justify-between gap-2 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs">
+                              <span className="inline-flex items-center gap-1 text-slate-300 font-semibold">
+                                <Fuel
+                                  className={`w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0 ${isFuelLow ? 'text-rose-400' : 'text-emerald-400'
+                                    }`}
+                                  aria-hidden="true"
+                                />
+                                <span>
+                                  {t(language, 'company.fuelLevelLabel', {
+                                    current: fuelQuote.currentFuel.toFixed(1),
+                                    max: fuelQuote.tankCapacity,
+                                    percent: fuelPercent,
+                                  })}
+                                </span>
+                              </span>
+                              {(isFuelEmpty || isFuelLow) && (
+                                <span className="font-sans font-semibold text-rose-300">
+                                  {isFuelEmpty
+                                    ? t(language, 'company.fuelReserveWarning')
+                                    : t(language, 'company.fuelLowWarning')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-slate-950 border border-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${isFuelLow
+                                    ? 'bg-rose-500'
+                                    : fuelPercent <= 35
+                                      ? 'bg-amber-400'
+                                      : 'bg-emerald-400'
+                                  }`}
+                                style={{ width: `${Math.max(0, Math.min(100, fuelPercent))}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {isRefueling ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-emerald-500/15 border-emerald-400/45 text-emerald-300 shrink-0">
+                              <Fuel className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                              <span>{t(language, 'company.refuelInProgressBadge')}</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!canRequestRefuel}
+                              onClick={() => onRequestVehicleRefuel(vehicleSel)}
+                              title={
+                                !driver
+                                  ? t(language, 'company.refuelNeedsCourier')
+                                  : !canAffordRefuel
+                                    ? formatMissingFunds(fuelQuote.cost, economyState.balance, language)
+                                    : undefined
+                              }
+                              className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors shrink-0 ${canRequestRefuel
+                                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                                  : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                }`}
+                            >
+                              <Fuel className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                              <span>
+                                {t(language, 'company.refuelBtn', {
+                                  amount: formatCurrencyUsd(fuelQuote.cost, true),
+                                })}
+                              </span>
+                            </button>
+                          )}
                         </div>
 
                         {(repairPending || repairEligible) && (

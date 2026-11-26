@@ -124,6 +124,12 @@ export const INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY = 4;
 export const BASE_FUEL_BURN_LITERS_PER_WORLD_PX = 0.00003;
 /** Cruising speed multiplier when a motorized vehicle's fuel tank reaches 0 L (reserve limp mode) */
 export const EMPTY_FUEL_SPEED_MULTIPLIER = 0.5;
+/** Manual "Refuel" button becomes active below 85% tank level */
+export const REFUEL_AVAILABLE_THRESHOLD_RATIO = 0.85;
+/** Low-fuel warning & automatic gas-station detour threshold (15%) */
+export const AUTO_REFUEL_THRESHOLD_RATIO = 0.15;
+/** Gas station pump stop duration in in-game minutes (15 min -> 12s at 1x) */
+export const REFUEL_SERVICE_GAME_MINUTES = 15;
 
 export function clampFuelPrice(price: number): number {
   if (!Number.isFinite(price)) return BASE_FUEL_PRICE_PER_LITER;

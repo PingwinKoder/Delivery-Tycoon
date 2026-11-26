@@ -67,6 +67,7 @@ import {
   purchaseWarehouseUpgrade,
   recordPackageDelivery,
   recordPackagePickup,
+  refuelVehicleInEconomy,
   rejectOrderOffer,
   requestVehicleRepair,
   returnPackagesToWarehouse,
@@ -344,6 +345,7 @@ export function App() {
   const [taskAssignmentsByTaskId, setTaskAssignmentsByTaskId] = useState<Record<string, number>>(
     {}
   );
+  const [refuelingVehicleKeys, setRefuelingVehicleKeys] = useState<string[]>([]);
   // Tracks whether ALL couriers are currently parked at Base (required for automatic 15x Night Mode)
   const [allCouriersAtBase, setAllCouriersAtBase] = useState<boolean>(true);
   const [ordersOpen, setOrdersOpen] = useState<boolean>(false);
@@ -564,6 +566,7 @@ export function App() {
     setCourierAtBaseBySlot(status.atBaseBySlot);
     setAllCouriersAtBase(status.allAtBase);
     setTaskAssignmentsByTaskId(status.taskAssignmentsByTaskId);
+    setRefuelingVehicleKeys(status.refuelingVehicleKeys ?? []);
   }, []);
 
   const handleStartNewGame = useCallback(
@@ -956,6 +959,17 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleCompleteVehicleRefuel = useCallback(
+    (vehicle: ActiveVehicleSelection) => {
+      applyEconomyUpdate((prev) => refuelVehicleInEconomy(prev, vehicle, 1).state);
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handleRequestVehicleRefuel = useCallback((vehicle: ActiveVehicleSelection) => {
+    canvasControllerRef.current?.requestVehicleRefuel(vehicle);
+  }, []);
+
   const jumpWorldClockTo = useCallback(
     (targetMinutes: number) => {
       // Recall all couriers back to Base and secure any carried packages in Base warehouse before skipping time
@@ -1209,6 +1223,7 @@ export function App() {
         onReturnCargoToWarehouse={handleReturnCargoToWarehouse}
         onApplyVehicleWearBatch={handleApplyVehicleWearBatch}
         onCompleteVehicleRepair={handleCompleteVehicleRepair}
+        onCompleteVehicleRefuel={handleCompleteVehicleRefuel}
         controllerRef={canvasControllerRef}
       />
 
@@ -1269,6 +1284,8 @@ export function App() {
           onBuyVan={handleBuyVan}
           onSellVehicle={handleSellVehicle}
           onRequestVehicleRepair={handleRequestVehicleRepair}
+          onRequestVehicleRefuel={handleRequestVehicleRefuel}
+          refuelingVehicleKeys={refuelingVehicleKeys}
           onSelectActiveVehicle={handleSelectActiveVehicle}
           onBuyEmployeeLicense={handleBuyEmployeeLicense}
           onHireCourier={handleHireCourier}

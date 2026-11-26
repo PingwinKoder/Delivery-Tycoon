@@ -24,11 +24,13 @@ import {
   updateViewportGroundCache,
 } from '../utils/cityRenderer';
 import {
+  GAS_STATION_PRICE_PYLONS,
   type ParkedScooterRenderEntry,
   drawBaseLoadingZone,
   drawBikeRackWithOptionalBike,
   drawCourierDestinationPin,
   drawCourierRoute,
+  drawGasStationPricePylon,
   drawIsometricBicycle,
   drawIsometricDeliveryVan,
   drawIsometricScooter,
@@ -67,6 +69,7 @@ import {
   createInitialCourierFleet,
   createParkAtRackCourier,
   createPickupMissionCourier,
+  createRefuelMissionCourier,
   createRepairMissionCourier,
   getActiveOutVehiclesForFleet,
   getClaimedTaskCountsForFleet,
@@ -78,6 +81,7 @@ import {
   getReservedWarehouseSpaceForFleet,
   interruptCourierForEndOfWorkday,
   isVehicleCurrentlyInRoute,
+  selectNearestGasStationBuilding,
   selectNextCourierTaskForDay,
   selectNextTaskAfterFinalPickup,
   stepCourierMissionWithSimDt,
@@ -91,6 +95,9 @@ import type {
 } from '../types/orders';
 import { type GameSpeed, getGameClockDisplay } from '../utils/gameClock';
 import {
+  AUTO_REFUEL_THRESHOLD_RATIO,
+  BASE_FUEL_PRICE_PER_LITER,
+  calculateVehicleRefuelCost,
   getOwnedScooterByIndex,
   getOwnedScooters,
   getOwnedVanByIndex,
@@ -123,6 +130,7 @@ export interface MapCanvasController {
   armOutroFlyOut: () => void;
   beginArmedOutroFlyOut: () => void;
   dispatchCourierToBuilding: (building: Building) => boolean;
+  requestVehicleRefuel: (vehicle: ActiveVehicleSelection) => boolean;
   recallCourierToBase: () => WarehouseLoadedBatch[];
   getInFlightCargo: () => WarehouseLoadedBatch[];
   resetCouriersToBase: (couriers?: readonly CompanyCourier[]) => void;
@@ -174,6 +182,7 @@ interface MapCanvasProps {
     entries: ReadonlyArray<{ vehicle: ActiveVehicleSelection; distancePx: number }>
   ) => void;
   onCompleteVehicleRepair?: (vehicle: ActiveVehicleSelection) => void;
+  onCompleteVehicleRefuel?: (vehicle: ActiveVehicleSelection) => void;
   controllerRef: React.MutableRefObject<MapCanvasController | null>;
 }
 
@@ -328,6 +337,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   onReturnCargoToWarehouse,
   onApplyVehicleWearBatch,
   onCompleteVehicleRepair,
+  onCompleteVehicleRefuel,
   controllerRef,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -408,6 +418,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onReturnCargoToWarehouse,
     onApplyVehicleWearBatch,
     onCompleteVehicleRepair,
+    onCompleteVehicleRefuel,
   });
   propsRef.current = {
     graph,
@@ -439,13 +450,28 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     onReturnCargoToWarehouse,
     onApplyVehicleWearBatch,
     onCompleteVehicleRepair,
+    onCompleteVehicleRefuel,
   };
+
+  const pendingRefuelKeysRef = useRef<Set<string>>(new Set());
+  const reportedRefuelKeysSigRef = useRef<string>('');
 
   const syncFleetStatus = () => {
     const fleet = couriersFleetRef.current;
     const nextAtBaseBySlot = buildCourierAtBaseBySlot(fleet);
     const nextAllAtBase = COURIER_SLOT_INDICES.every((slot) => nextAtBaseBySlot[slot]);
     const nextTaskAssignments = buildTaskAssignmentsByTaskId(fleet);
+
+    const refuelingSet = new Set<string>(pendingRefuelKeysRef.current);
+    for (const slot of COURIER_SLOT_INDICES) {
+      const entry = fleet[slot];
+      if (entry && entry.inRoute && entry.courier.missionKind === 'refuel') {
+        refuelingSet.add(`${entry.courier.vehicleType}:${entry.courier.vehicleIndex}`);
+      }
+    }
+    const nextRefuelingKeys = Array.from(refuelingSet).sort();
+    const nextRefuelingSig = nextRefuelingKeys.join('|');
+    const refuelChanged = reportedRefuelKeysSigRef.current !== nextRefuelingSig;
 
     const prevAtBase = reportedAtBaseBySlotRef.current;
     let atBaseChanged = false;
@@ -469,13 +495,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
     }
 
-    if (atBaseChanged || tasksChanged) {
+    if (atBaseChanged || tasksChanged || refuelChanged) {
       reportedAtBaseBySlotRef.current = nextAtBaseBySlot;
       reportedTaskAssignmentsRef.current = nextTaskAssignments;
+      reportedRefuelKeysSigRef.current = nextRefuelingSig;
       propsRef.current.onCourierStatusChange?.({
         atBaseBySlot: nextAtBaseBySlot,
         allAtBase: nextAllAtBase,
         taskAssignmentsByTaskId: nextTaskAssignments,
+        refuelingVehicleKeys: nextRefuelingKeys,
       });
     }
 
@@ -497,6 +525,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     if (sessionEpoch === lastSessionEpochRef.current) return;
     lastSessionEpochRef.current = sessionEpoch;
     pendingWearByKeyRef.current.clear();
+    pendingRefuelKeysRef.current.clear();
     const eco = propsRef.current.economyStateRef?.current;
     couriersFleetRef.current = createInitialCourierFleet(eco?.couriers, eco);
     syncFleetStatus();
@@ -775,9 +804,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         syncFleetStatus();
         return recoveredCargo;
       },
+      requestVehicleRefuel: (vehicle: ActiveVehicleSelection) => {
+        if (vehicle.type === 'bike') return false;
+        const key = `${vehicle.type}:${vehicle.index}`;
+        pendingRefuelKeysRef.current.add(key);
+        syncFleetStatus();
+        return true;
+      },
       getInFlightCargo: () => collectInFlightCargoForFleet(couriersFleetRef.current),
       resetCouriersToBase: (couriers?: readonly CompanyCourier[]) => {
         pendingWearByKeyRef.current.clear();
+        pendingRefuelKeysRef.current.clear();
         const eco = propsRef.current.economyStateRef?.current;
         const roster = couriers ?? eco?.couriers;
         couriersFleetRef.current = createInitialCourierFleet(roster, eco);
@@ -1147,6 +1184,78 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       }
 
       return Array.from(stopByBuildingId.values());
+    };
+
+    const tryDispatchRefuelForSlot = (
+      slotIndex: number,
+      startFrom: CourierStartPoint,
+      dispatchVehicle: ActiveVehicleSelection,
+      originPoint?: Point
+    ): boolean => {
+      if (dispatchVehicle.type === 'bike') return false;
+      const {
+        graph: curGraph,
+        buildings: curBuildings,
+        baseDepot: curBaseDepot,
+        parkingNavNetworks: curParkingNav,
+        economyStateRef: ecoRef,
+      } = propsRef.current;
+
+      const ecoState = ecoRef?.current;
+      if (!ecoState) return false;
+      if (isVehicleCurrentlyInRoute(couriersFleetRef.current, dispatchVehicle, slotIndex)) {
+        return false;
+      }
+
+      const quote = calculateVehicleRefuelCost(ecoState, dispatchVehicle);
+      if (quote.litersNeeded <= 0.001 || ecoState.balance < quote.cost) {
+        return false;
+      }
+
+      const origin = originPoint ?? {
+        x: curBaseDepot.loadingZone.stopX,
+        y: curBaseDepot.loadingZone.stopY,
+      };
+      const gasStation = selectNearestGasStationBuilding(curBuildings, origin);
+      if (!gasStation) return false;
+
+      const durabilityMult = getVehicleDurabilitySpeedMultiplier(
+        getVehicleDurability(ecoState, dispatchVehicle)
+      );
+      const fuelMult = getVehicleFuelSpeedMultiplier(ecoState, dispatchVehicle);
+      const scooterModelId =
+        dispatchVehicle.type === 'scooter'
+          ? getOwnedScooterByIndex(ecoState, dispatchVehicle.index)?.modelId
+          : undefined;
+      const vehicleSpeed =
+        getCourierSpeedForSelection(ecoState, dispatchVehicle) * durabilityMult * fuelMult;
+      const vehicleCapacity = getCourierCapacityForSelection(ecoState, dispatchVehicle);
+
+      const refuelMission = createRefuelMissionCourier(
+        curGraph,
+        curBaseDepot,
+        gasStation,
+        dispatchVehicle,
+        startFrom,
+        vehicleSpeed,
+        curParkingNav,
+        slotIndex,
+        vehicleCapacity,
+        scooterModelId
+      );
+      if (refuelMission.active) {
+        pendingRefuelKeysRef.current.delete(`${dispatchVehicle.type}:${dispatchVehicle.index}`);
+        couriersFleetRef.current[slotIndex] = {
+          slotIndex,
+          inRoute: true,
+          assignedTaskId: null,
+          courier: refuelMission,
+          activeRoute: refuelMission.path,
+          targetMarker: refuelMission.stops[0]?.stopPoint ?? null,
+        };
+        return true;
+      }
+      return false;
     };
 
     const tryDispatchCourierForSlot = (
@@ -1778,6 +1887,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                 assignedTaskId: null,
                 speed: getCourierSpeedForVehicle(ev.vehicle.type, entry.courier.scooterModelId),
               };
+            } else if (ev.type === 'refuel_completed') {
+              pendingRefuelKeysRef.current.delete(`${ev.vehicle.type}:${ev.vehicle.index}`);
+              propsRef.current.onCompleteVehicleRefuel?.(ev.vehicle);
+              entry.assignedTaskId = null;
+              entry.courier = {
+                ...entry.courier,
+                assignedTaskId: null,
+                speed: getCourierSpeedForVehicle(ev.vehicle.type, entry.courier.scooterModelId),
+              };
             } else if (ev.type === 'base_unloaded') {
               if (ev.cargo.length > 0) {
                 propsRef.current.onReturnCargoToWarehouse?.(ev.cargo);
@@ -1791,17 +1909,35 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                 assignedTaskId: null,
               };
 
+              const vehKey = `${activeMissionVehicle.type}:${activeMissionVehicle.index}`;
+              const latestEcoAtBay = propsRef.current.economyStateRef?.current;
+              const manualRefuelQueued = pendingRefuelKeysRef.current.has(vehKey);
+              const autoLowFuelNeeded =
+                activeMissionVehicle.type !== 'bike' &&
+                latestEcoAtBay !== undefined &&
+                calculateVehicleRefuelCost(latestEcoAtBay, activeMissionVehicle).fillRatio <
+                  AUTO_REFUEL_THRESHOLD_RATIO;
+
+              let chained = false;
+              if (!isNightNow && !ev.wasForcedReturn && (manualRefuelQueued || autoLowFuelNeeded)) {
+                chained = tryDispatchRefuelForSlot(
+                  slotIndex,
+                  'loading_zone',
+                  activeMissionVehicle,
+                  { x: entry.courier.x, y: entry.courier.y }
+                );
+              }
+
               // If workday is still open and another free task is ready, chain immediately from the loading bay
               // keeping the exact same vehicle currently parked in the loading bay
-              const chained =
-                !isNightNow && !ev.wasForcedReturn
-                  ? tryDispatchCourierForSlot(
-                    slotIndex,
-                    currentGameMinutes,
-                    'loading_zone',
-                    activeMissionVehicle
-                  )
-                  : false;
+              if (!chained && !isNightNow && !ev.wasForcedReturn) {
+                chained = tryDispatchCourierForSlot(
+                  slotIndex,
+                  currentGameMinutes,
+                  'loading_zone',
+                  activeMissionVehicle
+                );
+              }
 
               if (!chained) {
                 // All free tasks done or workday ended -> park vehicle at Base bike rack or assigned stall P1–P8
@@ -1917,11 +2053,25 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             if (!slotEntry || slotEntry.inRoute || slotEntry.courier.active) {
               continue;
             }
+            const assignedVeh = rosterCourier.assignedVehicle;
+            if (assignedVeh.type !== 'bike') {
+              const vehKey = `${assignedVeh.type}:${assignedVeh.index}`;
+              const needsManualRefuel = pendingRefuelKeysRef.current.has(vehKey);
+              const needsAutoRefuel =
+                ecoState !== undefined &&
+                calculateVehicleRefuelCost(ecoState, assignedVeh).fillRatio <
+                  AUTO_REFUEL_THRESHOLD_RATIO;
+              if (needsManualRefuel || needsAutoRefuel) {
+                if (tryDispatchRefuelForSlot(rosterCourier.slotIndex, 'rack', assignedVeh)) {
+                  continue;
+                }
+              }
+            }
             tryDispatchCourierForSlot(
               rosterCourier.slotIndex,
               currentGameMinutes,
               'rack',
-              rosterCourier.assignedVehicle
+              assignedVeh
             );
           }
         } else {
@@ -2283,6 +2433,15 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         if (streetNamesVisible && !propsRef.current.overviewMode) {
           renderStreetNames(ctx, effectiveZoom, viewBounds);
         }
+      }
+
+      // Dynamic roadside gas-station price pylons (always visible in both 3D and 2D footprint modes)
+      const liveFuelPrice =
+        currentEco?.currentFuelPricePerLiter ?? BASE_FUEL_PRICE_PER_LITER;
+      const prevFuelPrice =
+        currentEco?.previousFuelPricePerLiter ?? liveFuelPrice;
+      for (const pylon of GAS_STATION_PRICE_PYLONS) {
+        drawGasStationPricePylon(ctx, pylon, liveFuelPrice, prevFuelPrice, invScale);
       }
 
       ctx.restore();

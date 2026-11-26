@@ -13,6 +13,7 @@ import { BASE_GAME_MINUTES_PER_REAL_SECOND } from '../gameClock';
 import {
   BIKE_REPAIR_GAME_MINUTES,
   DEFAULT_LEGACY_SCOOTER_MODEL_ID,
+  REFUEL_SERVICE_GAME_MINUTES,
   SCOOTER_CARGO_REPAIR_GAME_MINUTES,
   SCOOTER_CITY_REPAIR_GAME_MINUTES,
   SCOOTER_MODELS,
@@ -24,7 +25,14 @@ import {
 
 export type CourierPhase = 'idle' | 'outbound' | 'delivering' | 'returning';
 
-export type CourierMissionKind = 'none' | 'manual' | 'pickup' | 'delivery' | 'park_rack' | 'repair';
+export type CourierMissionKind =
+  | 'none'
+  | 'manual'
+  | 'pickup'
+  | 'delivery'
+  | 'park_rack'
+  | 'repair'
+  | 'refuel';
 
 export type CourierStartPoint = 'rack' | 'loading_zone';
 
@@ -39,7 +47,8 @@ export type CourierStopKind =
   | 'delivery'
   | 'base_unload'
   | 'park_rack'
-  | 'repair_service';
+  | 'repair_service'
+  | 'refuel_service';
 
 export interface CourierMissionStop {
   kind: CourierStopKind;
@@ -55,6 +64,8 @@ export interface CourierMissionStop {
   deliveryItems?: CourierCargoItem[];
   /** For repair_service stops: concrete vehicle being serviced */
   repairVehicle?: ActiveVehicleSelection;
+  /** For refuel_service stops: concrete vehicle being refueled at a gas station */
+  refuelVehicle?: ActiveVehicleSelection;
   /** Right-hand road + pull-in polyline from the previous point (Base or previous stop) to this stop */
   legPath: Point[];
   /** Directed right-hand road + Base loading-zone return polyline from this stop */
@@ -65,6 +76,7 @@ export type CourierSimEvent =
   | { type: 'pickup_loaded'; orderId: string; plannedCount: number; buildingId: string }
   | { type: 'delivery_completed'; items: CourierCargoItem[]; buildingId: string }
   | { type: 'repair_completed'; vehicle: ActiveVehicleSelection; buildingId: string }
+  | { type: 'refuel_completed'; vehicle: ActiveVehicleSelection; buildingId: string }
   | { type: 'base_unloaded'; cargo: CourierCargoItem[] }
   | { type: 'arrived_at_loading_zone'; wasForcedReturn: boolean }
   | { type: 'parked_at_rack'; cargo: CourierCargoItem[]; wasForcedReturn: boolean };
@@ -202,6 +214,7 @@ export interface CourierFleetStatusSnapshot {
   atBaseBySlot: Record<number, boolean>;
   allAtBase: boolean;
   taskAssignmentsByTaskId: Record<string, number>;
+  refuelingVehicleKeys?: string[];
 }
 
 export interface DeliveryStopInput {
@@ -228,6 +241,9 @@ export const SCOOTER_CARGO_REPAIR_SERVICE_PAUSE_SECONDS =
 export const VAN_REPAIR_SERVICE_PAUSE_SECONDS =
   VAN_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
 export const REPAIR_SERVICE_PAUSE_SECONDS = BIKE_REPAIR_SERVICE_PAUSE_SECONDS;
+/** Gas station refueling stop duration in simulation seconds (15 game min -> 12s at 1x) */
+export const REFUEL_SERVICE_PAUSE_SECONDS =
+  REFUEL_SERVICE_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
 export const BASE_TRANSFER_PAUSE_SECONDS = 1.0;
 
 export function getRepairServicePauseSeconds(

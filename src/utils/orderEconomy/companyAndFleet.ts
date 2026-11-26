@@ -611,6 +611,50 @@ export function getVehicleFuelSpeedMultiplier(
   return getVehicleFuelLiters(state, vehicle) <= 0 ? EMPTY_FUEL_SPEED_MULTIPLIER : 1;
 }
 
+export interface VehicleRefuelQuote {
+  tankCapacity: number;
+  currentFuel: number;
+  fillRatio: number;
+  litersNeeded: number;
+  cost: number;
+}
+
+/**
+ * Computes exact missing liters, current fill ratio, and USD cost to refuel `vehicle`
+ * up to `targetFillRatio` (default 1.0 = full tank) at `state.currentFuelPricePerLiter`.
+ */
+export function calculateVehicleRefuelCost(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection,
+  targetFillRatio = 1
+): VehicleRefuelQuote {
+  if (vehicle.type === 'bike') {
+    return { tankCapacity: 0, currentFuel: 0, fillRatio: 1, litersNeeded: 0, cost: 0 };
+  }
+  const tankCapacity = getVehicleFuelTankCapacity(state, vehicle);
+  if (tankCapacity <= 0) {
+    return { tankCapacity: 0, currentFuel: 0, fillRatio: 1, litersNeeded: 0, cost: 0 };
+  }
+  const currentFuel = getVehicleFuelLiters(state, vehicle);
+  const clampedTarget = Math.max(0, Math.min(1, Number.isFinite(targetFillRatio) ? targetFillRatio : 1));
+  const targetLiters = tankCapacity * clampedTarget;
+  const litersNeeded = Math.max(0, targetLiters - currentFuel);
+  const pricePerLiter =
+    typeof state.currentFuelPricePerLiter === 'number' &&
+    Number.isFinite(state.currentFuelPricePerLiter)
+      ? state.currentFuelPricePerLiter
+      : BASE_FUEL_PRICE_PER_LITER;
+  const cost = litersNeeded > 0.001 ? roundCurrency(litersNeeded * pricePerLiter) : 0;
+
+  return {
+    tankCapacity,
+    currentFuel,
+    fillRatio: Math.max(0, Math.min(1, currentFuel / tankCapacity)),
+    litersNeeded,
+    cost,
+  };
+}
+
 /**
  * Refuels a scooter or delivery van up to `targetFillRatio` (default 1.0 = full tank),
  * charging missing liters at `state.currentFuelPricePerLiter` and deducting from `balance`.

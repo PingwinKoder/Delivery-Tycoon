@@ -1807,3 +1807,156 @@ export function drawBaseLoadingZone(
   ctx.restore();
 }
 
+export interface GasStationPylonSpec {
+  id: 'sf_gas_station_1' | 'sf_gas_station_2';
+  u: number;
+  v: number;
+}
+
+/** Exact roadside pylon anchors placed beside each gas station driveway without blocking lanes or entry */
+export const GAS_STATION_PRICE_PYLONS: readonly GasStationPylonSpec[] = [
+  { id: 'sf_gas_station_1', u: -936, v: 414 },
+  { id: 'sf_gas_station_2', u: 164, v: -686 },
+] as const;
+
+/**
+ * Renders a crisp isometric roadside gas-station price pylon with a dark illuminated cabinet,
+ * FUEL header, trend arrow, and large high-contrast price readable on both phones and desktops.
+ */
+export function drawGasStationPricePylon(
+  ctx: CanvasRenderingContext2D,
+  station: GasStationPylonSpec,
+  fuelPricePerLiter: number,
+  prevPricePerLiter: number,
+  invScale: number
+) {
+  const base = isoToCanvas(station.u, station.v);
+  // Keep readable floor even when zoomed out on mobile screens, cap when zoomed in closely
+  const s = Math.max(0.85, Math.min(2.35, invScale * 1.08));
+
+  const postH = 18 * s;
+  const boardW = 54 * s;
+  const boardH = 30 * s;
+  const bx = base.x - boardW / 2;
+  const by = base.y - postH - boardH;
+  const r = 4.2 * s;
+
+  const delta = fuelPricePerLiter - prevPricePerLiter;
+  const isCheaper = delta < -0.004;
+  const isMoreExpensive = delta > 0.004;
+  const priceText = `$${fuelPricePerLiter.toFixed(2)}`;
+  const trendSymbol = isCheaper ? '▼' : isMoreExpensive ? '▲' : '';
+  const priceColor = isCheaper ? '#34d399' : isMoreExpensive ? '#fbbf24' : '#6ee7b7';
+  const accentColor = isCheaper ? '#10b981' : isMoreExpensive ? '#f59e0b' : '#38bdf8';
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1. Ground shadow + concrete plinth base
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.36)';
+  ctx.beginPath();
+  ctx.ellipse(base.x + 2.2 * s, base.y + 1.2 * s, 7.5 * s, 3.6 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#334155';
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1.0 * s;
+  ctx.beginPath();
+  ctx.ellipse(base.x, base.y, 4.4 * s, 2.2 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // 2. Vertical metallic pylon support column
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 4.2 * s;
+  ctx.beginPath();
+  ctx.moveTo(base.x, base.y);
+  ctx.lineTo(base.x, base.y - postH);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 1.9 * s;
+  ctx.beginPath();
+  ctx.moveTo(base.x - 0.5 * s, base.y);
+  ctx.lineTo(base.x - 0.5 * s, base.y - postH);
+  ctx.stroke();
+
+  // 3. Dark illuminated pylon sign cabinet
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.lineTo(bx + boardW - r, by);
+  ctx.quadraticCurveTo(bx + boardW, by, bx + boardW, by + r);
+  ctx.lineTo(bx + boardW, by + boardH - r);
+  ctx.quadraticCurveTo(bx + boardW, by + boardH, bx + boardW - r, by + boardH);
+  ctx.lineTo(bx + r, by + boardH);
+  ctx.quadraticCurveTo(bx, by + boardH, bx, by + boardH - r);
+  ctx.lineTo(bx, by + r);
+  ctx.quadraticCurveTo(bx, by, bx + r, by);
+  ctx.closePath();
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+  ctx.fill();
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 1.6 * s;
+  ctx.stroke();
+
+  // Top header band inside sign
+  const headerH = 9.5 * s;
+  ctx.fillStyle = 'rgba(30, 41, 59, 0.95)';
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by + 0.8 * s);
+  ctx.lineTo(bx + boardW - r, by + 0.8 * s);
+  ctx.quadraticCurveTo(bx + boardW - 0.8 * s, by + 0.8 * s, bx + boardW - 0.8 * s, by + r);
+  ctx.lineTo(bx + boardW - 0.8 * s, by + headerH);
+  ctx.lineTo(bx + 0.8 * s, by + headerH);
+  ctx.lineTo(bx + 0.8 * s, by + r);
+  ctx.quadraticCurveTo(bx + 0.8 * s, by + 0.8 * s, bx + r, by + 0.8 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Miniature fuel pump glyph on header left
+  const pumpX = bx + 5.2 * s;
+  const pumpY = by + 2.4 * s;
+  ctx.fillStyle = accentColor;
+  ctx.fillRect(pumpX, pumpY, 4.2 * s, 5.2 * s);
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(pumpX + 0.8 * s, pumpY + 0.8 * s, 2.6 * s, 1.8 * s);
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 0.8 * s;
+  ctx.beginPath();
+  ctx.moveTo(pumpX + 4.2 * s, pumpY + 1.5 * s);
+  ctx.lineTo(pumpX + 5.6 * s, pumpY + 2.4 * s);
+  ctx.lineTo(pumpX + 5.4 * s, pumpY + 4.8 * s);
+  ctx.stroke();
+
+  // "FUEL" header text + optional trend indicator
+  const headerFontSize = 7.4 * s;
+  ctx.font = `800 ${headerFontSize}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillText('FUEL', bx + 13.0 * s, by + headerH / 2 + 0.3 * s);
+
+  if (trendSymbol) {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = isCheaper ? '#34d399' : '#fb7185';
+    ctx.fillText(trendSymbol, bx + boardW - 4.2 * s, by + headerH / 2 + 0.3 * s);
+  }
+
+  // 4. Large high-contrast price display ($1.60) with crisp dark outline
+  const priceFontSize = 13.6 * s;
+  ctx.font = `800 ${priceFontSize}px 'JetBrains Mono', 'Inter', ui-monospace, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const priceY = by + headerH + (boardH - headerH) / 2 + 0.6 * s;
+
+  ctx.strokeStyle = '#020617';
+  ctx.lineWidth = 2.6 * s;
+  ctx.strokeText(priceText, base.x, priceY);
+  ctx.fillStyle = priceColor;
+  ctx.fillText(priceText, base.x, priceY);
+
+  ctx.restore();
+}
+

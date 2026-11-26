@@ -5,6 +5,7 @@ import type { BaseDepotSpec } from '../cityMap';
 import { BASE_GAME_MINUTES_PER_REAL_SECOND } from '../gameClock';
 import {
   BIKE_REPAIR_GAME_MINUTES,
+  REFUEL_SERVICE_GAME_MINUTES,
   SCOOTER_CARGO_REPAIR_GAME_MINUTES,
   SCOOTER_CITY_REPAIR_GAME_MINUTES,
   VAN_REPAIR_GAME_MINUTES,
@@ -421,6 +422,165 @@ export function createRepairMissionCourier(
     assignedTaskId,
     resolvedCapacity
   );
+}
+
+export const GAS_STATION_BUILDING_IDS = ['b_gas_station_1', 'b_gas_station_2'] as const;
+
+/**
+ * Selects the nearest gas station (`b_gas_station_1` or `b_gas_station_2`) to `originPoint`.
+ */
+export function selectNearestGasStationBuilding(
+  buildings: readonly Building[],
+  originPoint: Point
+): Building | null {
+  let best: Building | null = null;
+  let bestDistSq = Infinity;
+  for (const id of GAS_STATION_BUILDING_IDS) {
+    const station = buildings.find((b) => b.id === id);
+    if (!station) continue;
+    const pt = station.deliveryStopPoint ?? station.roadApproachPoint;
+    if (!pt) continue;
+    const dx = pt.x - originPoint.x;
+    const dy = pt.y - originPoint.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      best = station;
+    }
+  }
+  return best;
+}
+
+/**
+ * Creates a Gas Station Refuel Mission:
+ * - Drives the assigned scooter or van from Base (rack / parking spot / loading zone)
+ *   to the nearest gas station (`b_gas_station_1` or `b_gas_station_2`), pauses briefly
+ *   at the pump (15 in-game minutes -> 12s @ 1x), emits `refuel_completed`, and returns to Base.
+ */
+export function createRefuelMissionCourier(
+  graph: RoadGraph,
+  baseDepot: BaseDepotSpec,
+  gasStationBuilding: Building,
+  vehicle: ActiveVehicleSelection,
+  startFrom: CourierStartPoint = 'rack',
+  speed?: number,
+  parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
+  courierId = 1,
+  cargoCapacityOverride?: number,
+  scooterModelId?: ScooterModelId
+): CourierState {
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type, scooterModelId);
+  const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
+  const refuelPauseSeconds = REFUEL_SERVICE_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
+
+  if (vehicle.type === 'van') {
+    const stopPlan = resolveVanStopForBuilding(gasStationBuilding, parkingNavNetworks);
+    if (!stopPlan) {
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
+    }
+
+    const outboundPath = buildVanOutboundLegFromBaseToStop(
+      graph,
+      baseDepot,
+      stopPlan,
+      startFrom,
+      vehicle.index,
+      parkingNavNetworks
+    );
+    const returnToLoadingZone = buildVanReturnLegFromStopToLoadingZone(
+      graph,
+      baseDepot,
+      stopPlan
+    );
+
+    if (
+      !outboundPath ||
+      outboundPath.length < 2 ||
+      !returnToLoadingZone ||
+      returnToLoadingZone.length < 2
+    ) {
+      return createIdleCourier(vehicle, courierId, resolvedCapacity);
+    }
+
+    const actualStopPoint = outboundPath[outboundPath.length - 1];
+    const refuelStop: CourierMissionStop = {
+      kind: 'refuel_service',
+      buildingId: gasStationBuilding.id,
+      label: formatBuildingAddress(gasStationBuilding),
+      stopPoint: { x: actualStopPoint.x, y: actualStopPoint.y },
+      pauseDuration: refuelPauseSeconds,
+      refuelVehicle: { ...vehicle },
+      legPath: outboundPath,
+      returnToBasePath: returnToLoadingZone,
+    };
+
+    const mission = createMissionCourierFromStops(
+      'refuel',
+      [refuelStop],
+      [],
+      resolvedSpeed,
+      refuelPauseSeconds,
+      vehicle,
+      courierId,
+      null,
+      resolvedCapacity
+    );
+    if (scooterModelId) mission.scooterModelId = scooterModelId;
+    return mission;
+  }
+
+  if (!gasStationBuilding.deliveryStopPoint) {
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
+  }
+
+  const outboundPath = buildOutboundLegFromBaseToBuilding(
+    graph,
+    baseDepot,
+    gasStationBuilding,
+    startFrom
+  );
+  const returnToLoadingZone = buildReturnLegFromBuildingToLoadingZone(
+    graph,
+    baseDepot,
+    gasStationBuilding
+  );
+
+  if (
+    !outboundPath ||
+    outboundPath.length < 2 ||
+    !returnToLoadingZone ||
+    returnToLoadingZone.length < 2
+  ) {
+    return createIdleCourier(vehicle, courierId, resolvedCapacity);
+  }
+
+  const refuelStop: CourierMissionStop = {
+    kind: 'refuel_service',
+    buildingId: gasStationBuilding.id,
+    label: formatBuildingAddress(gasStationBuilding),
+    stopPoint: {
+      x: gasStationBuilding.deliveryStopPoint.x,
+      y: gasStationBuilding.deliveryStopPoint.y,
+    },
+    pauseDuration: refuelPauseSeconds,
+    refuelVehicle: { ...vehicle },
+    legPath: outboundPath,
+    returnToBasePath: returnToLoadingZone,
+  };
+
+  const mission = createMissionCourierFromStops(
+    'refuel',
+    [refuelStop],
+    [],
+    resolvedSpeed,
+    refuelPauseSeconds,
+    vehicle,
+    courierId,
+    null,
+    resolvedCapacity
+  );
+  if (scooterModelId) mission.scooterModelId = scooterModelId;
+  return mission;
 }
 
 /**
@@ -1289,6 +1449,30 @@ function stepCourierBySimDtInternal(
           buildingId: currentStop.buildingId,
         });
         // Restore full vehicle cruising speed immediately after repair for the return leg to Base
+        const restoredSpeed = getCourierSpeedForVehicle(state.vehicleType, state.scooterModelId);
+        const returnState = beginReturnLeg(
+          {
+            ...state,
+            speed: restoredSpeed,
+            assignedTaskId: null,
+          },
+          state.wheelPhase
+        );
+        return leftoverDt > 1e-6
+          ? stepCourierBySimDtInternal(returnState, leftoverDt, events, metrics)
+          : returnState;
+      }
+
+      if (currentStop.kind === 'refuel_service') {
+        const refueledVehicle: ActiveVehicleSelection = currentStop.refuelVehicle ?? {
+          type: state.vehicleType,
+          index: state.vehicleIndex,
+        };
+        events.push({
+          type: 'refuel_completed',
+          vehicle: { ...refueledVehicle },
+          buildingId: currentStop.buildingId,
+        });
         const restoredSpeed = getCourierSpeedForVehicle(state.vehicleType, state.scooterModelId);
         const returnState = beginReturnLeg(
           {
