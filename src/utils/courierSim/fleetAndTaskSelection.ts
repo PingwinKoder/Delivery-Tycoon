@@ -1,8 +1,10 @@
 import type {
+  ActiveOrder,
   ActiveVehicleSelection,
   ActiveVehicleType,
   CompanyCourier,
   OrderEconomyState,
+  WeeklyScheduleTask,
 } from '../../types/orders';
 import { getGameClockDisplay } from '../gameClock';
 import {
@@ -60,19 +62,67 @@ function getClaimedCountForKeys(
   return 0;
 }
 
+function evaluateOrderTaskCandidate(
+  state: OrderEconomyState,
+  order: ActiveOrder,
+  clockDayIndex: number,
+  clockGameDay: number,
+  vehicleCapacity: number,
+  warehouseCapacity: number,
+  freeWarehouseSpace: number,
+  inFlightPickupCountsByOrder?: ReadonlyMap<string, number>,
+  task?: WeeklyScheduleTask
+): SelectedCourierTask | null {
+  const remainingToPickup = getRemainingPickupPackagesForOrderToday(
+    state,
+    order,
+    clockDayIndex,
+    clockGameDay
+  );
+  const inFlightPickup = Math.max(0, inFlightPickupCountsByOrder?.get(order.id) ?? 0);
+  const effectiveRemainingToPickup = Math.max(0, remainingToPickup - inFlightPickup);
+  const storedCount = getStoredPackagesForOrder(state, order.id);
+
+  if (effectiveRemainingToPickup > 0) {
+    const requiredSpace = Math.min(vehicleCapacity, effectiveRemainingToPickup, warehouseCapacity);
+    const canFitPickup =
+      freeWarehouseSpace > 0 &&
+      freeWarehouseSpace >= requiredSpace &&
+      hasEnoughWarehouseSpaceForPickup(state, effectiveRemainingToPickup, vehicleCapacity);
+
+    if (canFitPickup) {
+      const pickupCount = Math.min(
+        vehicleCapacity,
+        effectiveRemainingToPickup,
+        freeWarehouseSpace
+      );
+      if (pickupCount > 0 && task) {
+        return { kind: 'pickup', order, pickupCount, task };
+      }
+    }
+
+    // Warehouse full for the next pickup batch: if this order already has packages in Base,
+    // perform one delivery trip to free space; otherwise skip.
+    if (storedCount > 0) {
+      return { kind: 'delivery', order, availableCount: storedCount, task };
+    }
+    return null;
+  }
+
+  if (storedCount > 0) {
+    return { kind: 'delivery', order, availableCount: storedCount, task };
+  }
+
+  return null;
+}
+
 /**
  * Scans today's merged `Plan tygodnia` tasks strictly from top to bottom (`#1`, `#2`, ...)
- * and picks the first ready stage for an order (up to 2 couriers simultaneously per order,
- * respecting in-flight pickup reservations and free Base warehouse stock):
- * - If the merged task still has unreserved unpicked packages (`effectiveRemainingToPickup > 0`) AND Base warehouse
- *   has free space for the next pickup batch -> dispatch `pickup` stage.
- * - If the warehouse is full (cannot fit the next pickup batch) -> skip unfinished pickup and
- *   dispatch a single `delivery` trip for the highest-priority merged task that already has
- *   packages waiting in the Base warehouse, freeing space before re-scanning from `#1`.
- * - If all remaining packages are already picked up or reserved (`effectiveRemainingToPickup === 0`) and
- *   packages are stored in Base warehouse -> dispatch `delivery` stage.
- *
- * Falls back to any eligible active order with stored warehouse packages if none are listed today.
+ * using a two-pass strategy:
+ * - Pass 1: Strictly prefer completely free orders (0 active couriers assigned).
+ * - Pass 2: Only when Pass 1 finds no eligible free order, allow joining an order currently
+ *   handled by exactly 1 courier (max 2 couriers per order) and only if unreserved packages
+ *   remain to pick up at the sender or free packages await delivery in the Base warehouse.
  */
 export function selectNextCourierTaskForDay(
   state: OrderEconomyState,
@@ -93,8 +143,8 @@ export function selectNextCourierTaskForDay(
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
   const vehicleCapacity =
     typeof options?.vehicleCapacity === 'number' &&
-    Number.isFinite(options.vehicleCapacity) &&
-    options.vehicleCapacity > 0
+      Number.isFinite(options.vehicleCapacity) &&
+      options.vehicleCapacity > 0
       ? Math.floor(options.vehicleCapacity)
       : vehicleTypeOverride === undefined
         ? getVehicleCourierCapacityForSelection(state, state.activeVehicle)
@@ -130,81 +180,62 @@ export function selectNextCourierTaskForDay(
     return null;
   }
 
-  for (const task of todayTasks) {
-    // Healthy vehicles skip repair tasks belonging to other vehicles
-    if (task.taskType === 'repair') continue;
-    if (
-      getClaimedCountForKeys(
-        [task.taskId, task.orderId],
-        claimedTaskCounts,
-        claimedTaskIds
-      ) >= MAX_COURIERS_PER_ORDER
-    ) {
-      continue;
-    }
-
-    const order = activeById.get(task.orderId);
-    if (!order || order.status !== 'active') continue;
-
-    const remainingToPickup = getRemainingPickupPackagesForOrderToday(
-      state,
-      order,
-      clock.dayIndex,
-      clock.gameDay
-    );
-    const inFlightPickup = Math.max(0, inFlightPickupCountsByOrder?.get(order.id) ?? 0);
-    const effectiveRemainingToPickup = Math.max(0, remainingToPickup - inFlightPickup);
-    const storedCount = getStoredPackagesForOrder(state, order.id);
-
-    if (effectiveRemainingToPickup > 0) {
-      const requiredSpace = Math.min(vehicleCapacity, effectiveRemainingToPickup, warehouseCapacity);
-      const canFitPickup =
-        freeWarehouseSpace > 0 &&
-        freeWarehouseSpace >= requiredSpace &&
-        hasEnoughWarehouseSpaceForPickup(state, effectiveRemainingToPickup, vehicleCapacity);
-
-      if (canFitPickup) {
-        const pickupCount = Math.min(
-          vehicleCapacity,
-          effectiveRemainingToPickup,
-          freeWarehouseSpace
-        );
-        if (pickupCount > 0) {
-          return { kind: 'pickup', order, pickupCount, task };
-        }
-      }
-
-      // Warehouse full for the next pickup batch: if this order already has packages in Base,
-      // perform one delivery trip to free space; otherwise continue scanning lower-priority orders.
-      if (storedCount > 0) {
-        return { kind: 'delivery', order, availableCount: storedCount, task };
-      }
-      continue;
-    }
-
-    if (storedCount > 0) {
-      return { kind: 'delivery', order, availableCount: storedCount, task };
-    }
-  }
-
-  // Fallback: deliver any stored packages belonging to an eligible active order
-  if (state.warehousePackages > 0) {
-    for (const order of state.activeOrders) {
-      if (order.status !== 'active') continue;
+  const findTaskForPass = (targetClaimedCount: 0 | 1): SelectedCourierTask | null => {
+    for (const task of todayTasks) {
+      // Healthy vehicles skip repair tasks belonging to other vehicles
+      if (task.taskType === 'repair') continue;
       if (
-        getClaimedCountForKeys([order.id], claimedTaskCounts, claimedTaskIds) >=
-        MAX_COURIERS_PER_ORDER
+        getClaimedCountForKeys(
+          [task.taskId, task.orderId],
+          claimedTaskCounts,
+          claimedTaskIds
+        ) !== targetClaimedCount
       ) {
         continue;
       }
-      const storedCount = getStoredPackagesForOrder(state, order.id);
-      if (storedCount > 0) {
-        return { kind: 'delivery', order, availableCount: storedCount };
+
+      const order = activeById.get(task.orderId);
+      if (!order || order.status !== 'active') continue;
+
+      const candidate = evaluateOrderTaskCandidate(
+        state,
+        order,
+        clock.dayIndex,
+        clock.gameDay,
+        vehicleCapacity,
+        warehouseCapacity,
+        freeWarehouseSpace,
+        inFlightPickupCountsByOrder,
+        task
+      );
+      if (candidate) {
+        return candidate;
       }
     }
-  }
 
-  return null;
+    // Fallback: deliver any stored packages belonging to an eligible active order
+    if (state.warehousePackages > 0) {
+      for (const order of state.activeOrders) {
+        if (order.status !== 'active') continue;
+        if (
+          getClaimedCountForKeys([order.id], claimedTaskCounts, claimedTaskIds) !==
+          targetClaimedCount
+        ) {
+          continue;
+        }
+        const storedCount = getStoredPackagesForOrder(state, order.id);
+        if (storedCount > 0) {
+          return { kind: 'delivery', order, availableCount: storedCount };
+        }
+      }
+    }
+
+    return null;
+  };
+
+  // Pass 1: completely unassigned orders (0 couriers).
+  // Pass 2: join an order with 1 courier (max 2) only if Pass 1 found no free order.
+  return findTaskForPass(0) ?? findTaskForPass(1);
 }
 
 /**
@@ -243,8 +274,8 @@ export function selectNextTaskAfterFinalPickup(
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
   const vehicleCapacity =
     typeof options?.vehicleCapacity === 'number' &&
-    Number.isFinite(options.vehicleCapacity) &&
-    options.vehicleCapacity > 0
+      Number.isFinite(options.vehicleCapacity) &&
+      options.vehicleCapacity > 0
       ? Math.floor(options.vehicleCapacity)
       : vehicleTypeOverride === undefined
         ? getVehicleCourierCapacityForSelection(state, state.activeVehicle)
@@ -275,71 +306,59 @@ export function selectNextTaskAfterFinalPickup(
     return { scenario: 'return_to_base_idle' };
   }
 
-  for (const task of todayTasks) {
-    if (task.taskType === 'repair') continue;
-    if (
-      getClaimedCountForKeys(
-        [task.taskId, task.orderId],
-        claimedTaskCounts,
-        claimedTaskIds
-      ) >= MAX_COURIERS_PER_ORDER
-    ) {
-      continue;
-    }
-    const order = activeById.get(task.orderId);
-    if (!order || order.status !== 'active') continue;
-
-    // Scenario A: same merged order is still highest priority for this courier -> deliver directly
-    if (order.id === completedPickupOrderId) {
-      return {
-        scenario: 'direct_delivery_same_order',
-        order,
-        task,
-      };
-    }
-
-    // Another order sits higher in Plan tygodnia: check whether it is ready for pickup (Scenario B)
-    // or delivery (Scenario C) after unloading our carried packages at Base
-    const remainingToPickup = getRemainingPickupPackagesForOrderToday(
-      state,
-      order,
-      clock.dayIndex,
-      clock.gameDay
-    );
-    const inFlightPickup = Math.max(0, inFlightPickupCountsByOrder?.get(order.id) ?? 0);
-    const effectiveRemainingToPickup = Math.max(0, remainingToPickup - inFlightPickup);
-    const storedCount = getStoredPackagesForOrder(state, order.id);
-
-    if (effectiveRemainingToPickup > 0) {
-      const nextBatchSize = Math.min(vehicleCapacity, effectiveRemainingToPickup, warehouseCapacity);
-      if (freeSpaceAfterUnload >= nextBatchSize) {
-        const pickupCount = Math.min(
-          vehicleCapacity,
-          effectiveRemainingToPickup,
-          freeSpaceAfterUnload
-        );
-        if (pickupCount > 0) {
-          return {
-            scenario: 'return_to_base_for_next_task',
-            nextTask: { kind: 'pickup', order, pickupCount, task },
-          };
-        }
+  const findNextDecisionForPass = (
+    targetClaimedCount: 0 | 1
+  ): PostFinalPickupDecision | null => {
+    for (const task of todayTasks) {
+      if (task.taskType === 'repair') continue;
+      if (
+        getClaimedCountForKeys(
+          [task.taskId, task.orderId],
+          claimedTaskCounts,
+          claimedTaskIds
+        ) !== targetClaimedCount
+      ) {
+        continue;
       }
-      if (storedCount > 0) {
+      const order = activeById.get(task.orderId);
+      if (!order || order.status !== 'active') continue;
+
+      // Scenario A: same merged order is still highest priority for this courier -> deliver directly
+      if (order.id === completedPickupOrderId) {
         return {
-          scenario: 'return_to_base_for_next_task',
-          nextTask: { kind: 'delivery', order, availableCount: storedCount, task },
+          scenario: 'direct_delivery_same_order',
+          order,
+          task,
         };
       }
-      continue;
+
+      // Another order sits higher in Plan tygodnia: check whether it is ready for pickup (Scenario B)
+      // or delivery (Scenario C) after unloading our carried packages at Base
+      const nextTask = evaluateOrderTaskCandidate(
+        state,
+        order,
+        clock.dayIndex,
+        clock.gameDay,
+        vehicleCapacity,
+        warehouseCapacity,
+        freeSpaceAfterUnload,
+        inFlightPickupCountsByOrder,
+        task
+      );
+      if (nextTask) {
+        return {
+          scenario: 'return_to_base_for_next_task',
+          nextTask,
+        };
+      }
     }
 
-    if (storedCount > 0) {
-      return {
-        scenario: 'return_to_base_for_next_task',
-        nextTask: { kind: 'delivery', order, availableCount: storedCount, task },
-      };
-    }
+    return null;
+  };
+
+  const passDecision = findNextDecisionForPass(0) ?? findNextDecisionForPass(1);
+  if (passDecision) {
+    return passDecision;
   }
 
   const completedOrder = activeById.get(completedPickupOrderId);
@@ -347,7 +366,7 @@ export function selectNextTaskAfterFinalPickup(
     completedOrder &&
     completedOrder.status === 'active' &&
     getClaimedCountForKeys([completedPickupOrderId], claimedTaskCounts, claimedTaskIds) <
-      MAX_COURIERS_PER_ORDER
+    MAX_COURIERS_PER_ORDER
   ) {
     return {
       scenario: 'direct_delivery_same_order',
@@ -367,8 +386,8 @@ export function createIdleCourier(
   const vehicleIndex = Math.max(1, Math.floor(vehicle.index || 1));
   const resolvedCapacity =
     typeof cargoCapacityOverride === 'number' &&
-    Number.isFinite(cargoCapacityOverride) &&
-    cargoCapacityOverride > 0
+      Number.isFinite(cargoCapacityOverride) &&
+      cargoCapacityOverride > 0
       ? Math.floor(cargoCapacityOverride)
       : getCourierCapacityForVehicle(vehicleType);
   return {
