@@ -120,7 +120,7 @@ import {
   resolveVanStopForBuilding,
 } from '../utils/parkingNavigation';
 import { applyRightHandLaneOffsets } from '../utils/trafficLanes';
-import type { MaxFpsLimit } from '../utils/settingsSystem';
+import type { MaxFpsLimit, SupportedLanguage } from '../utils/settingsSystem';
 
 export interface MapCanvasController {
   centerOnBase: () => void;
@@ -156,6 +156,8 @@ interface MapCanvasProps {
   sessionEpoch?: number;
   /** Upper FPS cap configured in Graphics settings ('unlimited' disables throttling) */
   maxFps?: MaxFpsLimit;
+  /** Active UI language for map street labels and gas station pylons */
+  language?: SupportedLanguage;
   onFpsChange?: (fps: number) => void;
   onMapReady?: () => void;
   onIntroFlyInComplete?: () => void;
@@ -325,6 +327,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   overviewMode = false,
   sessionEpoch = 0,
   maxFps = 60,
+  language = 'pl',
   onFpsChange,
   onMapReady,
   onIntroFlyInComplete,
@@ -406,6 +409,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     interactionBlocked,
     overviewMode,
     maxFps,
+    language,
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
@@ -438,6 +442,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     interactionBlocked,
     overviewMode,
     maxFps,
+    language,
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
@@ -1141,7 +1146,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     const flushPendingVehicleWear = (nowMs: number, force = false) => {
       const pendingMap = pendingWearByKeyRef.current;
       if (pendingMap.size === 0) return;
-      if (!force && nowMs - lastWearFlushMs < 500) return;
+      if (!force && nowMs - lastWearFlushMs < 1800) return;
       const batch = Array.from(pendingMap.values());
       pendingMap.clear();
       lastWearFlushMs = nowMs;
@@ -2345,7 +2350,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           }
         }
         if (streetNamesVisible) {
-          renderStreetNames(ctx, effectiveZoom, viewBounds);
+          renderStreetNames(ctx, effectiveZoom, viewBounds, propsRef.current.language ?? 'pl');
         }
       } else {
         // Normal 3D Mode: Base loading zone & active routes on ground, then Z-sorted 3D building sprites interleaved with
@@ -2431,7 +2436,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           drawBaseMarker(curBaseNode);
         }
         if (streetNamesVisible && !propsRef.current.overviewMode) {
-          renderStreetNames(ctx, effectiveZoom, viewBounds);
+          renderStreetNames(ctx, effectiveZoom, viewBounds, propsRef.current.language ?? 'pl');
         }
       }
 
@@ -2440,8 +2445,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         currentEco?.currentFuelPricePerLiter ?? BASE_FUEL_PRICE_PER_LITER;
       const prevFuelPrice =
         currentEco?.previousFuelPricePerLiter ?? liveFuelPrice;
+      const canvasLang = propsRef.current.language ?? 'pl';
       for (const pylon of GAS_STATION_PRICE_PYLONS) {
-        drawGasStationPricePylon(ctx, pylon, liveFuelPrice, prevFuelPrice, invScale);
+        drawGasStationPricePylon(ctx, pylon, liveFuelPrice, prevFuelPrice, invScale, canvasLang);
       }
 
       ctx.restore();

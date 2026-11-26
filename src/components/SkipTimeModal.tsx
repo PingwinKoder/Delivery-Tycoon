@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { CalendarArrowUp, SkipForward, X } from 'lucide-react';
+import { SkipForward, X } from 'lucide-react';
 import { getMonthName, getWeekdayName, t } from '../i18n/translations';
 import { getGameClockDisplay } from '../utils/gameClock';
 import type { SupportedLanguage } from '../utils/settingsSystem';
@@ -8,20 +8,16 @@ interface SkipTimeModalProps {
   isOpen: boolean;
   language: SupportedLanguage;
   nextDayMorningMinutes: number;
-  nextScheduledOrderMinutes: number | null;
   onClose: () => void;
   onSkipDay: () => void;
-  onSkipToNextOrder: () => void;
 }
 
 export const SkipTimeModal: React.FC<SkipTimeModalProps> = ({
   isOpen,
   language,
   nextDayMorningMinutes,
-  nextScheduledOrderMinutes,
   onClose,
   onSkipDay,
-  onSkipToNextOrder,
 }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -40,14 +36,7 @@ export const SkipTimeModal: React.FC<SkipTimeModalProps> = ({
   if (!isOpen) return null;
 
   const nextDayClock = getGameClockDisplay(nextDayMorningMinutes);
-  const nextOrderClock =
-    nextScheduledOrderMinutes !== null ? getGameClockDisplay(nextScheduledOrderMinutes) : null;
-  const hasUpcomingOrder = nextOrderClock !== null;
-
   const nextDayText = `${getWeekdayName(language, nextDayClock.dayIndex, false)} | ${nextDayClock.dayOfMonth} ${getMonthName(language, nextDayClock.monthIndex, false)} | 08:00`;
-  const nextOrderText = nextOrderClock
-    ? `${getWeekdayName(language, nextOrderClock.dayIndex, false)} | ${nextOrderClock.dayOfMonth} ${getMonthName(language, nextOrderClock.monthIndex, false)} | 08:00`
-    : null;
 
   return (
     <div
@@ -91,16 +80,6 @@ export const SkipTimeModal: React.FC<SkipTimeModalProps> = ({
             <span className="font-mono-nums text-amber-300">{nextDayText}</span>
             {t(language, 'skipTime.dayDescSuffix')}
           </p>
-          <p>
-            <span className="font-semibold text-slate-100">{t(language, 'skipTime.orderLabel')}</span>{' '}
-            {t(language, 'skipTime.orderDescPrefix')}
-            {nextOrderText ? (
-              <span className="font-mono-nums text-emerald-300">{nextOrderText}</span>
-            ) : (
-              <span className="text-slate-400">{t(language, 'skipTime.orderDescNone')}</span>
-            )}
-            {t(language, 'skipTime.orderDescSuffix')}
-          </p>
         </div>
 
         {/* Action Buttons */}
@@ -120,20 +99,6 @@ export const SkipTimeModal: React.FC<SkipTimeModalProps> = ({
           >
             <SkipForward className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
             <span>{t(language, 'skipTime.skipDayBtn')}</span>
-          </button>
-
-          <button
-            type="button"
-            disabled={!hasUpcomingOrder}
-            onClick={onSkipToNextOrder}
-            className={`min-h-[42px] [@media(max-height:540px)]:min-h-0 px-4 [@media(max-height:540px)]:px-3 py-2 [@media(max-height:540px)]:py-2 rounded-lg text-xs sm:text-sm [@media(max-height:540px)]:text-xs font-bold flex items-center justify-center gap-1.5 transition-colors touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300 ${
-              hasUpcomingOrder
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                : 'bg-slate-800/70 text-slate-500 border border-slate-700/70 cursor-not-allowed'
-            }`}
-          >
-            <CalendarArrowUp className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
-            <span>{t(language, 'skipTime.skipOrderBtn')}</span>
           </button>
         </div>
       </div>

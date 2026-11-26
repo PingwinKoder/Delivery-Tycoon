@@ -18,7 +18,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { t, translateOrderText } from '../i18n/translations';
+import { getMonthName, t, translateOrderText } from '../i18n/translations';
 import type {
   ActiveVehicleSelection,
   CompanyCourier,
@@ -2598,10 +2598,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             const ledger =
               economyState.currentMonthLedger ?? createEmptyCurrentMonthLedger(companySat);
             const shortTermRev = ledger.shortTermRevenue;
-            const longTermRev = Math.max(
-              ledger.longTermAccruedRevenue,
-              economyState.pendingMonthlyLongTermPayout
-            );
+            const longTermRev = ledger.longTermAccruedRevenue;
             const totalLiveRevenue = shortTermRev + longTermRev;
             const totalOperatingExpenses =
               ledger.fuelExpenses + ledger.repairExpenses + ledger.penaltyExpenses;
@@ -2845,10 +2842,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   (rec.penaltyExpenses ?? 0);
                             const net = rev - exp;
                             const sat = Math.round(rec.averageSatisfaction ?? 80);
+                            const prevMonthIdx = (rec.monthIndex + 11) % 12;
+                            const prevYear = rec.monthIndex === 0 ? rec.year - 1 : rec.year;
+                            const periodLabel = `${getMonthName(language, prevMonthIdx, false)} ${t(language, 'hud.yearFull', { year: prevYear })}`;
                             return (
                               <tr key={rec.id} className="hover:bg-slate-900/50">
                                 <td className="py-1.5 pr-2 font-sans font-semibold text-slate-200 whitespace-nowrap">
-                                  {rec.settledPeriodLabel}
+                                  {periodLabel}
                                 </td>
                                 <td className="py-1.5 px-2 text-right text-emerald-300 whitespace-nowrap">
                                   {formatCurrencyUsd(rev, false)}

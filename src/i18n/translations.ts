@@ -1071,6 +1071,74 @@ const POLISH_TO_ENGLISH_REPLACEMENTS: ReadonlyArray<readonly [RegExp, string]> =
 ];
 
 /**
+ * Complete English translations for all 18 main streets and 24 residential access streets
+ * defined in `src/utils/cityMap.ts`.
+ */
+const STREET_NAMES_EN: Record<string, string> = {
+  // 18 main streets (u_0..u_8, v_0..v_8)
+  'ul. Brzozowa': 'Birch St.',
+  'ul. Kwiatowa': 'Flower St.',
+  'al. Północna': 'North Ave.',
+  'ul. Lipowa': 'Linden St.',
+  'al. Główna': 'Main Ave.',
+  'ul. Słoneczna': 'Sunny St.',
+  'al. Południowa': 'South Ave.',
+  'ul. Ogrodowa': 'Garden St.',
+  'ul. Leśna': 'Forest St.',
+  'ul. Polna': 'Field St.',
+  'ul. Spacerowa': 'Promenade St.',
+  'al. Zachodnia': 'West Ave.',
+  'ul. Parkowa': 'Park St.',
+  'al. Dworcowa': 'Station Ave.',
+  'ul. Kolejowa': 'Railway St.',
+  'al. Przemysłowa': 'Industrial Ave.',
+  'ul. Rzemieślnicza': 'Craftsman St.',
+  'ul. Kasztanowa': 'Chestnut St.',
+  // 24 residential access streets
+  'ul. Cicha': 'Quiet St.',
+  'ul. Jaśminowa': 'Jasmine St.',
+  'ul. Wiosenna': 'Spring St.',
+  'ul. Akacjowa': 'Acacia St.',
+  'ul. Sosnowa': 'Pine St.',
+  'ul. Klonowa': 'Maple St.',
+  'ul. Wrzosowa': 'Heather St.',
+  'ul. Wiśniowa': 'Cherry St.',
+  'ul. Kalinowa': 'Viburnum St.',
+  'ul. Świerkowa': 'Spruce St.',
+  'ul. Cisowa': 'Yew St.',
+  'ul. Grabowa': 'Hornbeam St.',
+  'ul. Topolowa': 'Poplar St.',
+  'ul. Jaworowa': 'Sycamore St.',
+  'ul. Modrzewiowa': 'Larch St.',
+  'ul. Morelowa': 'Apricot St.',
+  'ul. Jabłoniowa': 'Apple Tree St.',
+  'ul. Jesionowa': 'Ash St.',
+  'ul. Olchowa': 'Alder St.',
+  'ul. Dębowa': 'Oak St.',
+  'ul. Malinowa': 'Raspberry St.',
+  'ul. Poziomkowa': 'Wild Strawberry St.',
+  'ul. Fiołkowa': 'Violet St.',
+  'ul. Chabrowa': 'Cornflower St.',
+};
+
+const STREET_NAME_REPLACEMENTS_EN: Array<[string, string]> = Object.entries(STREET_NAMES_EN).sort(
+  (a, b) => b[0].length - a[0].length
+);
+
+export function translateStreetName(lang: SupportedLanguage, streetName: string): string {
+  if (lang === 'pl' || !streetName) return streetName;
+  const exact = STREET_NAMES_EN[streetName];
+  if (exact) return exact;
+  let result = streetName;
+  for (const [pl, en] of STREET_NAME_REPLACEMENTS_EN) {
+    if (result.includes(pl)) {
+      result = result.split(pl).join(en);
+    }
+  }
+  return result;
+}
+
+/**
  * Translates dynamically generated order titles, descriptions, client names,
  * warehouse tier names, and weekday tokens when English mode is active,
  * without requiring any modifications to orderEconomy.ts.
@@ -1081,7 +1149,7 @@ export function translateOrderText(lang: SupportedLanguage, text: string): strin
   const exact = DYNAMIC_ORDER_TEXT_EN[text];
   if (exact) return exact;
 
-  let result = text;
+  let result = translateStreetName(lang, text);
   for (const [plKey, enValue] of Object.entries(DYNAMIC_ORDER_TEXT_EN)) {
     if (result.includes(plKey)) {
       result = result.split(plKey).join(enValue);

@@ -34,8 +34,8 @@ import {
   calculateMonthlyCompanyCosts,
   countUnreadOffers,
   formatCurrencyUsd,
+  getLongTermContractTotalPackages,
   getScheduledTasksForWeekday,
-  getUpcomingLongTermPickupQuota,
   roundCurrency,
 } from '../utils/orderEconomy';
 import type { SupportedLanguage } from '../utils/settingsSystem';
@@ -1050,39 +1050,25 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
   const translatedClient = translateOrderText(language, order.clientName);
   const translatedAddress = translateOrderText(language, order.pickupLocation.address);
 
-  const currentGameDay = Math.floor(Math.max(0, gameMinutes) / MINUTES_PER_DAY) + 1;
-  const rawWeeklyTarget = order.weekly.expectedPackagesThisWeek;
-  const weeklyTarget =
-    order.kind === 'long_term' && rawWeeklyTarget <= 0
-      ? getUpcomingLongTermPickupQuota(order, currentGameDay)
-      : rawWeeklyTarget;
   const pickedUpThisWeek = order.weekly.pickedUpPackagesThisWeek;
-  const deliveredThisWeek = order.weekly.deliveredPackagesThisWeek;
 
-  const shortTermTotal = order.kind === 'short_term' ? order.totalPackages : weeklyTarget;
-  const shortTermPickedUp =
-    order.kind === 'short_term'
-      ? Math.min(
-        order.totalPackages,
-        Math.max(
-          order.pickedUpPackagesTotal ?? 0,
-          order.deliveredPackagesTotal + storedInWarehouse,
-          pickedUpThisWeek
-        )
-      )
-      : pickedUpThisWeek;
+  const contractTotalPackages =
+    order.kind === 'long_term' ? getLongTermContractTotalPackages(order) : order.totalPackages;
+  const totalPickedUpPackages = Math.min(
+    contractTotalPackages,
+    Math.max(
+      order.pickedUpPackagesTotal ?? 0,
+      order.deliveredPackagesTotal + storedInWarehouse,
+      order.kind === 'short_term' ? pickedUpThisWeek : 0
+    )
+  );
+  const totalDeliveredPackages = Math.min(contractTotalPackages, order.deliveredPackagesTotal);
 
-  const progressText = isLongTerm
-    ? t(language, 'orders.progressSummary', {
-      picked: pickedUpThisWeek,
-      delivered: deliveredThisWeek,
-      total: weeklyTarget,
-    })
-    : t(language, 'orders.progressSummary', {
-      picked: shortTermPickedUp,
-      delivered: order.deliveredPackagesTotal,
-      total: shortTermTotal,
-    });
+  const progressText = t(language, 'orders.progressSummary', {
+    picked: totalPickedUpPackages,
+    delivered: totalDeliveredPackages,
+    total: contractTotalPackages,
+  });
 
   return (
     <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">

@@ -131,6 +131,23 @@ export function getUpcomingLongTermPickupQuota(
   return 0;
 }
 
+/**
+ * Deterministically computes the total number of packages scheduled across the entire
+ * active duration `[acceptedAtGameDay, endGameDay)` of a long-term contract.
+ */
+export function getLongTermContractTotalPackages(order: ActiveLongTermOrder): number {
+  const startDay = Math.max(1, Math.floor(order.acceptedAtGameDay));
+  const endDay = Math.max(startDay, Math.floor(order.endGameDay));
+  let total = 0;
+  if (order.pickupWeekdays.length > 0 && order.pickupDaysPerWeek > 0) {
+    for (let day = startDay; day < endDay; day++) {
+      const weekday = getCalendarDateFromGameDay(day).dayIndex;
+      total += getLongTermPickupDayQuota(order, weekday);
+    }
+  }
+  return Math.max(total, order.pickedUpPackagesTotal ?? 0, order.deliveredPackagesTotal);
+}
+
 function extractOrderIdFromTaskKey(taskKey: string): string {
   const sepIdx = taskKey.lastIndexOf(':');
   if (sepIdx === -1) return taskKey;
@@ -602,16 +619,29 @@ export function recordPackageDelivery(
   const nextActive = [...state.activeOrders];
   nextActive[idx] = updatedLongOrder;
 
+  const nextPendingLongTermPayout = roundCurrency(state.pendingMonthlyLongTermPayout + earnedNow);
+  const batchCompleted =
+    newDeliveredThisWeek >= newPickedUpThisWeek ||
+    nextLongDeliveredTotal >= (updatedLongOrder.pickedUpPackagesTotal ?? 0);
+
+  if (!batchCompleted) {
+    return {
+      ...state,
+      pendingMonthlyLongTermPayout: nextPendingLongTermPayout,
+      activeOrders: nextActive,
+    };
+  }
+
   const baseLedger =
     state.currentMonthLedger ??
     createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
 
   return {
     ...state,
-    pendingMonthlyLongTermPayout: roundCurrency(state.pendingMonthlyLongTermPayout + earnedNow),
+    pendingMonthlyLongTermPayout: nextPendingLongTermPayout,
     currentMonthLedger: {
       ...baseLedger,
-      longTermAccruedRevenue: roundCurrency(baseLedger.longTermAccruedRevenue + earnedNow),
+      longTermAccruedRevenue: nextPendingLongTermPayout,
     },
     activeOrders: nextActive,
   };

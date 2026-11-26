@@ -1,4 +1,6 @@
 import type { RoadGraph } from '../../types/roadGraph';
+import { translateStreetName } from '../../i18n/translations';
+import type { SupportedLanguage } from '../settingsSystem';
 import {
   type DeliveryZone,
   type HouseYardFence,
@@ -2215,7 +2217,8 @@ const STREET_LABEL_PLACEMENTS: StreetLabelPlacement[] = buildStreetLabelPlacemen
 export function renderStreetNames(
   ctx: CanvasRenderingContext2D,
   zoom: number,
-  viewBounds?: WorldViewBounds
+  viewBounds?: WorldViewBounds,
+  language: SupportedLanguage = 'pl'
 ) {
   const invScale = 1 / Math.sqrt(zoom);
 
@@ -2233,6 +2236,7 @@ export function renderStreetNames(
     ) {
       continue;
     }
+    const displayName = translateStreetName(language, label.name);
     const isAvenue = label.kind === 'avenue';
     const fontSize = Math.round((isAvenue ? 11.5 : 10) * invScale * 10) / 10;
 
@@ -2241,7 +2245,7 @@ export function renderStreetNames(
     ctx.rotate(label.angle);
 
     ctx.font = `${isAvenue ? 700 : 600} ${fontSize}px "Plus Jakarta Sans", system-ui, sans-serif`;
-    const metrics = ctx.measureText(label.name);
+    const metrics = ctx.measureText(displayName);
     const padX = 6 * invScale;
     const padY = 2.6 * invScale;
     const boxW = metrics.width + padX * 2;
@@ -2262,7 +2266,7 @@ export function renderStreetNames(
     ctx.stroke();
 
     ctx.fillStyle = isAvenue ? '#fef9c3' : '#f1f5f9';
-    ctx.fillText(label.name, 0, 0.5 * invScale);
+    ctx.fillText(displayName, 0, 0.5 * invScale);
 
     ctx.restore();
   }

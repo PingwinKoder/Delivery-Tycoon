@@ -2,6 +2,7 @@ import type { Point } from '../types/roadGraph';
 import type { ScooterModelId, VanCondition, VanTier } from '../types/orders';
 import type { BaseBikeRackSpec, BaseLoadingZoneSpec } from './cityMap';
 import { isoToCanvas } from './cityMap';
+import type { SupportedLanguage } from './settingsSystem';
 
 /** Compact, minimalist bicycle & rider scale (~20% smaller than 0.67 for crisp city readability) */
 export const DEFAULT_BICYCLE_SCALE = 0.54;
@@ -1828,7 +1829,8 @@ export function drawGasStationPricePylon(
   station: GasStationPylonSpec,
   fuelPricePerLiter: number,
   prevPricePerLiter: number,
-  invScale: number
+  invScale: number,
+  language: SupportedLanguage = 'pl'
 ) {
   const base = isoToCanvas(station.u, station.v);
   // Keep readable floor even when zoomed out on mobile screens, cap when zoomed in closely
@@ -1930,13 +1932,13 @@ export function drawGasStationPricePylon(
   ctx.lineTo(pumpX + 5.4 * s, pumpY + 4.8 * s);
   ctx.stroke();
 
-  // "FUEL" header text + optional trend indicator
-  const headerFontSize = 7.4 * s;
+  // "PALIWO" / "FUEL" header text + optional trend indicator
+  const headerFontSize = (language === 'pl' ? 6.6 : 7.4) * s;
   ctx.font = `800 ${headerFontSize}px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   ctx.fillStyle = '#e2e8f0';
-  ctx.fillText('FUEL', bx + 13.0 * s, by + headerH / 2 + 0.3 * s);
+  ctx.fillText(language === 'pl' ? 'PALIWO' : 'FUEL', bx + 12.2 * s, by + headerH / 2 + 0.3 * s);
 
   if (trendSymbol) {
     ctx.textAlign = 'right';

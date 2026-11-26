@@ -46,7 +46,6 @@ import {
   completeVehicleRepair,
   countUnreadOffers,
   createInitialOrderEconomyState,
-  findNextScheduledOrderDayMinutes,
   fireCourierInSlot,
   getFreeWarehouseCapacity,
   getNextDayMorningMinutes,
@@ -358,6 +357,8 @@ export function App() {
   const [allCouriersAtBase, setAllCouriersAtBase] = useState<boolean>(true);
   const [ordersOpen, setOrdersOpen] = useState<boolean>(false);
   const [companyOpen, setCompanyOpen] = useState<boolean>(false);
+  const companyOpenRef = useRef<boolean>(false);
+  companyOpenRef.current = companyOpen;
   const [skipTimeOpen, setSkipTimeOpen] = useState<boolean>(false);
   const [monthlyReportRecord, setMonthlyReportRecord] =
     useState<MonthlySettlementRecord | null>(null);
@@ -870,6 +871,7 @@ export function App() {
   }, []);
 
   const handleOpenCompany = useCallback(() => {
+    setEconomyState(economyStateRef.current);
     setOrdersOpen(false);
     setSkipTimeOpen(false);
     setSettingsOpen(false);
@@ -981,9 +983,55 @@ export function App() {
   const handleApplyVehicleWearBatch = useCallback(
     (entries: ReadonlyArray<{ vehicle: ActiveVehicleSelection; distancePx: number }>) => {
       if (entries.length === 0) return;
-      applyEconomyUpdate((prev) => applyVehicleWearBatch(prev, entries));
+      const prev = economyStateRef.current;
+      const next = applyVehicleWearBatch(prev, entries);
+      if (next === prev) return;
+      economyStateRef.current = next;
+
+      // Sync React UI state when Company/Fleet modal is open, or when a rounded % changed
+      let shouldCommitToReact = companyOpenRef.current;
+      if (!shouldCommitToReact) {
+        for (const entry of entries) {
+          if (entry.vehicle.type === 'bike') {
+            const pDur = prev.bikeDurabilities[entry.vehicle.index - 1];
+            const nDur = next.bikeDurabilities[entry.vehicle.index - 1];
+            if (typeof pDur === 'number' && typeof nDur === 'number' && Math.round(pDur) !== Math.round(nDur)) {
+              shouldCommitToReact = true;
+              break;
+            }
+          } else if (entry.vehicle.type === 'scooter') {
+            const pScooter = prev.scooters.find((s) => s.index === entry.vehicle.index);
+            const nScooter = next.scooters.find((s) => s.index === entry.vehicle.index);
+            if (
+              pScooter &&
+              nScooter &&
+              (Math.round(pScooter.durability) !== Math.round(nScooter.durability) ||
+                Math.round(pScooter.fuelLiters * 10) !== Math.round(nScooter.fuelLiters * 10))
+            ) {
+              shouldCommitToReact = true;
+              break;
+            }
+          } else {
+            const pVan = prev.vans.find((v) => v.index === entry.vehicle.index);
+            const nVan = next.vans.find((v) => v.index === entry.vehicle.index);
+            if (
+              pVan &&
+              nVan &&
+              (Math.round(pVan.durability) !== Math.round(nVan.durability) ||
+                Math.round(pVan.fuelLiters * 10) !== Math.round(nVan.fuelLiters * 10))
+            ) {
+              shouldCommitToReact = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (shouldCommitToReact) {
+        setEconomyState(next);
+      }
     },
-    [applyEconomyUpdate]
+    []
   );
 
   const handleCompleteVehicleRepair = useCallback(
@@ -1043,16 +1091,6 @@ export function App() {
   const handleSkipOneDay = useCallback(() => {
     const target = getNextDayMorningMinutes(exactGameMinutesRef.current);
     jumpWorldClockTo(target);
-  }, [jumpWorldClockTo]);
-
-  const handleSkipToNextOrder = useCallback(() => {
-    const target = findNextScheduledOrderDayMinutes(
-      economyStateRef.current,
-      exactGameMinutesRef.current
-    );
-    if (target !== null) {
-      jumpWorldClockTo(target);
-    }
   }, [jumpWorldClockTo]);
 
   const handleMarkOffersSeen = useCallback(() => {
@@ -1201,14 +1239,6 @@ export function App() {
     [gameMinutes, startScreenOpen, skipTimeOpen]
   );
 
-  const nextScheduledOrderMinutes = useMemo(
-    () =>
-      startScreenOpen || !skipTimeOpen
-        ? null
-        : findNextScheduledOrderDayMinutes(economyState, gameMinutes),
-    [economyState, gameMinutes, startScreenOpen, skipTimeOpen]
-  );
-
   const activeWarehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
   const activeBikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
   const activeVansCount =
@@ -1254,6 +1284,7 @@ export function App() {
         }
         sessionEpoch={sessionEpoch}
         maxFps={isMobileDevice ? settings.mobileMaxFps : settings.pcMaxFps}
+        language={settings.language}
         onFpsChange={setFps}
         onMapReady={handleMapReady}
         onIntroFlyInComplete={handleIntroFlyInComplete}
@@ -1352,10 +1383,8 @@ export function App() {
           isOpen={skipTimeOpen}
           language={settings.language}
           nextDayMorningMinutes={nextDayMorningMinutes}
-          nextScheduledOrderMinutes={nextScheduledOrderMinutes}
           onClose={handleCloseSkipTime}
           onSkipDay={handleSkipOneDay}
-          onSkipToNextOrder={handleSkipToNextOrder}
         />
       )}
 
