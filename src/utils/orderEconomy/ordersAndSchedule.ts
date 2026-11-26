@@ -33,9 +33,13 @@ import {
   hasEnoughWarehouseSpaceForPickup,
 } from './companyAndFleet';
 import {
+  BASE_FUEL_PRICE_PER_LITER,
   BIKE_COURIER_CAPACITY,
   CONTRACT_TERMINATION_THRESHOLD,
   EARLY_OFFERS_DAY_LIMIT,
+  FUEL_PRICE_CHANGE_MAX_DAYS,
+  FUEL_PRICE_CHANGE_MIN_DAYS,
+  INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY,
   INITIAL_ORDER_SATISFACTION,
   LATE_OFFERS_BATCH_MAX,
   LATE_OFFERS_BATCH_MIN,
@@ -48,9 +52,12 @@ import {
   UNDELIVERED_WEEK_SATISFACTION_PENALTY,
   WEEKLY_ON_TIME_SATISFACTION_BONUS,
   calculateReputationLevel,
+  clampFuelPrice,
   clampSatisfaction,
   computeAnnualSatisfactionAvg,
+  getSeasonalTargetFuelPrice,
   isNightHoursForTime,
+  nextRng,
   recordOrderSatisfactionSample,
   rngInt,
   roundCurrency,
@@ -1150,6 +1157,41 @@ export function advanceOrderEconomy(
 
       // 4. Expire old offers (2 days short-term / 3 days long-term) and generate new offers on schedule
       current = processDailyOfferLifecycle(current, date, dayStartMinutes, buildings);
+
+      // 5. Dynamic fuel market price update every 3–5 days with seasonal target pull & ±6–9% market wave
+      const nextFuelDay =
+        typeof current.nextFuelPriceChangeGameDay === 'number' &&
+        Number.isFinite(current.nextFuelPriceChangeGameDay)
+          ? current.nextFuelPriceChangeGameDay
+          : INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY;
+      if (date.gameDay >= nextFuelDay) {
+        const currentPrice =
+          typeof current.currentFuelPricePerLiter === 'number' &&
+          Number.isFinite(current.currentFuelPricePerLiter)
+            ? current.currentFuelPricePerLiter
+            : BASE_FUEL_PRICE_PER_LITER;
+        const targetPrice = getSeasonalTargetFuelPrice(date.gameDay);
+        const pulledPrice = currentPrice + (targetPrice - currentPrice) * 0.35;
+
+        const signStep = nextRng(current.randomRngState);
+        const magStep = nextRng(signStep.nextState);
+        const intervalStep = rngInt(
+          magStep.nextState,
+          FUEL_PRICE_CHANGE_MIN_DAYS,
+          FUEL_PRICE_CHANGE_MAX_DAYS
+        );
+        const waveSign = signStep.value < 0.5 ? -1 : 1;
+        const waveMagnitude = 0.06 + magStep.value * 0.03; // 6%..9%
+        const nextPrice = clampFuelPrice(roundCurrency(pulledPrice * (1 + waveSign * waveMagnitude)));
+
+        current = {
+          ...current,
+          previousFuelPricePerLiter: currentPrice,
+          currentFuelPricePerLiter: nextPrice,
+          nextFuelPriceChangeGameDay: date.gameDay + intervalStep.value,
+          randomRngState: intervalStep.nextState,
+        };
+      }
     }
 
     // B. Process Sunday 23:59 weekly satisfaction settlement if crossed on this day

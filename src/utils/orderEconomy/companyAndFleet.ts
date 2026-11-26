@@ -15,6 +15,7 @@ import type {
   ScooterModelId,
   UpgradePurchaseResult,
   VanModelId,
+  VehicleRefuelResult,
   VehicleRepairRequestResult,
   VehicleRepairTask,
   WarehouseLoadForBikeResult,
@@ -32,6 +33,8 @@ import {
   getCalendarDateFromElapsedDays,
 } from '../gameClock';
 import {
+  BASE_FUEL_BURN_LITERS_PER_WORLD_PX,
+  BASE_FUEL_PRICE_PER_LITER,
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
   BIKE_REPAIR_COST_MULTIPLIER,
@@ -41,10 +44,12 @@ import {
   DEFAULT_LEGACY_VAN_MODEL_ID,
   DEFAULT_VEHICLE_DURABILITY,
   EMPLOYEE_LICENSE_COSTS,
+  EMPTY_FUEL_SPEED_MULTIPLIER,
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
   INITIAL_BICYCLES,
   INITIAL_MAX_EMPLOYEES,
+  INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY,
   INITIAL_OFFERS_COUNT,
   INITIAL_PARKING_SPOTS,
   INITIAL_SCOOTERS,
@@ -70,6 +75,7 @@ import {
   VAN_MODELS,
   VAN_REPAIR_COST_MULTIPLIER,
   WAREHOUSE_TIERS,
+  clampFuelLiters,
   clampVehicleDurability,
   createClockRandomSeed,
   createDefaultOwnedVans,
@@ -346,6 +352,9 @@ export function createInitialOrderEconomyState(
     rngState: initialSeed >>> 0,
     randomRngState: (randomSeed ?? createClockRandomSeed()) >>> 0,
     weeklyPriorityOrder: createEmptyWeeklyPriorityOrder(),
+    currentFuelPricePerLiter: BASE_FUEL_PRICE_PER_LITER,
+    previousFuelPricePerLiter: BASE_FUEL_PRICE_PER_LITER,
+    nextFuelPriceChangeGameDay: INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY,
   };
 
   // Day 1 starts with 2 deterministic unread offers immediately available
@@ -531,6 +540,163 @@ export function getVehicleDurability(
 /** Returns the cruising speed multiplier for a vehicle (0.8 at or below 25% durability, otherwise 1.0). */
 export function getVehicleDurabilitySpeedMultiplier(durability: number): number {
   return durability <= LOW_DURABILITY_SPEED_THRESHOLD ? LOW_DURABILITY_SPEED_MULTIPLIER : 1;
+}
+
+/** Returns fuel tank capacity in liters for a concrete vehicle (0 for bicycles). */
+export function getVehicleFuelTankCapacity(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection | null | undefined
+): number {
+  if (!vehicle || vehicle.type === 'bike') return 0;
+  if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    return getScooterModelSpec(scooter?.modelId ?? DEFAULT_LEGACY_SCOOTER_MODEL_ID)
+      .fuelTankCapacityLiters;
+  }
+  const van = getOwnedVanByIndex(state, vehicle.index);
+  return getVanModelSpec(van?.modelId ?? DEFAULT_LEGACY_VAN_MODEL_ID).fuelTankCapacityLiters;
+}
+
+/** Returns current fuel level in liters for a concrete vehicle (0 for bicycles). */
+export function getVehicleFuelLiters(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection | null | undefined
+): number {
+  if (!vehicle || vehicle.type === 'bike') return 0;
+  if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    if (!scooter) return 0;
+    const cap = getScooterModelSpec(scooter.modelId).fuelTankCapacityLiters;
+    return typeof scooter.fuelLiters === 'number' && Number.isFinite(scooter.fuelLiters)
+      ? clampFuelLiters(scooter.fuelLiters, cap)
+      : cap;
+  }
+  const van = getOwnedVanByIndex(state, vehicle.index);
+  if (!van) return 0;
+  const cap = getVanModelSpec(van.modelId).fuelTankCapacityLiters;
+  return typeof van.fuelLiters === 'number' && Number.isFinite(van.fuelLiters)
+    ? clampFuelLiters(van.fuelLiters, cap)
+    : cap;
+}
+
+/** Returns fuel burn rate in liters per 1 world pixel driven (0 for bicycles). */
+export function getVehicleFuelBurnPerWorldPx(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): number {
+  if (vehicle.type === 'bike') return 0;
+  if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    const rate = getScooterModelSpec(
+      scooter?.modelId ?? DEFAULT_LEGACY_SCOOTER_MODEL_ID
+    ).fuelConsumptionRate;
+    return BASE_FUEL_BURN_LITERS_PER_WORLD_PX * rate;
+  }
+  const van = getOwnedVanByIndex(state, vehicle.index);
+  const rate = getVanModelSpec(van?.modelId ?? DEFAULT_LEGACY_VAN_MODEL_ID).fuelConsumptionRate;
+  return BASE_FUEL_BURN_LITERS_PER_WORLD_PX * rate;
+}
+
+/**
+ * Returns the speed multiplier due to fuel level:
+ * - Bicycles: always 1.0
+ * - Motorized vehicles with fuelLiters <= 0: 0.5x (reserve limp mode — never halts mid-road)
+ * - Motorized vehicles with fuelLiters > 0: 1.0
+ */
+export function getVehicleFuelSpeedMultiplier(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection | null | undefined
+): number {
+  if (!vehicle || vehicle.type === 'bike') return 1;
+  return getVehicleFuelLiters(state, vehicle) <= 0 ? EMPTY_FUEL_SPEED_MULTIPLIER : 1;
+}
+
+/**
+ * Refuels a scooter or delivery van up to `targetFillRatio` (default 1.0 = full tank),
+ * charging missing liters at `state.currentFuelPricePerLiter` and deducting from `balance`.
+ */
+export function refuelVehicleInEconomy(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection,
+  targetFillRatio = 1
+): VehicleRefuelResult {
+  if (vehicle.type === 'bike') {
+    return { state, refueled: false, litersAdded: 0, cost: 0, reason: 'not_applicable' };
+  }
+
+  const clampedRatio = Math.max(0, Math.min(1, Number.isFinite(targetFillRatio) ? targetFillRatio : 1));
+  const pricePerLiter =
+    typeof state.currentFuelPricePerLiter === 'number' &&
+    Number.isFinite(state.currentFuelPricePerLiter)
+      ? state.currentFuelPricePerLiter
+      : BASE_FUEL_PRICE_PER_LITER;
+
+  if (vehicle.type === 'scooter') {
+    const scooters = getOwnedScooters(state);
+    const idx = scooters.findIndex((s) => s.index === vehicle.index);
+    if (idx === -1) {
+      return { state, refueled: false, litersAdded: 0, cost: 0, reason: 'not_found' };
+    }
+    const scooter = scooters[idx];
+    const cap = getScooterModelSpec(scooter.modelId).fuelTankCapacityLiters;
+    const currentFuel = clampFuelLiters(scooter.fuelLiters, cap);
+    const targetLiters = cap * clampedRatio;
+    const litersNeeded = Math.max(0, targetLiters - currentFuel);
+    if (litersNeeded <= 0.001) {
+      return { state, refueled: false, litersAdded: 0, cost: 0, reason: 'already_full' };
+    }
+    const cost = roundCurrency(litersNeeded * pricePerLiter);
+    if (state.balance < cost) {
+      return { state, refueled: false, litersAdded: 0, cost, reason: 'insufficient_funds' };
+    }
+    const nextScooters = scooters.map((s, i) =>
+      i === idx ? { ...s, fuelLiters: clampFuelLiters(targetLiters, cap) } : s
+    );
+    return {
+      state: {
+        ...state,
+        balance: roundCurrency(state.balance - cost),
+        scooters: nextScooters,
+        scootersCount: nextScooters.length,
+      },
+      refueled: true,
+      litersAdded: litersNeeded,
+      cost,
+    };
+  }
+
+  const vans = getOwnedVans(state);
+  const idx = vans.findIndex((v) => v.index === vehicle.index);
+  if (idx === -1) {
+    return { state, refueled: false, litersAdded: 0, cost: 0, reason: 'not_found' };
+  }
+  const van = vans[idx];
+  const cap = getVanModelSpec(van.modelId).fuelTankCapacityLiters;
+  const currentFuel = clampFuelLiters(van.fuelLiters, cap);
+  const targetLiters = cap * clampedRatio;
+  const litersNeeded = Math.max(0, targetLiters - currentFuel);
+  if (litersNeeded <= 0.001) {
+    return { state, refueled: false, litersAdded: 0, cost: 0, reason: 'already_full' };
+  }
+  const cost = roundCurrency(litersNeeded * pricePerLiter);
+  if (state.balance < cost) {
+    return { state, refueled: false, litersAdded: 0, cost, reason: 'insufficient_funds' };
+  }
+  const nextVans = vans.map((v, i) =>
+    i === idx ? { ...v, fuelLiters: clampFuelLiters(targetLiters, cap) } : v
+  );
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - cost),
+      vans: nextVans,
+      vansCount: nextVans.length,
+      deliveryVansCount: nextVans.length,
+    },
+    refueled: true,
+    litersAdded: litersNeeded,
+    cost,
+  };
 }
 
 /** Returns wear rate (% durability lost per world pixel driven) for the concrete vehicle. */
@@ -719,7 +885,8 @@ export function applyVehicleWearBatch(
     if (!Number.isFinite(entry.distancePx) || entry.distancePx <= 0) continue;
     const rate = getVehicleWearPerWorldPx(state, entry.vehicle);
     const wearDelta = entry.distancePx * rate;
-    if (wearDelta <= 0) continue;
+    const fuelBurnDelta = entry.distancePx * getVehicleFuelBurnPerWorldPx(state, entry.vehicle);
+    if (wearDelta <= 0 && fuelBurnDelta <= 0) continue;
 
     if (entry.vehicle.type === 'bike') {
       const idx = entry.vehicle.index - 1;
@@ -737,14 +904,25 @@ export function applyVehicleWearBatch(
       const baseScooters: OwnedScooter[] = nextScooters ?? getOwnedScooters(state);
       const targetIdx = baseScooters.findIndex((s) => s.index === entry.vehicle.index);
       if (targetIdx === -1) continue;
+      const targetScooter = baseScooters[targetIdx];
       const prevDur =
-        typeof baseScooters[targetIdx].durability === 'number'
-          ? baseScooters[targetIdx].durability
+        typeof targetScooter.durability === 'number'
+          ? targetScooter.durability
           : DEFAULT_VEHICLE_DURABILITY;
       const nextDur = clampVehicleDurability(prevDur - wearDelta);
-      if (nextDur !== prevDur) {
+      const cap = getScooterModelSpec(targetScooter.modelId).fuelTankCapacityLiters;
+      const prevFuel =
+        typeof targetScooter.fuelLiters === 'number' && Number.isFinite(targetScooter.fuelLiters)
+          ? clampFuelLiters(targetScooter.fuelLiters, cap)
+          : cap;
+      const nextFuel = clampFuelLiters(prevFuel - fuelBurnDelta, cap);
+      if (nextDur !== prevDur || nextFuel !== prevFuel) {
         const updatedScooters: OwnedScooter[] = nextScooters ?? baseScooters.map((s) => ({ ...s }));
-        updatedScooters[targetIdx] = { ...updatedScooters[targetIdx], durability: nextDur };
+        updatedScooters[targetIdx] = {
+          ...updatedScooters[targetIdx],
+          durability: nextDur,
+          fuelLiters: nextFuel,
+        };
         nextScooters = updatedScooters;
         changed = true;
       }
@@ -752,14 +930,25 @@ export function applyVehicleWearBatch(
       const baseVans: OwnedVan[] = nextVans ?? getOwnedVans(state);
       const targetIdx = baseVans.findIndex((v) => v.index === entry.vehicle.index);
       if (targetIdx === -1) continue;
+      const targetVan = baseVans[targetIdx];
       const prevDur =
-        typeof baseVans[targetIdx].durability === 'number'
-          ? baseVans[targetIdx].durability
+        typeof targetVan.durability === 'number'
+          ? targetVan.durability
           : DEFAULT_VEHICLE_DURABILITY;
       const nextDur = clampVehicleDurability(prevDur - wearDelta);
-      if (nextDur !== prevDur) {
+      const cap = getVanModelSpec(targetVan.modelId).fuelTankCapacityLiters;
+      const prevFuel =
+        typeof targetVan.fuelLiters === 'number' && Number.isFinite(targetVan.fuelLiters)
+          ? clampFuelLiters(targetVan.fuelLiters, cap)
+          : cap;
+      const nextFuel = clampFuelLiters(prevFuel - fuelBurnDelta, cap);
+      if (nextDur !== prevDur || nextFuel !== prevFuel) {
         const updatedVans: OwnedVan[] = nextVans ?? baseVans.map((v) => ({ ...v }));
-        updatedVans[targetIdx] = { ...updatedVans[targetIdx], durability: nextDur };
+        updatedVans[targetIdx] = {
+          ...updatedVans[targetIdx],
+          durability: nextDur,
+          fuelLiters: nextFuel,
+        };
         nextVans = updatedVans;
         changed = true;
       }

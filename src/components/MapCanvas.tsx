@@ -98,6 +98,7 @@ import {
   getRemainingPickupPackagesForOrderToday,
   getVehicleDurability,
   getVehicleDurabilitySpeedMultiplier,
+  getVehicleFuelSpeedMultiplier,
   isNightHoursForTime,
   pickRandomRecipientBuildingForPackage,
 } from '../utils/orderEconomy';
@@ -647,7 +648,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           const eco = propsRef.current.economyStateRef?.current;
           const manualVanSpeed =
             getCourierSpeedForVehicle('van') *
-            (eco ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) : 1);
+            (eco
+              ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) *
+                getVehicleFuelSpeedMultiplier(eco, curVehicle)
+              : 1);
           const manualCourier = createCourierFromPath(
             fullOutbound,
             manualVanSpeed,
@@ -717,7 +721,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           (eco
             ? getCourierSpeedForSelection(eco, curVehicle)
             : getCourierSpeedForVehicle(curVehicle.type)) *
-          (eco ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) : 1);
+          (eco
+            ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) *
+              getVehicleFuelSpeedMultiplier(eco, curVehicle)
+            : 1);
         const manualCourier = createCourierFromPath(
           fullOutbound,
           manualBikeSpeed,
@@ -1169,13 +1176,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const durabilityMult = getVehicleDurabilitySpeedMultiplier(
         getVehicleDurability(ecoState, dispatchVehicle)
       );
+      const fuelMult = getVehicleFuelSpeedMultiplier(ecoState, dispatchVehicle);
       const scooterSpec =
         dispatchVehicle.type === 'scooter'
           ? getOwnedScooterByIndex(ecoState, dispatchVehicle.index)
           : undefined;
       const scooterModelId = scooterSpec?.modelId;
       const vehicleSpeed =
-        getCourierSpeedForSelection(ecoState, dispatchVehicle) * durabilityMult;
+        getCourierSpeedForSelection(ecoState, dispatchVehicle) * durabilityMult * fuelMult;
       const vehicleCapacity = getCourierCapacityForSelection(ecoState, dispatchVehicle);
       const claimedTaskCounts = getClaimedTaskCountsForFleet(couriersFleetRef.current, slotIndex);
       const inFlightPickupCountsByOrder = getInFlightPickupCountsByOrderForFleet(
@@ -1594,13 +1602,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           const expectedBaseSpeed = ecoBeforeStep
             ? getCourierSpeedForSelection(ecoBeforeStep, activeMissionVehicle)
             : getCourierSpeedForVehicle(activeMissionVehicle.type, entry.courier.scooterModelId);
+          const fuelSpeedMult = ecoBeforeStep
+            ? getVehicleFuelSpeedMultiplier(ecoBeforeStep, activeMissionVehicle)
+            : 1;
           const expectedSpeed =
             isReturningFromRepair || !ecoBeforeStep
-              ? expectedBaseSpeed
+              ? expectedBaseSpeed * fuelSpeedMult
               : expectedBaseSpeed *
-              getVehicleDurabilitySpeedMultiplier(
-                getVehicleDurability(ecoBeforeStep, activeMissionVehicle)
-              );
+                getVehicleDurabilitySpeedMultiplier(
+                  getVehicleDurability(ecoBeforeStep, activeMissionVehicle)
+                ) *
+                fuelSpeedMult;
           if (Math.abs(entry.courier.speed - expectedSpeed) > 0.01) {
             entry.courier = {
               ...entry.courier,
@@ -1707,7 +1719,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                         getCourierSpeedForSelection(latestEco, activeMissionVehicle) *
                         getVehicleDurabilitySpeedMultiplier(
                           getVehicleDurability(latestEco, activeMissionVehicle)
-                        );
+                        ) *
+                        getVehicleFuelSpeedMultiplier(latestEco, activeMissionVehicle);
                       const directMission = createDirectDeliveryMissionFromBuilding(
                         propsRef.current.graph,
                         propsRef.current.baseDepot,
@@ -1802,8 +1815,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                       )) *
                   (latestEcoForPark
                     ? getVehicleDurabilitySpeedMultiplier(
-                      getVehicleDurability(latestEcoForPark, activeMissionVehicle)
-                    )
+                        getVehicleDurability(latestEcoForPark, activeMissionVehicle)
+                      ) * getVehicleFuelSpeedMultiplier(latestEcoForPark, activeMissionVehicle)
                     : 1);
                 const parkMission = createParkAtRackCourier(
                   propsRef.current.baseDepot,

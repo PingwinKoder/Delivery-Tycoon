@@ -252,7 +252,9 @@ export interface ScooterModelSpec {
   monthlyInsurance: number;
   /** Mechanic garage service duration in in-game minutes */
   repairGameMinutes: number;
-  /** Relative fuel consumption rate (prepared for fuel stage) */
+  /** Fuel tank capacity in liters */
+  fuelTankCapacityLiters: number;
+  /** Relative fuel consumption rate */
   fuelConsumptionRate: number;
 }
 
@@ -263,6 +265,8 @@ export interface OwnedScooter {
   modelId: ScooterModelId;
   /** Current mechanical durability (0–100%) */
   durability: number;
+  /** Current fuel level in liters (0 .. fuelTankCapacityLiters) */
+  fuelLiters: number;
 }
 
 export type VanCondition = 'used' | 'new';
@@ -288,7 +292,9 @@ export interface VanModelSpec {
   purchasePrice: number;
   /** Monthly insurance & maintenance cost in USD */
   monthlyInsurance: number;
-  /** Relative fuel burn multiplier (higher for used vans, lower for new vans; prepared for fuel stage) */
+  /** Fuel tank capacity in liters */
+  fuelTankCapacityLiters: number;
+  /** Relative fuel burn multiplier (higher for used vans, lower for new vans) */
   fuelConsumptionRate: number;
 }
 
@@ -301,6 +307,8 @@ export interface OwnedVan {
   tier: VanTier;
   /** Current mechanical durability (0–100%) */
   durability: number;
+  /** Current fuel level in liters (0 .. fuelTankCapacityLiters) */
+  fuelLiters: number;
 }
 
 export interface ActiveVehicleSelection {
@@ -324,6 +332,14 @@ export interface VehicleRepairRequestResult {
   queued: boolean;
   cost: number;
   reason?: 'not_found' | 'above_threshold' | 'already_pending' | 'insufficient_funds';
+}
+
+export interface VehicleRefuelResult {
+  state: OrderEconomyState;
+  refueled: boolean;
+  litersAdded: number;
+  cost: number;
+  reason?: 'not_found' | 'not_applicable' | 'already_full' | 'insufficient_funds';
 }
 
 export interface CompanyCourier {
@@ -539,4 +555,10 @@ export interface OrderEconomyState {
   randomRngState: number;
   /** Saved per-weekday (0 = Pon .. 6 = Nd) priority order of active order IDs for courier dispatch */
   weeklyPriorityOrder: Record<number, string[]>;
+  /** Current fuel market price in USD per liter (starts at $1.60/L) */
+  currentFuelPricePerLiter: number;
+  /** Previous fuel market price in USD per liter for trend direction (▲/▼) */
+  previousFuelPricePerLiter: number;
+  /** 1-based gameplay day when the next fuel market price update occurs */
+  nextFuelPriceChangeGameDay: number;
 }

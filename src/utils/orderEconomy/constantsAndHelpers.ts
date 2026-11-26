@@ -16,7 +16,9 @@ import type {
 } from '../../types/orders';
 import {
   DAYS_PER_WEEK,
+  DAYS_PER_YEAR,
   MINUTES_PER_DAY,
+  POLISH_MONTHS,
   WORKDAY_START_MINUTES,
   getCalendarDateFromGameDay,
   getGameClockDisplay,
@@ -107,6 +109,51 @@ export const VAN_REPAIR_GAME_MINUTES = 60;
 /** Number of in-game days (including pickup day) to deliver picked-up packages for long-term contracts (capped at Sunday 23:59) */
 export const LONG_TERM_DELIVERY_WINDOW_DAYS = 3;
 
+/** Fuel market & consumption constants */
+export const BASE_FUEL_PRICE_PER_LITER = 1.6;
+export const MIN_FUEL_PRICE_PER_LITER = 1.15;
+export const MAX_FUEL_PRICE_PER_LITER = 2.15;
+export const FUEL_PRICE_CHANGE_MIN_DAYS = 3;
+export const FUEL_PRICE_CHANGE_MAX_DAYS = 5;
+export const INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY = 4;
+/**
+ * Base fuel burn rate in liters per 1 world pixel driven (multiplied by vehicle's `fuelConsumptionRate`).
+ * Calibrated so Used Van Pro (65 L tank, rate 1.55) at ~8,000 px/h * 10 h/day (~80,000 px/day)
+ * burns a full 65 L tank in ~17.5 in-game days (~2.5 weeks): 65 / (1.55 * 1,400,000) ≈ 0.00003 L/px.
+ */
+export const BASE_FUEL_BURN_LITERS_PER_WORLD_PX = 0.00003;
+/** Cruising speed multiplier when a motorized vehicle's fuel tank reaches 0 L (reserve limp mode) */
+export const EMPTY_FUEL_SPEED_MULTIPLIER = 0.5;
+
+export function clampFuelPrice(price: number): number {
+  if (!Number.isFinite(price)) return BASE_FUEL_PRICE_PER_LITER;
+  return Math.max(MIN_FUEL_PRICE_PER_LITER, Math.min(MAX_FUEL_PRICE_PER_LITER, price));
+}
+
+export function clampFuelLiters(liters: number, capacityLiters: number): number {
+  const safeCap = Math.max(0, Number.isFinite(capacityLiters) ? capacityLiters : 0);
+  if (!Number.isFinite(liters)) return safeCap;
+  return Math.max(0, Math.min(safeCap, liters));
+}
+
+/**
+ * Computes the seasonal target fuel price ($/L) for a given 1-based gameplay day:
+ * - Mid-July (~day 196): 80% of base ($1.28/L)
+ * - Spring & Autumn: 100% of base ($1.60/L)
+ * - Mid-January (Jan 15, day-of-year 14): 120% peak ($1.92/L), immediately turning downward afterward.
+ */
+export function getSeasonalTargetFuelPrice(gameDay: number): number {
+  const date = getCalendarDateFromGameDay(Math.max(1, Math.floor(gameDay)));
+  let dayOfYear = date.dayOfMonth - 1;
+  for (let m = 0; m < date.monthIndex; m++) {
+    dayOfYear += POLISH_MONTHS[m]?.days ?? 30;
+  }
+  const winterPeakDayOfYear = 14; // 15 Styczeń (0-indexed)
+  const angle = (2 * Math.PI * (dayOfYear - winterPeakDayOfYear)) / DAYS_PER_YEAR;
+  const seasonalMultiplier = 1 + 0.2 * Math.cos(angle);
+  return clampFuelPrice(Math.round(BASE_FUEL_PRICE_PER_LITER * seasonalMultiplier * 100) / 100);
+}
+
 /** Preserves full floating-point precision so slow fractional wear never rounds away on short runs. */
 export function clampVehicleDurability(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_VEHICLE_DURABILITY;
@@ -123,6 +170,7 @@ export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
     capacity: 10,
     purchasePrice: 5500,
     monthlyInsurance: 110,
+    fuelTankCapacityLiters: 55,
     fuelConsumptionRate: 1.35,
   },
   used_standard: {
@@ -133,6 +181,7 @@ export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
     capacity: 12,
     purchasePrice: 7500,
     monthlyInsurance: 130,
+    fuelTankCapacityLiters: 60,
     fuelConsumptionRate: 1.45,
   },
   used_pro: {
@@ -143,6 +192,7 @@ export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
     capacity: 15,
     purchasePrice: 9800,
     monthlyInsurance: 155,
+    fuelTankCapacityLiters: 65,
     fuelConsumptionRate: 1.55,
   },
   new_lite: {
@@ -153,6 +203,7 @@ export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
     capacity: 14,
     purchasePrice: 12500,
     monthlyInsurance: 90,
+    fuelTankCapacityLiters: 65,
     fuelConsumptionRate: 0.9,
   },
   new_standard: {
@@ -163,6 +214,7 @@ export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
     capacity: 17,
     purchasePrice: 16000,
     monthlyInsurance: 105,
+    fuelTankCapacityLiters: 72,
     fuelConsumptionRate: 1.0,
   },
   new_pro: {
@@ -173,6 +225,7 @@ export const VAN_MODELS: Readonly<Record<VanModelId, VanModelSpec>> = {
     capacity: 20,
     purchasePrice: 20500,
     monthlyInsurance: 120,
+    fuelTankCapacityLiters: 80,
     fuelConsumptionRate: 1.1,
   },
 } as const;
@@ -195,7 +248,8 @@ export function getVanModelSpec(modelId: VanModelId): VanModelSpec {
 export function createOwnedVan(
   index: number,
   modelId: VanModelId = DEFAULT_LEGACY_VAN_MODEL_ID,
-  durability: number = DEFAULT_VEHICLE_DURABILITY
+  durability: number = DEFAULT_VEHICLE_DURABILITY,
+  fuelLiters?: number
 ): OwnedVan {
   const spec = getVanModelSpec(modelId);
   const safeIndex = Math.max(1, Math.floor(index));
@@ -206,6 +260,10 @@ export function createOwnedVan(
     condition: spec.condition,
     tier: spec.tier,
     durability: clampVehicleDurability(durability),
+    fuelLiters:
+      typeof fuelLiters === 'number' && Number.isFinite(fuelLiters)
+        ? clampFuelLiters(fuelLiters, spec.fuelTankCapacityLiters)
+        : spec.fuelTankCapacityLiters,
   };
 }
 
@@ -229,6 +287,7 @@ export const SCOOTER_MODELS: Readonly<Record<ScooterModelId, ScooterModelSpec>> 
     purchasePrice: 1450,
     monthlyInsurance: 70,
     repairGameMinutes: SCOOTER_CITY_REPAIR_GAME_MINUTES,
+    fuelTankCapacityLiters: 8,
     fuelConsumptionRate: 0.45,
   },
   scooter_cargo: {
@@ -239,6 +298,7 @@ export const SCOOTER_MODELS: Readonly<Record<ScooterModelId, ScooterModelSpec>> 
     purchasePrice: 2400,
     monthlyInsurance: 85,
     repairGameMinutes: SCOOTER_CARGO_REPAIR_GAME_MINUTES,
+    fuelTankCapacityLiters: 11,
     fuelConsumptionRate: 0.55,
   },
 } as const;
@@ -259,7 +319,8 @@ export function getScooterModelSpec(modelId: ScooterModelId): ScooterModelSpec {
 export function createOwnedScooter(
   index: number,
   modelId: ScooterModelId = DEFAULT_LEGACY_SCOOTER_MODEL_ID,
-  durability: number = DEFAULT_VEHICLE_DURABILITY
+  durability: number = DEFAULT_VEHICLE_DURABILITY,
+  fuelLiters?: number
 ): OwnedScooter {
   const spec = getScooterModelSpec(modelId);
   const safeIndex = Math.max(1, Math.floor(index));
@@ -268,6 +329,10 @@ export function createOwnedScooter(
     index: safeIndex,
     modelId: spec.id,
     durability: clampVehicleDurability(durability),
+    fuelLiters:
+      typeof fuelLiters === 'number' && Number.isFinite(fuelLiters)
+        ? clampFuelLiters(fuelLiters, spec.fuelTankCapacityLiters)
+        : spec.fuelTankCapacityLiters,
   };
 }
 

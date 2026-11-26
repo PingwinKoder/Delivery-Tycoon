@@ -290,6 +290,12 @@ function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyS
     activeOrders: saved.activeOrders,
     weeklyPriorityOrder,
     lastProcessedMinutes: saved.gameMinutes,
+    currentFuelPricePerLiter:
+      saved.currentFuelPricePerLiter ?? base.currentFuelPricePerLiter,
+    previousFuelPricePerLiter:
+      saved.previousFuelPricePerLiter ?? base.previousFuelPricePerLiter,
+    nextFuelPriceChangeGameDay:
+      saved.nextFuelPriceChangeGameDay ?? base.nextFuelPriceChangeGameDay,
   };
 
   // Reconcile any residual overflow or legacy inTransitCargo safely without exceeding warehouse capacity

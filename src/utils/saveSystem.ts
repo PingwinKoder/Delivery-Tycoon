@@ -22,10 +22,15 @@ import {
   DEFAULT_LEGACY_VAN_MODEL_ID,
   DEFAULT_VEHICLE_DURABILITY,
   MAX_TWO_WHEELERS,
+  clampFuelLiters,
+  clampFuelPrice,
   clampVehicleDurability,
   createDefaultOwnedVans,
   createOwnedScooter,
   createOwnedVan,
+  getScooterModelSpec,
+  getSeasonalTargetFuelPrice,
+  getVanModelSpec,
   isValidScooterModelId,
   isValidVanModelId,
 } from './orderEconomy/constantsAndHelpers';
@@ -94,6 +99,12 @@ export interface SavedGameState {
   warehouseInventory: Record<string, number>;
   /** Optional packages that were aboard vehicles in transit at save time (safely returned to Base on load) */
   inTransitCargo?: WarehouseLoadedBatch[];
+  /** Current fuel market price in USD/L (optional in legacy saves -> derived from season) */
+  currentFuelPricePerLiter?: number;
+  /** Previous fuel market price in USD/L (optional in legacy saves) */
+  previousFuelPricePerLiter?: number;
+  /** 1-based gameplay day of the next fuel price update (optional in legacy saves) */
+  nextFuelPriceChangeGameDay?: number;
   /** Full underlying economy state snapshot for exact lossless restoration */
   economyState?: OrderEconomyState;
 }
@@ -172,7 +183,12 @@ function normalizeOwnedScooters(rawScooters: unknown): OwnedScooter[] {
       isPlainObject(entry) && typeof entry.durability === 'number' && Number.isFinite(entry.durability)
         ? clampVehicleDurability(entry.durability)
         : DEFAULT_VEHICLE_DURABILITY;
-    normalized.push(createOwnedScooter(normalized.length + 1, modelId, durability));
+    const cap = getScooterModelSpec(modelId).fuelTankCapacityLiters;
+    const fuelLiters =
+      isPlainObject(entry) && typeof entry.fuelLiters === 'number' && Number.isFinite(entry.fuelLiters)
+        ? clampFuelLiters(entry.fuelLiters, cap)
+        : cap;
+    normalized.push(createOwnedScooter(normalized.length + 1, modelId, durability, fuelLiters));
   }
   return normalized;
 }
@@ -195,7 +211,12 @@ function normalizeOwnedVans(
         isPlainObject(entry) && typeof entry.durability === 'number' && Number.isFinite(entry.durability)
           ? clampVehicleDurability(entry.durability)
           : DEFAULT_VEHICLE_DURABILITY;
-      normalized.push(createOwnedVan(normalized.length + 1, modelId, durability));
+      const cap = getVanModelSpec(modelId).fuelTankCapacityLiters;
+      const fuelLiters =
+        isPlainObject(entry) && typeof entry.fuelLiters === 'number' && Number.isFinite(entry.fuelLiters)
+          ? clampFuelLiters(entry.fuelLiters, cap)
+          : cap;
+      normalized.push(createOwnedVan(normalized.length + 1, modelId, durability, fuelLiters));
     }
     return normalized;
   }
@@ -643,6 +664,39 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     mergedInventory.warehouseInventory
   );
 
+  const seasonalFuelFallback = getSeasonalTargetFuelPrice(safeGameDay);
+  const rawCurrentFuelPrice =
+    typeof cloned.currentFuelPricePerLiter === 'number' &&
+    Number.isFinite(cloned.currentFuelPricePerLiter)
+      ? cloned.currentFuelPricePerLiter
+      : isPlainObject(cloned.economyState) &&
+          typeof cloned.economyState.currentFuelPricePerLiter === 'number' &&
+          Number.isFinite(cloned.economyState.currentFuelPricePerLiter)
+        ? cloned.economyState.currentFuelPricePerLiter
+        : seasonalFuelFallback;
+  const safeCurrentFuelPrice = clampFuelPrice(rawCurrentFuelPrice);
+  const rawPreviousFuelPrice =
+    typeof cloned.previousFuelPricePerLiter === 'number' &&
+    Number.isFinite(cloned.previousFuelPricePerLiter)
+      ? cloned.previousFuelPricePerLiter
+      : isPlainObject(cloned.economyState) &&
+          typeof cloned.economyState.previousFuelPricePerLiter === 'number' &&
+          Number.isFinite(cloned.economyState.previousFuelPricePerLiter)
+        ? cloned.economyState.previousFuelPricePerLiter
+        : safeCurrentFuelPrice;
+  const safePreviousFuelPrice = clampFuelPrice(rawPreviousFuelPrice);
+  const rawNextFuelChangeDay =
+    typeof cloned.nextFuelPriceChangeGameDay === 'number' &&
+    Number.isFinite(cloned.nextFuelPriceChangeGameDay) &&
+    cloned.nextFuelPriceChangeGameDay >= 1
+      ? Math.floor(cloned.nextFuelPriceChangeGameDay)
+      : isPlainObject(cloned.economyState) &&
+          typeof cloned.economyState.nextFuelPriceChangeGameDay === 'number' &&
+          Number.isFinite(cloned.economyState.nextFuelPriceChangeGameDay) &&
+          cloned.economyState.nextFuelPriceChangeGameDay >= 1
+        ? Math.floor(cloned.economyState.nextFuelPriceChangeGameDay)
+        : safeGameDay + 4;
+
   let normalizedEconomyState: OrderEconomyState | undefined = cloned.economyState;
   if (normalizedEconomyState && isPlainObject(normalizedEconomyState)) {
     const cleanCompanyCouriers: CompanyCourier[] =
@@ -680,6 +734,9 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
       weeklyPriorityOrder: normalizeWeeklyPriorityOrderMap(
         normalizedEconomyState.weeklyPriorityOrder
       ),
+      currentFuelPricePerLiter: safeCurrentFuelPrice,
+      previousFuelPricePerLiter: safePreviousFuelPrice,
+      nextFuelPriceChangeGameDay: rawNextFuelChangeDay,
     };
   }
 
@@ -697,6 +754,9 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     bikeDurabilities: safeBikeDurabilities,
     scooters: safeScooters,
     scootersCount: safeScootersCount,
+    currentFuelPricePerLiter: safeCurrentFuelPrice,
+    previousFuelPricePerLiter: safePreviousFuelPrice,
+    nextFuelPriceChangeGameDay: rawNextFuelChangeDay,
     vans: safeVans,
     vansCount: safeVansCount,
     activeVehicle: safeActiveVehicle,
@@ -773,15 +833,22 @@ export function createSavedGameState(
   }
 
   const savedScooters: OwnedScooter[] = Array.isArray(economyState.scooters)
-    ? economyState.scooters.slice(0, MAX_TWO_WHEELERS).map((s, idx) => ({
-        ...s,
-        index: idx + 1,
-        id: `scooter-${idx + 1}`,
-        durability:
-          typeof s.durability === 'number' && Number.isFinite(s.durability)
-            ? clampVehicleDurability(s.durability)
-            : DEFAULT_VEHICLE_DURABILITY,
-      }))
+    ? economyState.scooters.slice(0, MAX_TWO_WHEELERS).map((s, idx) => {
+        const cap = getScooterModelSpec(s.modelId).fuelTankCapacityLiters;
+        return {
+          ...s,
+          index: idx + 1,
+          id: `scooter-${idx + 1}`,
+          durability:
+            typeof s.durability === 'number' && Number.isFinite(s.durability)
+              ? clampVehicleDurability(s.durability)
+              : DEFAULT_VEHICLE_DURABILITY,
+          fuelLiters:
+            typeof s.fuelLiters === 'number' && Number.isFinite(s.fuelLiters)
+              ? clampFuelLiters(s.fuelLiters, cap)
+              : cap,
+        };
+      })
     : [];
   const rawBikes = economyState.bikesCount ?? economyState.bicyclesCount ?? 1;
   const safeBikesCount = Math.max(
@@ -794,13 +861,20 @@ export function createSavedGameState(
   );
   const savedVans: OwnedVan[] =
     Array.isArray(economyState.vans) && economyState.vans.length > 0
-      ? economyState.vans.map((v) => ({
-          ...v,
-          durability:
-            typeof v.durability === 'number' && Number.isFinite(v.durability)
-              ? clampVehicleDurability(v.durability)
-              : DEFAULT_VEHICLE_DURABILITY,
-        }))
+      ? economyState.vans.map((v) => {
+          const cap = getVanModelSpec(v.modelId).fuelTankCapacityLiters;
+          return {
+            ...v,
+            durability:
+              typeof v.durability === 'number' && Number.isFinite(v.durability)
+                ? clampVehicleDurability(v.durability)
+                : DEFAULT_VEHICLE_DURABILITY,
+            fuelLiters:
+              typeof v.fuelLiters === 'number' && Number.isFinite(v.fuelLiters)
+                ? clampFuelLiters(v.fuelLiters, cap)
+                : cap,
+          };
+        })
       : createDefaultOwnedVans(
           economyState.vansCount ?? economyState.deliveryVansCount ?? 0,
           DEFAULT_LEGACY_VAN_MODEL_ID
@@ -812,6 +886,24 @@ export function createSavedGameState(
     savedVans.length,
     gameDay
   );
+  const savedFuelPrice = clampFuelPrice(
+    typeof economyState.currentFuelPricePerLiter === 'number' &&
+      Number.isFinite(economyState.currentFuelPricePerLiter)
+      ? economyState.currentFuelPricePerLiter
+      : getSeasonalTargetFuelPrice(gameDay)
+  );
+  const savedPrevFuelPrice = clampFuelPrice(
+    typeof economyState.previousFuelPricePerLiter === 'number' &&
+      Number.isFinite(economyState.previousFuelPricePerLiter)
+      ? economyState.previousFuelPricePerLiter
+      : savedFuelPrice
+  );
+  const savedNextFuelChangeDay =
+    typeof economyState.nextFuelPriceChangeGameDay === 'number' &&
+    Number.isFinite(economyState.nextFuelPriceChangeGameDay) &&
+    economyState.nextFuelPriceChangeGameDay >= 1
+      ? Math.floor(economyState.nextFuelPriceChangeGameDay)
+      : gameDay + 4;
 
   return {
     gameMinutes: safeMinutes,
@@ -841,6 +933,9 @@ export function createSavedGameState(
           .filter((item) => item.count > 0)
           .map((item) => ({ orderId: item.orderId, count: item.count }))
       : [],
+    currentFuelPricePerLiter: savedFuelPrice,
+    previousFuelPricePerLiter: savedPrevFuelPrice,
+    nextFuelPriceChangeGameDay: savedNextFuelChangeDay,
     economyState: deepCloneJson({
       ...economyState,
       bikesCount: safeBikesCount,
@@ -852,6 +947,9 @@ export function createSavedGameState(
       vansCount: savedVans.length,
       deliveryVansCount: savedVans.length,
       pendingVehicleRepairs: savedPendingRepairs,
+      currentFuelPricePerLiter: savedFuelPrice,
+      previousFuelPricePerLiter: savedPrevFuelPrice,
+      nextFuelPriceChangeGameDay: savedNextFuelChangeDay,
     }),
   };
 }
