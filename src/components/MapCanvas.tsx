@@ -169,7 +169,8 @@ interface MapCanvasProps {
 
 const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 const FPS_SAMPLE_WINDOW_MS = 500;
-const FRAME_INTERVAL_MS = 1000 / 60.5;
+/** Throttle threshold active only for high-refresh (>75 Hz) displays so 60 Hz panels sync 1:1 with vsync */
+const FRAME_INTERVAL_MS = 13.2;
 const MAX_MOBILE_CANVAS_DPR = 1.5;
 const MAX_DESKTOP_CANVAS_DPR = 2;
 const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
@@ -1464,9 +1465,17 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       return false;
     };
 
+    const reusableArrowInput: ArrowInputVector = { x: 0, y: 0 };
+    const reusableViewBounds = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    let cachedIdleDepot: BaseDepotSpec | null = null;
+    let cachedIdleBikesCount = -1;
+    let cachedIdleVansCount = -1;
+    let cachedIdleOwnedVans: ReturnType<typeof getOwnedVans> | undefined = undefined;
+    let cachedIdleParkedBikes: number[] = [];
+    let cachedIdleDepthEntities: DepthSortedEntity[] = [];
+
     const drawScene = (now: number) => {
-      // Lock update & rendering cadence to steady 60 FPS (using 1000 / 60.5 ms threshold
-      // so 60 Hz panels never drop to 30 FPS while 90–144 Hz panels hold rock-steady 60 FPS)
+      // Only throttle high-refresh (>75 Hz) panels; 60 Hz panels (~16.6ms) sync 1:1 with vsync
       const sinceTickMs = now - lastFrameTick;
       if (hasRenderedFirstFrame && sinceTickMs < FRAME_INTERVAL_MS) {
         rafId = requestAnimationFrame(drawScene);
@@ -1478,11 +1487,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         ? Math.min(Math.max(0, (now - lastRenderTime) / 1000), MAX_REAL_FRAME_DT)
         : 0;
       lastRenderTime = now;
-      if (!hasRenderedFirstFrame || sinceTickMs > 250) {
-        lastFrameTick = now;
-      } else {
-        lastFrameTick = now - Math.min(sinceTickMs - FRAME_INTERVAL_MS, FRAME_INTERVAL_MS);
-      }
+      lastFrameTick = now;
       hasRenderedFirstFrame = true;
 
       const isOverviewOrIntro =
@@ -1509,12 +1514,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
       // Compute arrow-key directional input vector (blocked while modals/overview/intro are active)
       const activeArrowKeys = pressedArrowKeysRef.current;
-      const arrowInput: ArrowInputVector = { x: 0, y: 0 };
+      reusableArrowInput.x = 0;
+      reusableArrowInput.y = 0;
       if (!propsRef.current.interactionBlocked && !isOverviewOrIntro && activeArrowKeys.size > 0) {
-        if (activeArrowKeys.has('ArrowLeft')) arrowInput.x -= 1;
-        if (activeArrowKeys.has('ArrowRight')) arrowInput.x += 1;
-        if (activeArrowKeys.has('ArrowUp')) arrowInput.y -= 1;
-        if (activeArrowKeys.has('ArrowDown')) arrowInput.y += 1;
+        if (activeArrowKeys.has('ArrowLeft')) reusableArrowInput.x -= 1;
+        if (activeArrowKeys.has('ArrowRight')) reusableArrowInput.x += 1;
+        if (activeArrowKeys.has('ArrowUp')) reusableArrowInput.y -= 1;
+        if (activeArrowKeys.has('ArrowDown')) reusableArrowInput.y += 1;
       }
 
       // Ensure static caches before starting the intro clock so any warehouse/parking rebuild
@@ -1646,27 +1652,41 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         ambientTrafficAlpha = 1;
         fogProgress = 1;
       } else {
-        // Frame-rate-independent exponential camera physics + smooth arrow-key velocity + hard snap
-        const camStep = stepCameraPhysics(
-          cameraRef.current,
-          targetCameraRef.current,
-          cameraVelocityRef.current,
-          arrowInput,
-          rawDt,
-          viewportRef.current,
-          MAP_SIZE
-        );
-        cameraRef.current = camStep.camera;
-        targetCameraRef.current = camStep.target;
-        cameraVelocityRef.current = camStep.velocity;
-        renderCamX = camStep.camera.x;
-        renderCamY = camStep.camera.y;
-        renderEffectiveZoom = getEffectiveZoom(
-          camStep.camera.zoom,
-          viewportRef.current,
-          MAP_SIZE
-        );
-        renderCacheZoomKey = camStep.camera.zoom;
+        const camCur = cameraRef.current;
+        const camTgt = targetCameraRef.current;
+        const camVel = cameraVelocityRef.current;
+        const isCameraStationary =
+          reusableArrowInput.x === 0 &&
+          reusableArrowInput.y === 0 &&
+          camVel.vx === 0 &&
+          camVel.vy === 0 &&
+          camCur.x === camTgt.x &&
+          camCur.y === camTgt.y &&
+          camCur.zoom === camTgt.zoom;
+
+        if (!isCameraStationary) {
+          // Frame-rate-independent exponential camera physics + smooth arrow-key velocity + hard snap
+          const camStep = stepCameraPhysics(
+            camCur,
+            camTgt,
+            camVel,
+            reusableArrowInput,
+            rawDt,
+            viewportRef.current,
+            MAP_SIZE
+          );
+          cameraRef.current = camStep.camera;
+          targetCameraRef.current = camStep.target;
+          cameraVelocityRef.current = camStep.velocity;
+          renderCamX = camStep.camera.x;
+          renderCamY = camStep.camera.y;
+          renderEffectiveZoom = getEffectiveZoom(
+            camStep.camera.zoom,
+            viewportRef.current,
+            MAP_SIZE
+          );
+          renderCacheZoomKey = camStep.camera.zoom;
+        }
       }
 
       // Advance lightweight background street traffic while Start Screen overview or fly-in is visible
@@ -1728,9 +1748,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             isReturningFromRepair || !ecoBeforeStep
               ? expectedBaseSpeed
               : expectedBaseSpeed *
-                getVehicleDurabilitySpeedMultiplier(
-                  getVehicleDurability(ecoBeforeStep, activeMissionVehicle)
-                );
+              getVehicleDurabilitySpeedMultiplier(
+                getVehicleDurability(ecoBeforeStep, activeMissionVehicle)
+              );
           if (Math.abs(entry.courier.speed - expectedSpeed) > 0.01) {
             entry.courier = {
               ...entry.courier,
@@ -1781,11 +1801,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                 const remainingAfterPickup =
                   latestEco && pickedOrder
                     ? getRemainingPickupPackagesForOrderToday(
-                        latestEco,
-                        pickedOrder,
-                        clock.dayIndex,
-                        clock.gameDay
-                      )
+                      latestEco,
+                      pickedOrder,
+                      clock.dayIndex,
+                      clock.gameDay
+                    )
                     : 1;
 
                 if (remainingAfterPickup === 0) {
@@ -1908,11 +1928,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               const chained =
                 !isNightNow && !ev.wasForcedReturn
                   ? tryDispatchCourierForSlot(
-                      slotIndex,
-                      currentGameMinutes,
-                      'loading_zone',
-                      activeMissionVehicle
-                    )
+                    slotIndex,
+                    currentGameMinutes,
+                    'loading_zone',
+                    activeMissionVehicle
+                  )
                   : false;
 
               if (!chained) {
@@ -1922,8 +1942,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                   getCourierSpeedForVehicle(activeMissionVehicle.type) *
                   (latestEcoForPark
                     ? getVehicleDurabilitySpeedMultiplier(
-                        getVehicleDurability(latestEcoForPark, activeMissionVehicle)
-                      )
+                      getVehicleDurability(latestEcoForPark, activeMissionVehicle)
+                    )
                     : 1);
                 const parkMission = createParkAtRackCourier(
                   propsRef.current.baseDepot,
@@ -2062,7 +2082,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       ctx.save();
       ctx.setTransform(dprX, 0, 0, dprY, 0, 0);
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      ctx.imageSmoothingQuality = 'low';
 
       // 1. Update Viewport Ground Cache ONLY on camera/viewport/static-ground change,
       //    then blit the entire static ground in a single drawImage call (1:1 physical pixels, no double-scaling)
@@ -2134,12 +2154,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
       const halfViewW = vw / (2 * effectiveZoom) + 60;
       const halfViewH = vh / (2 * effectiveZoom) + 60;
-      const viewBounds = {
-        minX: renderCamX - halfViewW,
-        maxX: renderCamX + halfViewW,
-        minY: renderCamY - halfViewH,
-        maxY: renderCamY + halfViewH,
-      };
+      reusableViewBounds.minX = renderCamX - halfViewW;
+      reusableViewBounds.maxX = renderCamX + halfViewW;
+      reusableViewBounds.minY = renderCamY - halfViewH;
+      reusableViewBounds.maxY = renderCamY + halfViewH;
+      const viewBounds = reusableViewBounds;
 
       if (ambientTrafficAlpha > 0.01) {
         drawAmbientTraffic(
@@ -2153,114 +2172,163 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
       const curBikesCount = propsRef.current.bikesCount;
       const curVansCount = propsRef.current.vansCount;
-      const { bikeIndices: activeOutBikeIndices, vanIndices: activeOutVanIndices } =
-        getActiveOutVehiclesForFleet(fleet);
-
-      const parkedBikeIndices: number[] = [];
-      const clampedBikes = Math.max(0, Math.min(3, Math.floor(curBikesCount)));
-      for (let i = 1; i <= clampedBikes; i++) {
-        if (!activeOutBikeIndices.has(i)) {
-          parkedBikeIndices.push(i);
-        }
-      }
-
       const rack = curBaseDepot.bikeRack;
-
       const currentEco = propsRef.current.economyStateRef?.current;
       const ownedVansList = currentEco ? getOwnedVans(currentEco) : undefined;
 
-      const drawFleetCourier = (
-        drawCtx: CanvasRenderingContext2D,
-        entry: FleetCourierSlotState
-      ) => {
-        const c = entry.courier;
-        const cargoCount = getCourierCargoCount(c.cargo);
-        if (c.vehicleType === 'van') {
-          const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, c.vehicleIndex) : undefined;
-          drawIsometricDeliveryVan(drawCtx, {
-            x: c.x,
-            y: c.y,
-            angle: c.angle,
-            wheelPhase: c.wheelPhase,
-            isDelivering: c.phase === 'delivering',
-            condition: ownedVan?.condition ?? 'used',
-            tier: ownedVan?.tier ?? 'standard',
-            courierSlotIndex: entry.slotIndex,
-            cargoCount,
-            cargoCapacity: c.cargoCapacity,
-            invScale,
-          });
-        } else {
-          drawIsometricBicycle(drawCtx, {
-            x: c.x,
-            y: c.y,
-            angle: c.angle,
-            withRider: c.riderMounted,
-            wheelPhase: c.wheelPhase,
-            isDelivering: c.phase === 'delivering',
-            courierSlotIndex: entry.slotIndex,
-            cargoCount,
-            cargoCapacity: c.cargoCapacity,
-            invScale,
-          });
-        }
-      };
-
-      if (isFootprintOnly) {
-        // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
-        drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
-        drawDynamicRouteAndPin();
-        if (curBaseNode) {
-          drawBaseMarker(curBaseNode);
-        }
-        drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices);
-        const parkedVanSlots = getBaseParkedVanSlots(
-          curBaseDepot.parking,
-          curVansCount,
-          null
-        ).filter((slot) => !activeOutVanIndices.has(slot.vanIndex));
-        for (const slot of parkedVanSlots) {
-          const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, slot.vanIndex) : undefined;
-          drawIsometricDeliveryVan(ctx, {
-            x: slot.spot.x,
-            y: slot.spot.y,
-            angle: slot.parkedAngle,
-            wheelPhase: 0,
-            condition: ownedVan?.condition ?? 'used',
-            tier: ownedVan?.tier ?? 'standard',
-          });
-        }
-        for (const slotIndex of COURIER_SLOT_INDICES) {
-          const entry = fleet[slotIndex];
-          if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
-            drawFleetCourier(ctx, entry);
+          let anyCourierInRoute = false;
+          for (const slotIndex of COURIER_SLOT_INDICES) {
+            const entry = fleet[slotIndex];
+            if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
+              anyCourierInRoute = true;
+              break;
+            }
           }
-        }
-        if (streetNamesVisible) {
-          renderStreetNames(ctx, effectiveZoom, viewBounds);
-        }
-      } else {
-        // Normal 3D Mode: Base loading zone & active routes on ground, then Z-sorted 3D building sprites interleaved with
-        // fences, BAZA bike rack, parked fleet vans on P1–P8, and ALL active courier vehicles so tall blocks naturally occlude them
-        const bikeRackEntity: DepthSortedEntity = {
-          id: rack.id,
-          uMin: rack.uMin,
-          uMax: rack.uMax,
-          vMin: rack.vMin,
-          vMax: rack.vMax,
-          draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices),
-        };
 
-        const parkedVanEntities = createBaseParkedVanEntities(
-          curBaseDepot,
-          curVansCount,
-          null,
-          ownedVansList
-        ).filter((entity) => {
-          const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
-          return !activeOutVanIndices.has(vanIdx);
-        });
-        const depthEntities: DepthSortedEntity[] = [bikeRackEntity, ...parkedVanEntities];
+          const clampedBikes = Math.max(0, Math.min(3, Math.floor(curBikesCount)));
+          let parkedBikeIndices: number[];
+          let activeOutVanIndices: Set<number> | null = null;
+
+          if (!anyCourierInRoute) {
+            if (
+              cachedIdleDepot !== curBaseDepot ||
+              cachedIdleBikesCount !== clampedBikes ||
+              cachedIdleVansCount !== curVansCount ||
+              cachedIdleOwnedVans !== ownedVansList
+            ) {
+              cachedIdleDepot = curBaseDepot;
+              cachedIdleBikesCount = clampedBikes;
+              cachedIdleVansCount = curVansCount;
+              cachedIdleOwnedVans = ownedVansList;
+              const bikes: number[] = [];
+              for (let i = 1; i <= clampedBikes; i++) {
+                bikes.push(i);
+              }
+              cachedIdleParkedBikes = bikes;
+              const idleBikeRackEntity: DepthSortedEntity = {
+                id: rack.id,
+                uMin: rack.uMin,
+                uMax: rack.uMax,
+                vMin: rack.vMin,
+                vMax: rack.vMax,
+                draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, bikes),
+              };
+              const idleParkedVans = createBaseParkedVanEntities(
+                curBaseDepot,
+                curVansCount,
+                null,
+                ownedVansList
+              );
+              cachedIdleDepthEntities = [idleBikeRackEntity, ...idleParkedVans];
+            }
+            parkedBikeIndices = cachedIdleParkedBikes;
+          } else {
+            const activeOut = getActiveOutVehiclesForFleet(fleet);
+            activeOutVanIndices = activeOut.vanIndices;
+            parkedBikeIndices = [];
+            for (let i = 1; i <= clampedBikes; i++) {
+              if (!activeOut.bikeIndices.has(i)) {
+                parkedBikeIndices.push(i);
+              }
+            }
+          }
+
+          const drawFleetCourier = (
+            drawCtx: CanvasRenderingContext2D,
+            entry: FleetCourierSlotState
+          ) => {
+            const c = entry.courier;
+            const cargoCount = getCourierCargoCount(c.cargo);
+            if (c.vehicleType === 'van') {
+              const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, c.vehicleIndex) : undefined;
+              drawIsometricDeliveryVan(drawCtx, {
+                x: c.x,
+                y: c.y,
+                angle: c.angle,
+                wheelPhase: c.wheelPhase,
+                isDelivering: c.phase === 'delivering',
+                condition: ownedVan?.condition ?? 'used',
+                tier: ownedVan?.tier ?? 'standard',
+                courierSlotIndex: entry.slotIndex,
+                cargoCount,
+                cargoCapacity: c.cargoCapacity,
+                invScale,
+              });
+            } else {
+              drawIsometricBicycle(drawCtx, {
+                x: c.x,
+                y: c.y,
+                angle: c.angle,
+                withRider: c.riderMounted,
+                wheelPhase: c.wheelPhase,
+                isDelivering: c.phase === 'delivering',
+                courierSlotIndex: entry.slotIndex,
+                cargoCount,
+                cargoCapacity: c.cargoCapacity,
+                invScale,
+              });
+            }
+          };
+
+          if (isFootprintOnly) {
+            // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
+            drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+            drawDynamicRouteAndPin();
+            if (curBaseNode) {
+              drawBaseMarker(curBaseNode);
+            }
+            drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices);
+            const parkedVanSlots = getBaseParkedVanSlots(
+              curBaseDepot.parking,
+              curVansCount,
+              null
+        ).filter((slot) => !activeOutVanIndices || !activeOutVanIndices.has(slot.vanIndex));
+  for (const slot of parkedVanSlots) {
+    const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, slot.vanIndex) : undefined;
+    drawIsometricDeliveryVan(ctx, {
+      x: slot.spot.x,
+      y: slot.spot.y,
+      angle: slot.parkedAngle,
+      wheelPhase: 0,
+      condition: ownedVan?.condition ?? 'used',
+      tier: ownedVan?.tier ?? 'standard',
+    });
+  }
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    const entry = fleet[slotIndex];
+    if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
+      drawFleetCourier(ctx, entry);
+    }
+  }
+  if (streetNamesVisible) {
+    renderStreetNames(ctx, effectiveZoom, viewBounds);
+  }
+} else {
+  // Normal 3D Mode: Base loading zone & active routes on ground, then Z-sorted 3D building sprites interleaved with
+  // fences, BAZA bike rack, parked fleet vans on P1–P8, and ALL active courier vehicles so tall blocks naturally occlude them
+  let depthEntities: DepthSortedEntity[];
+  if(!anyCourierInRoute) {
+    depthEntities = cachedIdleDepthEntities;
+  } else {
+    const bikeRackEntity: DepthSortedEntity = {
+      id: rack.id,
+      uMin: rack.uMin,
+      uMax: rack.uMax,
+      vMin: rack.vMin,
+      vMax: rack.vMax,
+      draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices),
+    };
+
+    const parkedVanEntities = createBaseParkedVanEntities(
+      curBaseDepot,
+      curVansCount,
+      null,
+      ownedVansList
+    ).filter((entity) => {
+      const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
+      return !activeOutVanIndices || !activeOutVanIndices.has(vanIdx);
+    });
+    depthEntities =[bikeRackEntity, ...parkedVanEntities];
 
         for (const slotIndex of COURIER_SLOT_INDICES) {
           const entry = fleet[slotIndex];
@@ -2297,111 +2365,114 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             });
           }
         }
-
-        drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
-        drawDynamicRouteAndPin();
-        renderBuildings3D(
-          ctx,
-          curBuildings,
-          null,
-          null,
-          effectiveZoom,
-          viewBounds,
-          depthEntities,
-          sceneSpriteAtlasRef.current?.buildings ?? null,
-          sceneSpriteAtlasRef.current?.fences ?? null
-        );
-        if (curBaseNode) {
-          drawBaseMarker(curBaseNode);
-        }
-        if (streetNamesVisible && !propsRef.current.overviewMode) {
-          renderStreetNames(ctx, effectiveZoom, viewBounds);
-        }
       }
+
+      drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+      if (anyCourierInRoute) {
+        drawDynamicRouteAndPin();
+      }
+      renderBuildings3D(
+        ctx,
+        curBuildings,
+        null,
+        null,
+        effectiveZoom,
+        viewBounds,
+        depthEntities,
+        sceneSpriteAtlasRef.current?.buildings ?? null,
+        sceneSpriteAtlasRef.current?.fences ?? null
+      );
+      if (curBaseNode) {
+        drawBaseMarker(curBaseNode);
+      }
+      if (streetNamesVisible && !propsRef.current.overviewMode) {
+        renderStreetNames(ctx, effectiveZoom, viewBounds);
+      }
+    }
 
       ctx.restore();
 
-      // Render atmospheric fog directly inside <canvas> so no full-screen DOM layer is allocated mid-animation
-      if (fogProgress > 0.001) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillStyle = `rgba(15, 23, 42, ${fogProgress * 0.82})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
+    // Render atmospheric fog directly inside <canvas> so no full-screen DOM layer is allocated mid-animation
+    if(fogProgress > 0.001) {
+      ctx.save();
+ctx.setTransform(1, 0, 0, 1, 0, 0);
+ctx.fillStyle = `rgba(15, 23, 42, ${fogProgress * 0.82})`;
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.restore();
       }
 
-      if (notifyIntroComplete) {
-        propsRef.current.onIntroFlyInComplete?.();
-      }
-      if (notifyOutroComplete) {
-        propsRef.current.onOutroFlyOutComplete?.();
-      }
+if (notifyIntroComplete) {
+  propsRef.current.onIntroFlyInComplete?.();
+}
+if (notifyOutroComplete) {
+  propsRef.current.onOutroFlyOutComplete?.();
+}
 
-      if (!hasNotifiedMapReady) {
-        hasNotifiedMapReady = true;
-        mapReadyRafId = requestAnimationFrame(() => {
-          mapReadyRafId = null;
-          propsRef.current.onMapReady?.();
-        });
-      }
+if (!hasNotifiedMapReady) {
+  hasNotifiedMapReady = true;
+  mapReadyRafId = requestAnimationFrame(() => {
+    mapReadyRafId = null;
+    propsRef.current.onMapReady?.();
+  });
+}
 
-      rafId = requestAnimationFrame(drawScene);
+rafId = requestAnimationFrame(drawScene);
     };
 
-    let hasNotifiedMapReady = false;
-    let mapReadyRafId: number | null = null;
+let hasNotifiedMapReady = false;
+let mapReadyRafId: number | null = null;
 
-    updateCanvasSize();
-    ensureStaticCaches();
-    const resizeObserver = new ResizeObserver(updateCanvasSize);
-    resizeObserver.observe(container);
-    window.addEventListener('resize', updateCanvasSize);
-    rafId = requestAnimationFrame(drawScene);
+updateCanvasSize();
+ensureStaticCaches();
+const resizeObserver = new ResizeObserver(updateCanvasSize);
+resizeObserver.observe(container);
+window.addEventListener('resize', updateCanvasSize);
+rafId = requestAnimationFrame(drawScene);
 
-    return () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-      if (mapReadyRafId !== null) {
-        cancelAnimationFrame(mapReadyRafId);
-      }
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', updateCanvasSize);
-      canvas.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('mouseleave', onMouseLeave);
-      canvas.removeEventListener('wheel', onWheel);
-      canvas.removeEventListener('touchstart', onTouchStart);
-      canvas.removeEventListener('touchmove', onTouchMove);
-      canvas.removeEventListener('touchend', onTouchEnd);
-      canvas.removeEventListener('touchcancel', onTouchEnd);
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('blur', onWindowBlur);
-      pressedArrowKeysRef.current.clear();
-      disposeViewportGroundCache(viewportGroundCacheRef.current);
-      viewportGroundCacheRef.current = null;
-      disposeStaticGroundBuffer(groundBufferRef.current);
-      groundBufferRef.current = null;
-      disposeSceneSpriteAtlas(sceneSpriteAtlasRef.current);
-      sceneSpriteAtlasRef.current = null;
-    };
+return () => {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+  }
+  if (mapReadyRafId !== null) {
+    cancelAnimationFrame(mapReadyRafId);
+  }
+  resizeObserver.disconnect();
+  window.removeEventListener('resize', updateCanvasSize);
+  canvas.removeEventListener('mousedown', onMouseDown);
+  window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('mouseup', onMouseUp);
+  canvas.removeEventListener('mouseleave', onMouseLeave);
+  canvas.removeEventListener('wheel', onWheel);
+  canvas.removeEventListener('touchstart', onTouchStart);
+  canvas.removeEventListener('touchmove', onTouchMove);
+  canvas.removeEventListener('touchend', onTouchEnd);
+  canvas.removeEventListener('touchcancel', onTouchEnd);
+  window.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('keyup', onKeyUp);
+  window.removeEventListener('blur', onWindowBlur);
+  pressedArrowKeysRef.current.clear();
+  disposeViewportGroundCache(viewportGroundCacheRef.current);
+  viewportGroundCacheRef.current = null;
+  disposeStaticGroundBuffer(groundBufferRef.current);
+  groundBufferRef.current = null;
+  disposeSceneSpriteAtlas(sceneSpriteAtlasRef.current);
+  sceneSpriteAtlasRef.current = null;
+};
   }, []);
 
-  return (
-    <div
-      ref={containerRef}
-      className="fixed inset-0 w-full h-full overflow-hidden bg-[#161b22]"
-    >
-      <canvas
-        ref={canvasRef}
-        data-testid="map-canvas"
-        aria-label="Interaktywna mapa miasta Delivery Tycoon"
-        className="block w-full h-full touch-none cursor-default"
-      />
-    </div>
-  );
+return (
+  <div
+    ref={containerRef}
+    className="fixed inset-0 w-full h-full overflow-hidden bg-[#161b22]"
+  >
+    <canvas
+      ref={canvasRef}
+      data-testid="map-canvas"
+      aria-label="Interaktywna mapa miasta Delivery Tycoon"
+      className="block w-full h-full touch-none cursor-default"
+    />
+  </div>
+);
 });
 
 MapCanvas.displayName = 'MapCanvas';

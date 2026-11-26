@@ -221,9 +221,9 @@ function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyS
   const cleanCouriers: CompanyCourier[] =
     saved.couriers.length > 0
       ? saved.couriers.map(({ inRoute: _inRoute, ...courier }) => ({
-          ...courier,
-          assignedVehicle: courier.assignedVehicle ? { ...courier.assignedVehicle } : null,
-        }))
+        ...courier,
+        assignedVehicle: courier.assignedVehicle ? { ...courier.assignedVehicle } : null,
+      }))
       : base.couriers;
 
   const unlockedCount = Math.max(1, cleanCouriers.filter((c) => c.unlocked).length);
@@ -344,12 +344,17 @@ export function App() {
   const lastSavedCompletedOrdersRef = useRef<number>(economyState.completedOrdersCount);
   const lastAutoSavedMorningDayRef = useRef<number>(1);
   const introRafIdsRef = useRef<number[]>([]);
+  const outroSaveTimerRef = useRef<number | null>(null);
 
   const clearIntroRafs = useCallback(() => {
     for (const rafId of introRafIdsRef.current) {
       window.cancelAnimationFrame(rafId);
     }
     introRafIdsRef.current = [];
+    if (outroSaveTimerRef.current !== null) {
+      window.clearTimeout(outroSaveTimerRef.current);
+      outroSaveTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -643,7 +648,7 @@ export function App() {
       clearIntroRafs();
 
       // Step 1: Immediately pause simulation, lock current camera coordinates (no motion yet),
-      // close all modals & hide HUD, then execute localStorage save and refresh save slots.
+      // close all modals & hide HUD so the outro fly-out + fog animation starts without frame drops.
       canvasControllerRef.current?.armOutroFlyOut();
       setGameSpeed(0);
       setCompanyOpen(false);
@@ -657,17 +662,6 @@ export function App() {
       setStartScreenMounted(false);
       setCameraTransition('to-menu');
 
-      if (shouldSave) {
-        const slotId = activeSlotIdRef.current;
-        if (slotId !== null) {
-          persistGameToSlot(slotId, economyStateRef.current, exactGameMinutesRef.current);
-        } else {
-          setSaveSlots(getAllSaveSlots());
-        }
-      } else {
-        setSaveSlots(getAllSaveSlots());
-      }
-
       // Step 2: Decouple animation start by two frames so modals unmount and HUD fades cleanly
       // before starting the synchronized canvas camera zoom-out & fog roll-in.
       const raf1 = window.requestAnimationFrame(() => {
@@ -678,6 +672,19 @@ export function App() {
         introRafIdsRef.current = [raf2];
       });
       introRafIdsRef.current = [raf1];
+
+      // Step 3: Delay localStorage JSON serialization by 120 ms so it never blocks animation startup.
+      const slotId = activeSlotIdRef.current;
+      const economySnapshot = economyStateRef.current;
+      const minutesSnapshot = exactGameMinutesRef.current;
+      outroSaveTimerRef.current = window.setTimeout(() => {
+        outroSaveTimerRef.current = null;
+        if (shouldSave && slotId !== null) {
+          persistGameToSlot(slotId, economySnapshot, minutesSnapshot);
+        } else {
+          setSaveSlots(getAllSaveSlots());
+        }
+      }, 120);
     },
     [clearIntroRafs, persistGameToSlot]
   );
@@ -1081,16 +1088,19 @@ export function App() {
     !isPausedByOverlay && allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
   const nextDayMorningMinutes = useMemo(
-    () => (startScreenOpen ? INITIAL_GAME_MINUTES : getNextDayMorningMinutes(gameMinutes)),
-    [gameMinutes, startScreenOpen]
+      () =>
+  startScreenOpen || !skipTimeOpen
+    ? INITIAL_GAME_MINUTES
+    : getNextDayMorningMinutes(gameMinutes),
+    [gameMinutes, startScreenOpen, skipTimeOpen]
   );
 
   const nextScheduledOrderMinutes = useMemo(
     () =>
-      startScreenOpen
-        ? null
-        : findNextScheduledOrderDayMinutes(economyState, gameMinutes),
-    [economyState, gameMinutes, startScreenOpen]
+      startScreenOpen || !skipTimeOpen
+      ? null
+      : findNextScheduledOrderDayMinutes(economyState, gameMinutes),
+    [economyState, gameMinutes, startScreenOpen, skipTimeOpen]
   );
 
   const activeWarehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
@@ -1176,49 +1186,55 @@ export function App() {
         onOpenSettings={handleOpenSettingsFromGame}
       />
 
-      <OrdersModal
-        isOpen={ordersOpen}
-        language={settings.language}
-        economyState={economyState}
-        gameMinutes={gameMinutes}
-        taskAssignmentsByTaskId={taskAssignmentsByTaskId}
-        onClose={handleCloseOrders}
-        onMarkOffersSeen={handleMarkOffersSeen}
-        onAcceptOffer={handleAcceptOffer}
-        onRejectOffer={handleRejectOffer}
-        onMoveWeeklyTaskPriority={handleMoveWeeklyTaskPriority}
-        onSortWeeklyTasksPriority={handleSortWeeklyTasksPriority}
-      />
+      {ordersOpen && (
+        <OrdersModal
+          isOpen={ordersOpen}
+          language={settings.language}
+          economyState={economyState}
+          gameMinutes={gameMinutes}
+          taskAssignmentsByTaskId={taskAssignmentsByTaskId}
+          onClose={handleCloseOrders}
+          onMarkOffersSeen={handleMarkOffersSeen}
+          onAcceptOffer={handleAcceptOffer}
+          onRejectOffer={handleRejectOffer}
+          onMoveWeeklyTaskPriority={handleMoveWeeklyTaskPriority}
+          onSortWeeklyTasksPriority={handleSortWeeklyTasksPriority}
+        />
+      )}
 
-      <CompanyModal
-        isOpen={companyOpen}
-        language={settings.language}
-        economyState={economyState}
-        isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
-        courierAtBaseBySlot={courierAtBaseBySlot}
-        onClose={handleCloseCompany}
-        onUpgradeWarehouse={handleUpgradeWarehouse}
-        onBuyParkingSpot={handleBuyParkingSpot}
-        onBuyBicycle={handleBuyBicycle}
-        onBuyVan={handleBuyVan}
-        onRequestVehicleRepair={handleRequestVehicleRepair}
-        onSelectActiveVehicle={handleSelectActiveVehicle}
-        onBuyEmployeeLicense={handleBuyEmployeeLicense}
-        onHireCourier={handleHireCourier}
-        onPromoteCourier={handlePromoteCourier}
-        onFireCourier={handleFireCourier}
-        onAssignCourierVehicle={handleAssignCourierVehicle}
-      />
+      {companyOpen && (
+        <CompanyModal
+          isOpen={companyOpen}
+          language={settings.language}
+          economyState={economyState}
+          isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
+          courierAtBaseBySlot={courierAtBaseBySlot}
+          onClose={handleCloseCompany}
+          onUpgradeWarehouse={handleUpgradeWarehouse}
+          onBuyParkingSpot={handleBuyParkingSpot}
+          onBuyBicycle={handleBuyBicycle}
+          onBuyVan={handleBuyVan}
+          onRequestVehicleRepair={handleRequestVehicleRepair}
+          onSelectActiveVehicle={handleSelectActiveVehicle}
+          onBuyEmployeeLicense={handleBuyEmployeeLicense}
+          onHireCourier={handleHireCourier}
+          onPromoteCourier={handlePromoteCourier}
+          onFireCourier={handleFireCourier}
+          onAssignCourierVehicle={handleAssignCourierVehicle}
+        />
+      )}
 
-      <SkipTimeModal
-        isOpen={skipTimeOpen}
-        language={settings.language}
-        nextDayMorningMinutes={nextDayMorningMinutes}
-        nextScheduledOrderMinutes={nextScheduledOrderMinutes}
-        onClose={handleCloseSkipTime}
-        onSkipDay={handleSkipOneDay}
-        onSkipToNextOrder={handleSkipToNextOrder}
-      />
+      {skipTimeOpen && (
+        <SkipTimeModal
+          isOpen={skipTimeOpen}
+          language={settings.language}
+          nextDayMorningMinutes={nextDayMorningMinutes}
+          nextScheduledOrderMinutes={nextScheduledOrderMinutes}
+          onClose={handleCloseSkipTime}
+          onSkipDay={handleSkipOneDay}
+          onSkipToNextOrder={handleSkipToNextOrder}
+        />
+      )}
 
       {startScreenMounted && (
         <StartScreenModal
@@ -1232,16 +1248,18 @@ export function App() {
         />
       )}
 
-      <SettingsModal
-        isOpen={settingsOpen}
-        openedFrom={settingsOpenedFrom}
-        settings={settings}
-        onUpdateSettings={handleUpdateSettings}
-        onRequestExitToMenu={
-          settingsOpenedFrom === 'game' ? handleRequestExitToMenu : undefined
-        }
-        onClose={handleCloseSettings}
-      />
+      {settingsOpen && (
+        <SettingsModal
+          isOpen={settingsOpen}
+          openedFrom={settingsOpenedFrom}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+          onRequestExitToMenu={
+            settingsOpenedFrom === 'game' ? handleRequestExitToMenu : undefined
+          }
+          onClose={handleCloseSettings}
+        />
+      )}
 
       {/* Compact Save-Before-Exit Confirmation Dialog */}
       {exitConfirmOpen && (

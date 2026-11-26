@@ -109,7 +109,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSetWindowed = () => {
     if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
-      document.exitFullscreen().catch(() => {});
+      document.exitFullscreen().catch(() => { });
     }
   };
 
@@ -118,7 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       !document.fullscreenElement &&
       typeof document.documentElement.requestFullscreen === 'function'
     ) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => { });
     }
   };
 
@@ -150,9 +150,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {t(lang, 'settings.title')}
               </h2>
-              <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight truncate">
-                {t(lang, 'settings.subtitle')}
-              </p>
             </div>
           </div>
 
@@ -177,11 +174,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             role="tab"
             aria-selected={effectiveTab === 'audio'}
             onClick={() => setActiveTab('audio')}
-            className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
-              effectiveTab === 'audio'
+            className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${effectiveTab === 'audio'
                 ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                 : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-            }`}
+              }`}
           >
             <Volume2 className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
             <span>{t(lang, 'settings.tabAudio')}</span>
@@ -193,11 +189,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               role="tab"
               aria-selected={effectiveTab === 'graphics'}
               onClick={() => setActiveTab('graphics')}
-              className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
-                effectiveTab === 'graphics'
+              className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${effectiveTab === 'graphics'
                   ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                   : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-              }`}
+                }`}
             >
               <Monitor className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(lang, 'settings.tabGraphics')}</span>
@@ -248,9 +243,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200"
                   >
                     <Music
-                      className={`w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 shrink-0 ${
-                        settings.musicVolume === 0 ? 'text-slate-500' : 'text-orange-400'
-                      }`}
+                      className={`w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 shrink-0 ${settings.musicVolume === 0 ? 'text-slate-500' : 'text-orange-400'
+                        }`}
                       aria-hidden="true"
                     />
                     <span>{t(lang, 'settings.musicVolume')}</span>
@@ -293,11 +287,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           type="button"
                           aria-pressed={isSelected}
                           onClick={() => onUpdateSettings({ language: entry.code })}
-                          className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
-                            isSelected
+                          className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
                               ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                               : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                          }`}
+                            }`}
                         >
                           {entry.nativeLabel}
                         </button>
@@ -324,11 +317,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="button"
                   aria-pressed={!isFullscreen}
                   onClick={handleSetWindowed}
-                  className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
-                    !isFullscreen
+                  className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!isFullscreen
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                  }`}
+                    }`}
                 >
                   <Minimize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                   <span>{t(lang, 'settings.windowed')}</span>
@@ -338,11 +330,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="button"
                   aria-pressed={isFullscreen}
                   onClick={handleSetFullscreen}
-                  className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
-                    isFullscreen
+                  className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isFullscreen
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                  }`}
+                    }`}
                 >
                   <Maximize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                   <span>{t(lang, 'settings.fullscreen')}</span>
@@ -364,20 +355,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-5 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 bg-slate-950/80 border-t border-slate-800">
-          <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 truncate">
-            {t(lang, 'settings.autoSaveHint')}
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-2.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400"
-          >
-            {t(lang, 'settings.close')}
-          </button>
         </div>
       </div>
     </div>

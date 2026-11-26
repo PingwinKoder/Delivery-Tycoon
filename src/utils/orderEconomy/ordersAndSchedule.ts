@@ -108,6 +108,8 @@ function extractOrderIdFromTaskKey(taskKey: string): string {
   return taskKey;
 }
 
+const MAX_ARCHIVED_ORDERS = 40;
+
 function removeOrderIdsFromWeeklyPriority(
   priorityMap: Record<number, string[]>,
   idsToRemove: ReadonlySet<string>
@@ -120,6 +122,34 @@ function removeOrderIdsFromWeeklyPriority(
     );
   }
   return next;
+}
+
+function pruneInactiveOrderIdsFromWeeklyPriority(
+  priorityMap: Record<number, string[]>,
+  activeOrders: readonly ActiveOrder[]
+): Record<number, string[]> {
+  const activeIds = new Set<string>();
+  for (let i = 0; i < activeOrders.length; i++) {
+    if (activeOrders[i].status === 'active') {
+      activeIds.add(activeOrders[i].id);
+    }
+  }
+  let changed = false;
+  const next: Record<number, string[]> = {};
+  for (let wd = 0; wd < DAYS_PER_WEEK; wd++) {
+    const list = priorityMap[wd] ?? [];
+    const filtered = list.filter(
+      (entryId) =>
+        entryId.startsWith('repair:') ||
+        activeIds.has(entryId) ||
+        activeIds.has(extractOrderIdFromTaskKey(entryId))
+    );
+    if (filtered.length !== list.length) {
+      changed = true;
+    }
+    next[wd] = filtered;
+  }
+  return changed ? next : priorityMap;
 }
 
 function removeOrderIdsFromWarehouseInventory(
@@ -368,12 +398,12 @@ export function recordPackagePickup(
     const nextDailyPickupFields =
       currentGameDay !== undefined
         ? {
-            lastPickupGameDay: currentGameDay,
-            pickedUpOnLastPickupDay:
-              (order.weekly.lastPickupGameDay === currentGameDay
-                ? (order.weekly.pickedUpOnLastPickupDay ?? 0)
-                : 0) + pickedUpCount,
-          }
+          lastPickupGameDay: currentGameDay,
+          pickedUpOnLastPickupDay:
+            (order.weekly.lastPickupGameDay === currentGameDay
+              ? (order.weekly.pickedUpOnLastPickupDay ?? 0)
+              : 0) + pickedUpCount,
+        }
         : {};
     return {
       ...order,
@@ -468,11 +498,11 @@ export function recordPackageDelivery(
         ...satisfactionStats,
         reputationLevel: nextReputationLevel,
         activeOrders: nextActive,
-        archivedOrders: [completedOrder, ...state.archivedOrders],
-        weeklyPriorityOrder: removeOrderIdsFromWeeklyPriority(
-          state.weeklyPriorityOrder,
-          new Set([completedOrder.id])
-        ),
+        archivedOrders: [completedOrder, ...state.archivedOrders].slice(0, MAX_ARCHIVED_ORDERS),
+          weeklyPriorityOrder: pruneInactiveOrderIdsFromWeeklyPriority(
+            removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, new Set([completedOrder.id])),
+            nextActive
+          ),
       };
     }
 
@@ -655,15 +685,15 @@ export function settleWeeklySatisfaction(
         order.endGameDay <= nextSundayGameDay
           ? remainingPackages
           : Math.min(
-              remainingPackages,
-              Math.max(
-                1,
-                Math.ceil(
-                  (remainingPackages * DAYS_PER_WEEK) /
-                    Math.max(1, order.endGameDay - nextWeekStartGameDay + 1)
-                )
+            remainingPackages,
+            Math.max(
+              1,
+              Math.ceil(
+                (remainingPackages * DAYS_PER_WEEK) /
+                Math.max(1, order.endGameDay - nextWeekStartGameDay + 1)
               )
-            );
+            )
+          );
 
       remainingActive.push({
         ...order,
@@ -706,9 +736,12 @@ export function settleWeeklySatisfaction(
     warehouseInventory: cleanedWarehouse.warehouseInventory,
     warehousePackages: cleanedWarehouse.warehousePackages,
     activeOrders: remainingActive,
-    archivedOrders: [...newlyArchived, ...state.archivedOrders],
+    archivedOrders: [...newlyArchived, ...state.archivedOrders].slice(0, MAX_ARCHIVED_ORDERS),
     recentWeeklySettlements: [...settlementResults, ...state.recentWeeklySettlements].slice(0, 20),
-    weeklyPriorityOrder: removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, archivedIds),
+    weeklyPriorityOrder: pruneInactiveOrderIdsFromWeeklyPriority(
+      removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, archivedIds),
+      remainingActive
+    ),
     ...(useRandomRng ? { randomRngState: rngState } : { rngState }),
   };
 }
@@ -942,8 +975,11 @@ function concludeDueOrdersOnNewDay(
     warehouseInventory: cleanedWarehouse.warehouseInventory,
     warehousePackages: cleanedWarehouse.warehousePackages,
     activeOrders: stillActive,
-    archivedOrders: [...newlyArchived, ...state.archivedOrders],
-    weeklyPriorityOrder: removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, archivedIds),
+    archivedOrders: [...newlyArchived, ...state.archivedOrders].slice(0, MAX_ARCHIVED_ORDERS),
+    weeklyPriorityOrder: pruneInactiveOrderIdsFromWeeklyPriority(
+      removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, archivedIds),
+      stillActive
+    ),
   };
 }
 

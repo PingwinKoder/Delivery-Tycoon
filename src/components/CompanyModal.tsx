@@ -147,14 +147,14 @@ const VanPreviewIllustration: React.FC<VanPreviewIllustrationProps> = ({ conditi
       ? [[34, 3.2]]
       : tier === 'pro'
         ? [
-            [30, 2.3],
-            [33.8, 2.3],
-            [37.6, 2.3],
-          ]
+          [30, 2.3],
+          [33.8, 2.3],
+          [37.6, 2.3],
+        ]
         : [
-            [31.5, 2.8],
-            [36.0, 2.8],
-          ];
+          [31.5, 2.8],
+          [36.0, 2.8],
+        ];
 
   return (
     <div className="w-full h-10 [@media(min-width:1024px)_and_(min-height:541px)]:h-16 rounded-md bg-slate-950/85 border border-slate-800/90 flex items-center justify-center px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 overflow-hidden">
@@ -367,11 +367,6 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
   const triggerLabel = effectiveAssigned
     ? formatVehicleDisplayLabel(language, economyState, effectiveAssigned)
     : t(language, 'company.noVehicle');
-  const triggerCapacity = effectiveAssigned
-    ? t(language, 'company.pcsShort', {
-        count: getVehicleCourierCapacityForSelection(economyState, effectiveAssigned),
-      })
-    : null;
   const triggerDurability = effectiveAssigned
     ? Math.round(getVehicleDurability(economyState, effectiveAssigned))
     : null;
@@ -391,13 +386,12 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         onClick={() => {
           if (!disabled) onToggle();
         }}
-        className={`w-full rounded-md border px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-          disabled
+        className={`w-full rounded-md border px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${disabled
             ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
             : isOpen
               ? 'bg-slate-950 border-amber-400/80 text-slate-100 cursor-pointer'
               : 'bg-slate-950 border-slate-700 text-slate-100 hover:border-slate-500 cursor-pointer'
-        }`}
+          }`}
       >
         <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
           {effectiveAssigned?.type === 'van' ? (
@@ -408,9 +402,6 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
             <Ban className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-500 shrink-0" aria-hidden="true" />
           )}
           <span className="font-semibold truncate">{triggerLabel}</span>
-          {triggerCapacity && (
-            <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 shrink-0">({triggerCapacity})</span>
-          )}
           {triggerDurability !== null && (
             <span
               className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold shrink-0 ${getDurabilityTextClass(triggerDurability)}`}
@@ -421,9 +412,8 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         </span>
 
         <ChevronDown
-          className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-400 shrink-0 transition-transform ${
-            isOpen ? 'rotate-180 text-amber-300' : ''
-          }`}
+          className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-400 shrink-0 transition-transform ${isOpen ? 'rotate-180 text-amber-300' : ''
+            }`}
           aria-hidden="true"
         />
       </button>
@@ -433,9 +423,8 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           id={`courier-vehicle-menu-${courier.slotIndex}`}
           role="listbox"
           aria-label={t(language, 'company.selectVehicleAria', { name: courierAriaName })}
-          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-lg py-1 max-h-44 [@media(min-width:1024px)_and_(min-height:541px)]:max-h-60 overflow-y-auto overscroll-contain ${
-            openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
-          }`}
+          className={`absolute left-0 right-0 z-30 rounded-md bg-slate-950 border border-slate-700 shadow-lg py-1 max-h-44 [@media(min-width:1024px)_and_(min-height:541px)]:max-h-60 overflow-y-auto overscroll-contain ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'
+            }`}
         >
           {!courier.isOwner && (
             <li role="option" aria-selected={effectiveAssigned === null}>
@@ -445,11 +434,10 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                   onSelect(null);
                   onClose();
                 }}
-                className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                  effectiveAssigned === null
+                className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${effectiveAssigned === null
                     ? 'bg-amber-500/15 text-amber-200 font-semibold'
                     : 'text-slate-300 hover:bg-slate-900 hover:text-slate-100'
-                }`}
+                  }`}
               >
                 <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
                   <Ban className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-slate-500 shrink-0" aria-hidden="true" />
@@ -466,9 +454,6 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
             const isSelected = vehiclesEqual(effectiveAssigned, vehicle);
             const isVan = vehicle.type === 'van';
             const label = formatVehicleDisplayLabel(language, economyState, vehicle);
-            const capacityLabel = t(language, 'company.pcsShort', {
-              count: getVehicleCourierCapacityForSelection(economyState, vehicle),
-            });
             const optionDurability = Math.round(getVehicleDurability(economyState, vehicle));
 
             return (
@@ -483,11 +468,10 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                     onSelect(vehicle);
                     onClose();
                   }}
-                  className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                    isSelected
+                  className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-mono-nums flex items-center justify-between gap-2 transition-colors cursor-pointer ${isSelected
                       ? 'bg-amber-500/15 text-amber-200 font-semibold'
                       : 'text-slate-200 hover:bg-slate-900 hover:text-white'
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
                     {isVan ? (
@@ -496,13 +480,6 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                       <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
                     )}
                     <span className="truncate">{label}</span>
-                    <span
-                      className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs shrink-0 ${
-                        isSelected ? 'text-amber-300/90' : 'text-slate-400'
-                      }`}
-                    >
-                      ({capacityLabel})
-                    </span>
                     <span
                       className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold shrink-0 ${getDurabilityTextClass(optionDurability)}`}
                     >
@@ -770,11 +747,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-selected={activeTab === 'base'}
               aria-controls="company-panel-base"
               onClick={() => setActiveTab('base')}
-              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                activeTab === 'base'
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'base'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
-              }`}
+                }`}
             >
               <Warehouse className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabBase')}</span>
@@ -787,11 +763,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-selected={activeTab === 'fleet'}
               aria-controls="company-panel-fleet"
               onClick={() => setActiveTab('fleet')}
-              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                activeTab === 'fleet'
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'fleet'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
-              }`}
+                }`}
             >
               <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabFleet')}</span>
@@ -804,11 +779,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-selected={activeTab === 'employees'}
               aria-controls="company-panel-employees"
               onClick={() => setActiveTab('employees')}
-              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                activeTab === 'employees'
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'employees'
                   ? 'bg-amber-500 text-slate-950 shadow-sm'
                   : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
-              }`}
+                }`}
             >
               <Users className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabEmployees')}</span>
@@ -863,15 +837,14 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       return (
                         <div
                           key={tier.tier}
-                          className={`rounded border px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight ${
-                            isCurrent
+                          className={`rounded border px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight ${isCurrent
                               ? 'bg-amber-500/20 border-amber-400 text-amber-200 font-bold'
                               : isNext
                                 ? 'bg-slate-800/90 border-sky-400/50 text-sky-200 font-semibold'
                                 : isUnlocked
                                   ? 'bg-slate-800/60 border-slate-700 text-slate-300'
                                   : 'bg-slate-900/60 border-slate-800 text-slate-500'
-                          }`}
+                            }`}
                         >
                           <div>{t(language, 'company.tierShort', { tier: tier.tier })}</div>
                           <div>{t(language, 'company.pcsShort', { count: tier.capacity })}</div>
@@ -887,12 +860,12 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       <span className="text-slate-100 font-semibold">
                         {nextWarehouseUpgrade
                           ? t(language, 'company.capacityUpgrade', {
-                              from: nextWarehouseUpgrade.currentCapacity,
-                              to: nextWarehouseUpgrade.nextCapacity,
-                            })
+                            from: nextWarehouseUpgrade.currentCapacity,
+                            to: nextWarehouseUpgrade.nextCapacity,
+                          })
                           : t(language, 'company.capacityMax', {
-                              count: warehouseConfig.capacity,
-                            })}
+                            count: warehouseConfig.capacity,
+                          })}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -917,8 +890,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 font-mono-nums">
                       {nextWarehouseUpgrade
                         ? t(language, 'company.costLabel', {
-                            amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
-                          })
+                          amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
+                        })
                         : t(language, 'company.maxLevelReached')}
                     </span>
                     {nextWarehouseUpgrade && !canUpgradeWarehouse && (
@@ -935,16 +908,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     type="button"
                     disabled={!canUpgradeWarehouse}
                     onClick={onUpgradeWarehouse}
-                    className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                      canUpgradeWarehouse
+                    className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canUpgradeWarehouse
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                         : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                    }`}
+                      }`}
                   >
                     {nextWarehouseUpgrade
                       ? t(language, 'company.upgradeBtn', {
-                          amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
-                        })
+                        amount: formatCurrencyUsd(nextWarehouseUpgrade.cost, false),
+                      })
                       : t(language, 'company.maxLevelBtn')}
                   </button>
                 </div>
@@ -982,11 +954,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       return (
                         <div
                           key={idx}
-                          className={`rounded border px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 text-center text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums leading-tight ${
-                            unlocked
+                          className={`rounded border px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 text-center text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums leading-tight ${unlocked
                               ? 'bg-sky-500/20 border-sky-400/70 text-sky-200 font-bold'
                               : 'bg-slate-900/60 border-slate-800 text-slate-500'
-                          }`}
+                            }`}
                         >
                           P{idx + 1}
                         </div>
@@ -1028,8 +999,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
                       {nextParkingUpgrade
                         ? t(language, 'company.parkingNextHint', {
-                            spot: nextParkingUpgrade.nextSpotNumber,
-                          })
+                          spot: nextParkingUpgrade.nextSpotNumber,
+                        })
                         : t(language, 'company.parkingAllBought')}
                     </span>
                     {nextParkingUpgrade && !canBuyParkingSpot && (
@@ -1046,16 +1017,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     type="button"
                     disabled={!canBuyParkingSpot}
                     onClick={onBuyParkingSpot}
-                    className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                      canBuyParkingSpot
+                    className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canBuyParkingSpot
                         ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                         : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                    }`}
+                      }`}
                   >
                     {nextParkingUpgrade
                       ? t(language, 'company.buySpotBtn', {
-                          amount: formatCurrencyUsd(nextParkingUpgrade.cost, false),
-                        })
+                        amount: formatCurrencyUsd(nextParkingUpgrade.cost, false),
+                      })
                       : t(language, 'company.maxSpotsBtn')}
                   </button>
                 </div>
@@ -1102,11 +1072,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       type="button"
                       aria-pressed={vanShopCondition === 'used'}
                       onClick={() => setVanShopCondition('used')}
-                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                        vanShopCondition === 'used'
+                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${vanShopCondition === 'used'
                           ? 'bg-amber-500 text-slate-950'
                           : 'text-slate-300 hover:text-white'
-                      }`}
+                        }`}
                     >
                       {t(language, 'company.vansCategoryUsed')}
                     </button>
@@ -1114,11 +1083,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       type="button"
                       aria-pressed={vanShopCondition === 'new'}
                       onClick={() => setVanShopCondition('new')}
-                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                        vanShopCondition === 'new'
+                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${vanShopCondition === 'new'
                           ? 'bg-sky-400 text-slate-950'
                           : 'text-slate-300 hover:text-white'
-                      }`}
+                        }`}
                     >
                       {t(language, 'company.vansCategoryNew')}
                     </button>
@@ -1146,11 +1114,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               {condLabel} {tierLabel}
                             </h4>
                             <span
-                              className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums shrink-0 border ${
-                                spec.condition === 'new'
+                              className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums shrink-0 border ${spec.condition === 'new'
                                   ? 'bg-sky-500/15 border-sky-400/45 text-sky-300'
                                   : 'bg-amber-500/15 border-amber-400/45 text-amber-300'
-                              }`}
+                                }`}
                             >
                               {t(language, 'company.packagesCount', { count: spec.capacity })}
                             </span>
@@ -1205,20 +1172,19 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             type="button"
                             disabled={!canPurchase}
                             onClick={() => onBuyVan(modelId)}
-                            className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                              canPurchase
+                            className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canPurchase
                                 ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                                 : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                            }`}
+                              }`}
                           >
                             {vansMaxed
                               ? t(language, 'company.buyVanLimitReached', {
-                                  current: MAX_VANS,
-                                  max: MAX_VANS,
-                                })
+                                current: MAX_VANS,
+                                max: MAX_VANS,
+                              })
                               : t(language, 'company.buyModelBtn', {
-                                  amount: formatCurrencyUsd(spec.purchasePrice, false),
-                                })}
+                                amount: formatCurrencyUsd(spec.purchasePrice, false),
+                              })}
                           </button>
                         </div>
                       </article>
@@ -1288,20 +1254,19 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       type="button"
                       disabled={!canBuyBicycle}
                       onClick={onBuyBicycle}
-                      className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                        canBuyBicycle
+                      className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canBuyBicycle
                           ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                           : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                      }`}
+                        }`}
                     >
                       {bikesMaxed
                         ? t(language, 'company.limitReached', {
-                            current: MAX_BICYCLES,
-                            max: MAX_BICYCLES,
-                          })
+                          current: MAX_BICYCLES,
+                          max: MAX_BICYCLES,
+                        })
                         : t(language, 'company.buyBikeBtn', {
-                            amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
-                          })}
+                          amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
+                        })}
                     </button>
                   </div>
                 </article>
@@ -1368,8 +1333,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   isSlowed
                                     ? t(language, 'company.durabilitySlowHint')
                                     : t(language, 'company.durabilityLabel', {
-                                        percent: roundedDurability,
-                                      })
+                                      percent: roundedDurability,
+                                    })
                                 }
                                 className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                               >
@@ -1380,11 +1345,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 {perMonth}
                               </span>
                               <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border ${
-                                  driverName
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border ${driverName
                                     ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                     : 'bg-slate-800 border-slate-700 text-slate-400'
-                                }`}
+                                  }`}
                               >
                                 {driverName
                                   ? t(language, 'company.assignedToLabel', { name: driverName })
@@ -1431,11 +1395,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                         ? formatMissingFunds(repairCost, economyState.balance, language)
                                         : undefined
                                     }
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                                      canAffordRepair
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
                                         ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                         : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                                    }`}
+                                      }`}
                                   >
                                     <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                                     <span>
@@ -1494,19 +1457,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   isSlowed
                                     ? t(language, 'company.durabilitySlowHint')
                                     : t(language, 'company.durabilityLabel', {
-                                        percent: roundedDurability,
-                                      })
+                                      percent: roundedDurability,
+                                    })
                                 }
                                 className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                               >
                                 {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
                               </span>
                               <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border shrink-0 ${
-                                  driverName
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border shrink-0 ${driverName
                                     ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                     : 'bg-slate-800 border-slate-700 text-slate-400'
-                                }`}
+                                  }`}
                               >
                                 {driverName
                                   ? t(language, 'company.assignedToLabel', { name: driverName })
@@ -1551,11 +1513,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                         ? formatMissingFunds(repairCost, economyState.balance, language)
                                         : undefined
                                     }
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                                      canAffordRepair
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
                                         ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                         : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                                    }`}
+                                      }`}
                                   >
                                     <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                                     <span>
@@ -1669,33 +1630,30 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               )}
                               <h4 className="font-bold text-slate-100 truncate">{roleHeading}</h4>
                               <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${
-                                  slotAtBase
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${slotAtBase
                                     ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                     : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
-                                }`}
+                                  }`}
                               >
                                 {slotAtBase
                                   ? t(language, 'company.statusAvailable')
                                   : t(language, 'company.statusOnRoute')}
                               </span>
                               <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${
-                                  hasVanQualification
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${hasVanQualification
                                     ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                                     : 'bg-sky-500/15 border-sky-400/40 text-sky-300'
-                                }`}
+                                  }`}
                               >
                                 {qualificationLabel}
                               </span>
                             </div>
 
                             <span
-                              className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums border shrink-0 ${
-                                courier.isOwner
+                              className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums border shrink-0 ${courier.isOwner
                                   ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
                                   : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
-                              }`}
+                                }`}
                             >
                               {formatCurrencyUsd(courier.monthlySalary, false)}
                               {perMonth}
@@ -1752,22 +1710,22 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 font-mono-nums">
                             {courier.isOwner
                               ? `${t(language, 'company.ownerFooterDesc')} • ${t(
-                                  language,
-                                  'company.courierPayload',
-                                  {
-                                    count: getVehicleCourierCapacityForSelection(
-                                      economyState,
-                                      effectiveAssigned
-                                    ),
-                                  }
-                                )}`
+                                language,
+                                'company.courierPayload',
+                                {
+                                  count: getVehicleCourierCapacityForSelection(
+                                    economyState,
+                                    effectiveAssigned
+                                  ),
+                                }
+                              )}`
                               : effectiveAssigned
                                 ? t(language, 'company.courierPayload', {
-                                    count: getVehicleCourierCapacityForSelection(
-                                      economyState,
-                                      effectiveAssigned
-                                    ),
-                                  })
+                                  count: getVehicleCourierCapacityForSelection(
+                                    economyState,
+                                    effectiveAssigned
+                                  ),
+                                })
                                 : hasVanQualification
                                   ? t(language, 'company.assignBikeOrVan')
                                   : t(language, 'company.assignBikeOrPromote')}
@@ -1793,11 +1751,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 type="button"
                                 disabled={!slotAtBase}
                                 onClick={() => onFireCourier(courier.slotIndex)}
-                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                                  slotAtBase
+                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${slotAtBase
                                     ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/45 text-rose-300 cursor-pointer'
                                     : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
-                                }`}
+                                  }`}
                               >
                                 <UserMinus className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                                 <span>{t(language, 'company.fireBtn')}</span>
@@ -1875,11 +1832,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   return (
                     <article
                       key={courier.id}
-                      className={`rounded-lg bg-[#151d2b] border p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm ${
-                        isNextToUnlock
+                      className={`rounded-lg bg-[#151d2b] border p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm ${isNextToUnlock
                           ? 'border-amber-400/45'
                           : 'border-slate-800 opacity-75'
-                      }`}
+                        }`}
                     >
                       <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2">
                         <div className="flex items-center justify-between gap-1.5">
@@ -1900,8 +1856,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           {isNextToUnlock
                             ? t(language, 'company.lockedNextDesc', { slot: courier.slotIndex })
                             : t(language, 'company.lockedPrevDesc', {
-                                prevSlot: courier.slotIndex - 1,
-                              })}
+                              prevSlot: courier.slotIndex - 1,
+                            })}
                         </p>
                       </div>
 
@@ -1909,14 +1865,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         <div className="min-w-0 leading-tight">
                           {!canBuyLicense && (
                             <span
-                              className={`block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold font-mono-nums ${
-                                !isNextToUnlock ? 'text-amber-300' : 'text-rose-300'
-                              }`}
+                              className={`block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold font-mono-nums ${!isNextToUnlock ? 'text-amber-300' : 'text-rose-300'
+                                }`}
                             >
                               {!isNextToUnlock
                                 ? t(language, 'company.requiresPrevLicense', {
-                                    prevSlot: courier.slotIndex - 1,
-                                  })
+                                  prevSlot: courier.slotIndex - 1,
+                                })
                                 : formatMissingFunds(licenseCost, economyState.balance, language)}
                             </span>
                           )}
@@ -1925,11 +1880,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           type="button"
                           disabled={!canBuyLicense}
                           onClick={onBuyEmployeeLicense}
-                          className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                            canBuyLicense
+                          className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canBuyLicense
                               ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                               : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                          }`}
+                            }`}
                         >
                           {t(language, 'company.buyLicenseBtn', {
                             amount: formatCurrencyUsd(licenseCost, false),

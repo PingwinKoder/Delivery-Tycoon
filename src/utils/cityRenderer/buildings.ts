@@ -1231,42 +1231,42 @@ export function buildSceneSpriteAtlas(
   const cornerPost: FenceSprite | null =
     cornerSlot && cornerPostBounds
       ? {
-          id: 'fence_corner_post',
-          sheet: cornerSlot.sheet,
-          sheetIndex: cornerSlot.sheetIndex,
-          sx: cornerSlot.sx,
-          sy: cornerSlot.sy,
-          sw: cornerSlot.sw,
-          sh: cornerSlot.sh,
-          anchorX: cornerPostBounds.anchorX,
-          anchorY: cornerPostBounds.anchorY,
-          offsetX: cornerPostBounds.offsetX,
-          offsetY: cornerPostBounds.offsetY,
-          worldWidth: cornerSlot.sw / scale,
-          worldHeight: cornerSlot.sh / scale,
-          scale,
-        }
+        id: 'fence_corner_post',
+        sheet: cornerSlot.sheet,
+        sheetIndex: cornerSlot.sheetIndex,
+        sx: cornerSlot.sx,
+        sy: cornerSlot.sy,
+        sw: cornerSlot.sw,
+        sh: cornerSlot.sh,
+        anchorX: cornerPostBounds.anchorX,
+        anchorY: cornerPostBounds.anchorY,
+        offsetX: cornerPostBounds.offsetX,
+        offsetY: cornerPostBounds.offsetY,
+        worldWidth: cornerSlot.sw / scale,
+        worldHeight: cornerSlot.sh / scale,
+        scale,
+      }
       : null;
 
   const gateSlot = slots.get('p:gate');
   const gatePost: FenceSprite | null =
     gateSlot && gatePostBounds
       ? {
-          id: 'fence_gate_post',
-          sheet: gateSlot.sheet,
-          sheetIndex: gateSlot.sheetIndex,
-          sx: gateSlot.sx,
-          sy: gateSlot.sy,
-          sw: gateSlot.sw,
-          sh: gateSlot.sh,
-          anchorX: gatePostBounds.anchorX,
-          anchorY: gatePostBounds.anchorY,
-          offsetX: gatePostBounds.offsetX,
-          offsetY: gatePostBounds.offsetY,
-          worldWidth: gateSlot.sw / scale,
-          worldHeight: gateSlot.sh / scale,
-          scale,
-        }
+        id: 'fence_gate_post',
+        sheet: gateSlot.sheet,
+        sheetIndex: gateSlot.sheetIndex,
+        sx: gateSlot.sx,
+        sy: gateSlot.sy,
+        sw: gateSlot.sw,
+        sh: gateSlot.sh,
+        anchorX: gatePostBounds.anchorX,
+        anchorY: gatePostBounds.anchorY,
+        offsetX: gatePostBounds.offsetX,
+        offsetY: gatePostBounds.offsetY,
+        worldWidth: gateSlot.sw / scale,
+        worldHeight: gateSlot.sh / scale,
+        scale,
+      }
       : null;
 
   return {
@@ -1435,46 +1435,56 @@ export function buildFenceSpriteCache(
   const cornerPost: FenceSprite | null =
     cornerSlot && cornerPostBounds
       ? {
-          id: 'fence_corner_post',
-          sheet: cornerSlot.sheet,
-          sheetIndex: cornerSlot.sheetIndex,
-          sx: cornerSlot.sx,
-          sy: cornerSlot.sy,
-          sw: cornerSlot.sw,
-          sh: cornerSlot.sh,
-          anchorX: cornerPostBounds.anchorX,
-          anchorY: cornerPostBounds.anchorY,
-          offsetX: cornerPostBounds.offsetX,
-          offsetY: cornerPostBounds.offsetY,
-          worldWidth: cornerSlot.sw / scale,
-          worldHeight: cornerSlot.sh / scale,
-          scale,
-        }
+        id: 'fence_corner_post',
+        sheet: cornerSlot.sheet,
+        sheetIndex: cornerSlot.sheetIndex,
+        sx: cornerSlot.sx,
+        sy: cornerSlot.sy,
+        sw: cornerSlot.sw,
+        sh: cornerSlot.sh,
+        anchorX: cornerPostBounds.anchorX,
+        anchorY: cornerPostBounds.anchorY,
+        offsetX: cornerPostBounds.offsetX,
+        offsetY: cornerPostBounds.offsetY,
+        worldWidth: cornerSlot.sw / scale,
+        worldHeight: cornerSlot.sh / scale,
+        scale,
+      }
       : null;
 
   const gateSlot = slots.get('p:gate');
   const gatePost: FenceSprite | null =
     gateSlot && gatePostBounds
       ? {
-          id: 'fence_gate_post',
-          sheet: gateSlot.sheet,
-          sheetIndex: gateSlot.sheetIndex,
-          sx: gateSlot.sx,
-          sy: gateSlot.sy,
-          sw: gateSlot.sw,
-          sh: gateSlot.sh,
-          anchorX: gatePostBounds.anchorX,
-          anchorY: gatePostBounds.anchorY,
-          offsetX: gatePostBounds.offsetX,
-          offsetY: gatePostBounds.offsetY,
-          worldWidth: gateSlot.sw / scale,
-          worldHeight: gateSlot.sh / scale,
-          scale,
-        }
+        id: 'fence_gate_post',
+        sheet: gateSlot.sheet,
+        sheetIndex: gateSlot.sheetIndex,
+        sx: gateSlot.sx,
+        sy: gateSlot.sy,
+        sw: gateSlot.sw,
+        sh: gateSlot.sh,
+        anchorX: gatePostBounds.anchorX,
+        anchorY: gatePostBounds.anchorY,
+        offsetX: gatePostBounds.offsetX,
+        offsetY: gatePostBounds.offsetY,
+        worldWidth: gateSlot.sw / scale,
+        worldHeight: gateSlot.sh / scale,
+        scale,
+      }
       : null;
 
   return { sheets, segments, cornerPost, gatePost };
 }
+
+const VISIBLE_BOUNDS_GRID_PX = 16;
+
+let cachedVisibleBuildingsRef: Building[] | null = null;
+let cachedVisibleHasBounds = false;
+let cachedVisibleMinX = 0;
+let cachedVisibleMaxX = 0;
+let cachedVisibleMinY = 0;
+let cachedVisibleMaxY = 0;
+let cachedVisibleItems: StaticScene3DItem[] = [];
 
 /**
  * Draws all buildings and 3D wooden yard fences in exact Painter's Algorithm back-to-front
@@ -1493,197 +1503,222 @@ export function renderBuildings3D(
   fenceSpriteCache?: FenceSpriteCache | null
 ) {
   const invScale = 1 / Math.sqrt(zoom);
-  const staticScene = getStaticScene3DOrder(buildings);
+  const hasBounds = Boolean(viewBounds);
+  const qMinX = viewBounds ? Math.floor(viewBounds.minX / VISIBLE_BOUNDS_GRID_PX) * VISIBLE_BOUNDS_GRID_PX : 0;
+  const qMaxX = viewBounds ? Math.ceil(viewBounds.maxX / VISIBLE_BOUNDS_GRID_PX) * VISIBLE_BOUNDS_GRID_PX : 0;
+  const qMinY = viewBounds ? Math.floor(viewBounds.minY / VISIBLE_BOUNDS_GRID_PX) * VISIBLE_BOUNDS_GRID_PX : 0;
+  const qMaxY = viewBounds ? Math.ceil(viewBounds.maxY / VISIBLE_BOUNDS_GRID_PX) * VISIBLE_BOUNDS_GRID_PX : 0;
 
-  const visible: StaticScene3DItem[] = [];
-  for (let i = 0; i < staticScene.length; i++) {
-    const entry = staticScene[i];
-    if (
-      viewBounds &&
-      (entry.maxX < viewBounds.minX ||
-        entry.minX > viewBounds.maxX ||
-        entry.maxY < viewBounds.minY ||
-        entry.minY > viewBounds.maxY)
-    ) {
-      continue;
-    }
-    visible.push(entry);
-  }
-
-  ctx.save();
-  ctx.lineJoin = 'round';
-
-  // Pass 1: Soft grounded cast shadows (strictly below all buildings, fences & vehicles)
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.19)';
-  ctx.beginPath();
-  for (let i = 0; i < visible.length; i++) {
-    const entry = visible[i];
-    const p =
-      entry.kind === 'building'
-        ? entry.item.prism
-        : entry.kind === 'fenceSegment'
-          ? entry.segment.prism
-          : entry.post.prism;
-    const sx =
-      entry.kind === 'building'
-        ? entry.item.sx
-        : entry.kind === 'fenceSegment'
-          ? entry.segment.sx
-          : entry.post.sx;
-    const sy =
-      entry.kind === 'building'
-        ? entry.item.sy
-        : entry.kind === 'fenceSegment'
-          ? entry.segment.sy
-          : entry.post.sy;
-
-    ctx.moveTo(p.bBack.x, p.bBack.y);
-    ctx.lineTo(p.bBack.x + sx, p.bBack.y - sy);
-    ctx.lineTo(p.bRight.x + sx, p.bRight.y - sy);
-    ctx.lineTo(p.bFront.x + sx * 0.72, p.bFront.y - sy);
-    ctx.lineTo(p.bFront.x, p.bFront.y);
-    ctx.closePath();
-  }
-  ctx.fill();
-
-  // Pass 2: Interleave ONLY dynamic entities (bike rack, courier) into the already-sorted
-  // visible static list (buildings + 3D wooden yard fence panels & posts)
-  const orderedScene = mergeEntitiesIntoBackToFrontOrder(visible, entities);
-  const spriteMap = spriteCache?.sprites;
-  const fenceSegmentMap = fenceSpriteCache?.segments;
-
-  for (let i = 0; i < orderedScene.length; i++) {
-    const sceneEntry = orderedScene[i];
-    if (sceneEntry.kind === 'entity') {
-      sceneEntry.entity.draw(ctx);
-      continue;
-    }
-
-    const staticEntry = sceneEntry.item;
-    if (staticEntry.kind === 'fenceSegment') {
-      const segSprite = fenceSegmentMap?.get(staticEntry.id);
-      if (segSprite) {
-        const drawX = segSprite.anchorX + segSprite.offsetX;
-        const drawY = segSprite.anchorY + segSprite.offsetY;
-        if (
-          !viewBounds ||
-          (drawX + segSprite.worldWidth >= viewBounds.minX &&
-            drawX <= viewBounds.maxX &&
-            drawY + segSprite.worldHeight >= viewBounds.minY &&
-            drawY <= viewBounds.maxY)
-        ) {
-          ctx.drawImage(
-            segSprite.sheet,
-            segSprite.sx,
-            segSprite.sy,
-            segSprite.sw,
-            segSprite.sh,
-            drawX,
-            drawY,
-            segSprite.worldWidth,
-            segSprite.worldHeight
-          );
-        }
-      } else {
-        drawFenceSegment3D(ctx, staticEntry.segment, invScale);
-      }
-      continue;
-    }
-    if (staticEntry.kind === 'fencePost') {
-      const post = staticEntry.post;
-      const postSprite = fenceSpriteCache
-        ? post.isGatePost
-          ? fenceSpriteCache.gatePost
-          : fenceSpriteCache.cornerPost
-        : null;
-      if (postSprite) {
-        const postAnchorX = (post.prism.bLeft.x + post.prism.bRight.x) * 0.5;
-        const postAnchorY = (post.prism.bBack.y + post.prism.bFront.y) * 0.5;
-        const drawX = postAnchorX + postSprite.offsetX;
-        const drawY = postAnchorY + postSprite.offsetY;
-        if (
-          !viewBounds ||
-          (drawX + postSprite.worldWidth >= viewBounds.minX &&
-            drawX <= viewBounds.maxX &&
-            drawY + postSprite.worldHeight >= viewBounds.minY &&
-            drawY <= viewBounds.maxY)
-        ) {
-          ctx.drawImage(
-            postSprite.sheet,
-            postSprite.sx,
-            postSprite.sy,
-            postSprite.sw,
-            postSprite.sh,
-            drawX,
-            drawY,
-            postSprite.worldWidth,
-            postSprite.worldHeight
-          );
-        }
-      } else {
-        drawFencePost3D(ctx, post, invScale);
-      }
-      continue;
-    }
-
-    const { building: b, prism: p, anchorX, anchorY } = staticEntry.item;
-    const sprite = spriteMap?.get(b.id);
-
-    if (sprite) {
-      const drawX = anchorX + sprite.offsetX;
-      const drawY = anchorY + sprite.offsetY;
+      let visible: StaticScene3DItem[];
       if (
-        !viewBounds ||
-        (drawX + sprite.worldWidth >= viewBounds.minX &&
-          drawX <= viewBounds.maxX &&
-          drawY + sprite.worldHeight >= viewBounds.minY &&
-          drawY <= viewBounds.maxY)
+        cachedVisibleBuildingsRef === buildings &&
+        cachedVisibleHasBounds === hasBounds &&
+        (!hasBounds ||
+          (cachedVisibleMinX === qMinX &&
+            cachedVisibleMaxX === qMaxX &&
+            cachedVisibleMinY === qMinY &&
+            cachedVisibleMaxY === qMaxY))
       ) {
-        ctx.drawImage(
-          sprite.sheet,
-          sprite.sx,
-          sprite.sy,
-          sprite.sw,
-          sprite.sh,
-          drawX,
-          drawY,
-          sprite.worldWidth,
-          sprite.worldHeight
-        );
+        visible = cachedVisibleItems;
+      } else {
+        const staticScene = getStaticScene3DOrder(buildings);
+        visible = [];
+        for (let i = 0; i < staticScene.length; i++) {
+          const entry = staticScene[i];
+          if (
+            hasBounds &&
+            (entry.maxX < qMinX ||
+              entry.minX > qMaxX ||
+              entry.maxY < qMinY ||
+              entry.minY > qMaxY)
+          ) {
+            continue;
+          }
+          visible.push(entry);
+        }
+        cachedVisibleBuildingsRef = buildings;
+        cachedVisibleHasBounds = hasBounds;
+        cachedVisibleMinX = qMinX;
+        cachedVisibleMaxX = qMaxX;
+        cachedVisibleMinY = qMinY;
+        cachedVisibleMaxY = qMaxY;
+        cachedVisibleItems = visible;
       }
-    } else {
-      drawBuilding3DVector(ctx, b, p, invScale);
-    }
 
-    const isSelected = b.id === selectedId;
-    const isHovered = b.id === hoveredId;
+      ctx.save();
+      ctx.lineJoin = 'round';
 
-    // Subtle roof tint & crisp outline when selected or hovered
-    if (isSelected || isHovered) {
-      ctx.fillStyle = isSelected
-        ? 'rgba(251, 191, 36, 0.24)'
-        : 'rgba(255, 255, 255, 0.14)';
+      // Pass 1: Soft grounded cast shadows (strictly below all buildings, fences & vehicles)
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.19)';
       ctx.beginPath();
-      ctx.moveTo(p.tBack.x, p.tBack.y);
-      ctx.lineTo(p.tRight.x, p.tRight.y);
-      ctx.lineTo(p.tFront.x, p.tFront.y);
-      ctx.lineTo(p.tLeft.x, p.tLeft.y);
-      ctx.closePath();
+      for (let i = 0; i < visible.length; i++) {
+        const entry = visible[i];
+        const p =
+          entry.kind === 'building'
+            ? entry.item.prism
+            : entry.kind === 'fenceSegment'
+              ? entry.segment.prism
+              : entry.post.prism;
+        const sx =
+          entry.kind === 'building'
+            ? entry.item.sx
+            : entry.kind === 'fenceSegment'
+              ? entry.segment.sx
+              : entry.post.sx;
+        const sy =
+          entry.kind === 'building'
+            ? entry.item.sy
+            : entry.kind === 'fenceSegment'
+              ? entry.segment.sy
+              : entry.post.sy;
+
+        ctx.moveTo(p.bBack.x, p.bBack.y);
+        ctx.lineTo(p.bBack.x + sx, p.bBack.y - sy);
+        ctx.lineTo(p.bRight.x + sx, p.bRight.y - sy);
+        ctx.lineTo(p.bFront.x + sx * 0.72, p.bFront.y - sy);
+        ctx.lineTo(p.bFront.x, p.bFront.y);
+        ctx.closePath();
+      }
       ctx.fill();
 
-      ctx.beginPath();
-      ctx.moveTo(p.tBack.x, p.tBack.y);
-      ctx.lineTo(p.tRight.x, p.tRight.y);
-      ctx.lineTo(p.bRight.x, p.bRight.y);
-      ctx.lineTo(p.bFront.x, p.bFront.y);
-      ctx.lineTo(p.bLeft.x, p.bLeft.y);
-      ctx.lineTo(p.tLeft.x, p.tLeft.y);
-      ctx.closePath();
-      ctx.lineWidth = (isSelected ? 3.2 : 2.0) * invScale;
-      ctx.strokeStyle = isSelected ? '#fbbf24' : 'rgba(248, 250, 252, 0.85)';
-      ctx.stroke();
-    }
-  }
+      // Pass 2: Interleave ONLY dynamic entities (bike rack, courier) into the already-sorted
+      // visible static list (buildings + 3D wooden yard fence panels & posts)
+      const orderedScene = mergeEntitiesIntoBackToFrontOrder(visible, entities);
+      const spriteMap = spriteCache?.sprites;
+      const fenceSegmentMap = fenceSpriteCache?.segments;
 
-  ctx.restore();
-}
+      for (let i = 0; i < orderedScene.length; i++) {
+        const sceneEntry = orderedScene[i];
+        if (sceneEntry.kind === 'entity') {
+          sceneEntry.entity.draw(ctx);
+          continue;
+        }
+
+        const staticEntry = sceneEntry.item;
+        if (staticEntry.kind === 'fenceSegment') {
+          const segSprite = fenceSegmentMap?.get(staticEntry.id);
+          if (segSprite) {
+            const drawX = segSprite.anchorX + segSprite.offsetX;
+            const drawY = segSprite.anchorY + segSprite.offsetY;
+            if (
+              !viewBounds ||
+              (drawX + segSprite.worldWidth >= viewBounds.minX &&
+                drawX <= viewBounds.maxX &&
+                drawY + segSprite.worldHeight >= viewBounds.minY &&
+                drawY <= viewBounds.maxY)
+            ) {
+              ctx.drawImage(
+                segSprite.sheet,
+                segSprite.sx,
+                segSprite.sy,
+                segSprite.sw,
+                segSprite.sh,
+                drawX,
+                drawY,
+                segSprite.worldWidth,
+                segSprite.worldHeight
+              );
+            }
+          } else {
+            drawFenceSegment3D(ctx, staticEntry.segment, invScale);
+          }
+          continue;
+        }
+        if (staticEntry.kind === 'fencePost') {
+          const post = staticEntry.post;
+          const postSprite = fenceSpriteCache
+            ? post.isGatePost
+              ? fenceSpriteCache.gatePost
+              : fenceSpriteCache.cornerPost
+            : null;
+          if (postSprite) {
+            const postAnchorX = (post.prism.bLeft.x + post.prism.bRight.x) * 0.5;
+            const postAnchorY = (post.prism.bBack.y + post.prism.bFront.y) * 0.5;
+            const drawX = postAnchorX + postSprite.offsetX;
+            const drawY = postAnchorY + postSprite.offsetY;
+            if (
+              !viewBounds ||
+              (drawX + postSprite.worldWidth >= viewBounds.minX &&
+                drawX <= viewBounds.maxX &&
+                drawY + postSprite.worldHeight >= viewBounds.minY &&
+                drawY <= viewBounds.maxY)
+            ) {
+              ctx.drawImage(
+                postSprite.sheet,
+                postSprite.sx,
+                postSprite.sy,
+                postSprite.sw,
+                postSprite.sh,
+                drawX,
+                drawY,
+                postSprite.worldWidth,
+                postSprite.worldHeight
+              );
+            }
+          } else {
+            drawFencePost3D(ctx, post, invScale);
+          }
+          continue;
+        }
+
+        const { building: b, prism: p, anchorX, anchorY } = staticEntry.item;
+        const sprite = spriteMap?.get(b.id);
+
+        if (sprite) {
+          const drawX = anchorX + sprite.offsetX;
+          const drawY = anchorY + sprite.offsetY;
+          if (
+            !viewBounds ||
+            (drawX + sprite.worldWidth >= viewBounds.minX &&
+              drawX <= viewBounds.maxX &&
+              drawY + sprite.worldHeight >= viewBounds.minY &&
+              drawY <= viewBounds.maxY)
+          ) {
+            ctx.drawImage(
+              sprite.sheet,
+              sprite.sx,
+              sprite.sy,
+              sprite.sw,
+              sprite.sh,
+              drawX,
+              drawY,
+              sprite.worldWidth,
+              sprite.worldHeight
+            );
+          }
+        } else {
+          drawBuilding3DVector(ctx, b, p, invScale);
+        }
+
+        const isSelected = b.id === selectedId;
+        const isHovered = b.id === hoveredId;
+
+        // Subtle roof tint & crisp outline when selected or hovered
+        if (isSelected || isHovered) {
+          ctx.fillStyle = isSelected
+            ? 'rgba(251, 191, 36, 0.24)'
+            : 'rgba(255, 255, 255, 0.14)';
+          ctx.beginPath();
+          ctx.moveTo(p.tBack.x, p.tBack.y);
+          ctx.lineTo(p.tRight.x, p.tRight.y);
+          ctx.lineTo(p.tFront.x, p.tFront.y);
+          ctx.lineTo(p.tLeft.x, p.tLeft.y);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.moveTo(p.tBack.x, p.tBack.y);
+          ctx.lineTo(p.tRight.x, p.tRight.y);
+          ctx.lineTo(p.bRight.x, p.bRight.y);
+          ctx.lineTo(p.bFront.x, p.bFront.y);
+          ctx.lineTo(p.bLeft.x, p.bLeft.y);
+          ctx.lineTo(p.tLeft.x, p.tLeft.y);
+          ctx.closePath();
+          ctx.lineWidth = (isSelected ? 3.2 : 2.0) * invScale;
+          ctx.strokeStyle = isSelected ? '#fbbf24' : 'rgba(248, 250, 252, 0.85)';
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
