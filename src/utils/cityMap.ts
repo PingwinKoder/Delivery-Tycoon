@@ -552,22 +552,22 @@ export function buildBaseParkingSpec(parkingSpots = 0): BaseParkingSpec {
 }
 
 /**
- * Generates the exterior bike rack flush against the SW entrance wall of the Base building
- * for the current warehouse tier. Remains completely independent of car parking spots.
+ * Generates the exterior covered 4-bay two-wheeler shelter flush against the SW entrance wall
+ * of the Base building for the current warehouse tier. Remains completely independent of car parking spots.
  */
 export function buildBaseBikeRackSpec(warehouseTier: WarehouseTier = 1): BaseBikeRackSpec {
   const b = getBaseBuildingSpec(warehouseTier);
-  const rackWidth = 28;
-  const uMin = b.uMin + 4;
+  const rackWidth = 34;
+  const uMin = b.uMin + 3;
   const uMax = uMin + rackWidth;
   const vMax = b.vMin - 1;
-  const vMin = vMax - 9;
-  const hoopsU = [uMin + 5, uMin + 11, uMin + 17, uMin + 23];
+  const vMin = vMax - 11.5;
+  const hoopsU = [uMin + 5.5, uMin + 13.0, uMin + 20.5, uMin + 28.0];
   const parkedU = hoopsU[1];
-  const parkedV = vMax - 4.5;
+  const parkedV = vMax - 5.2;
   const parkedPt = isoToCanvas(parkedU, parkedV);
 
-  // Facing +v (+1, -0.5) so the front wheel tucks neatly into the metallic hoop against the garage wall
+  // Facing +v (+1, -0.5) so the front wheel tucks neatly into the wheel-stop against the garage wall
   const parkedAngle = Math.atan2(-0.5, 1);
 
   // Clean concrete-yard lead-out around the NW entrance corner of b_base_garage toward BASE_DEPOT (155, -935)

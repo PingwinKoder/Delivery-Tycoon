@@ -1,9 +1,14 @@
 import { type Building, formatBuildingAddress } from '../../types/building';
-import type { ActiveVehicleSelection } from '../../types/orders';
+import type { ActiveVehicleSelection, ScooterModelId } from '../../types/orders';
 import type { Point, RoadGraph } from '../../types/roadGraph';
 import type { BaseDepotSpec } from '../cityMap';
 import { BASE_GAME_MINUTES_PER_REAL_SECOND } from '../gameClock';
-import { BIKE_REPAIR_GAME_MINUTES, VAN_REPAIR_GAME_MINUTES } from '../orderEconomy';
+import {
+  BIKE_REPAIR_GAME_MINUTES,
+  SCOOTER_CARGO_REPAIR_GAME_MINUTES,
+  SCOOTER_CITY_REPAIR_GAME_MINUTES,
+  VAN_REPAIR_GAME_MINUTES,
+} from '../orderEconomy';
 import {
   ALL_PARKING_NAV_NETWORKS,
   type ParkingNavNetwork,
@@ -297,12 +302,19 @@ export function createRepairMissionCourier(
   speed?: number,
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   courierId = 1,
-  cargoCapacityOverride?: number
+  cargoCapacityOverride?: number,
+  scooterModelId?: ScooterModelId
 ): CourierState {
-  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type);
+  const resolvedSpeed = speed ?? getCourierSpeedForVehicle(vehicle.type, scooterModelId);
   const resolvedCapacity = resolveMissionCargoCapacity(vehicle, cargoCapacityOverride);
   const repairGameMinutes =
-    vehicle.type === 'van' ? VAN_REPAIR_GAME_MINUTES : BIKE_REPAIR_GAME_MINUTES;
+    vehicle.type === 'van'
+      ? VAN_REPAIR_GAME_MINUTES
+      : vehicle.type === 'scooter'
+        ? scooterModelId === 'scooter_cargo'
+          ? SCOOTER_CARGO_REPAIR_GAME_MINUTES
+          : SCOOTER_CITY_REPAIR_GAME_MINUTES
+        : BIKE_REPAIR_GAME_MINUTES;
   const repairPauseSeconds = repairGameMinutes / BASE_GAME_MINUTES_PER_REAL_SECOND;
 
   if (vehicle.type === 'van') {
@@ -1277,7 +1289,7 @@ function stepCourierBySimDtInternal(
           buildingId: currentStop.buildingId,
         });
         // Restore full vehicle cruising speed immediately after repair for the return leg to Base
-        const restoredSpeed = getCourierSpeedForVehicle(state.vehicleType);
+        const restoredSpeed = getCourierSpeedForVehicle(state.vehicleType, state.scooterModelId);
         const returnState = beginReturnLeg(
           {
             ...state,

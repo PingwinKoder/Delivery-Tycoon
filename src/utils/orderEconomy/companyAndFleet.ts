@@ -9,8 +9,10 @@ import type {
   HirableEmployeeRole,
   MonthlyCostBreakdown,
   OrderEconomyState,
+  OwnedScooter,
   OwnedVan,
   ParkingSpotUpgradeInfo,
+  ScooterModelId,
   UpgradePurchaseResult,
   VanModelId,
   VehicleRepairRequestResult,
@@ -35,6 +37,7 @@ import {
   BIKE_REPAIR_COST_MULTIPLIER,
   BIKE_WEAR_PER_WORLD_PX,
   COURIER_INSURANCE_COST,
+  DEFAULT_LEGACY_SCOOTER_MODEL_ID,
   DEFAULT_LEGACY_VAN_MODEL_ID,
   DEFAULT_VEHICLE_DURABILITY,
   EMPLOYEE_LICENSE_COSTS,
@@ -44,18 +47,24 @@ import {
   INITIAL_MAX_EMPLOYEES,
   INITIAL_OFFERS_COUNT,
   INITIAL_PARKING_SPOTS,
+  INITIAL_SCOOTERS,
   INITIAL_VANS,
   INITIAL_WAREHOUSE_TIER,
   LOW_DURABILITY_SPEED_MULTIPLIER,
   LOW_DURABILITY_SPEED_THRESHOLD,
-  MAX_BICYCLES,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
+  MAX_TWO_WHEELERS,
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   NEW_VAN_WEAR_PER_WORLD_PX,
   PARKING_SPOT_COST,
   REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
+  SCOOTER_CARGO_REPAIR_COST_MULTIPLIER,
+  SCOOTER_CARGO_WEAR_PER_WORLD_PX,
+  SCOOTER_CITY_REPAIR_COST_MULTIPLIER,
+  SCOOTER_CITY_WEAR_PER_WORLD_PX,
+  SCOOTER_MODELS,
   USED_VAN_WEAR_PER_WORLD_PX,
   VAN_COURIER_CAPACITY,
   VAN_MODELS,
@@ -65,15 +74,55 @@ import {
   createClockRandomSeed,
   createDefaultOwnedVans,
   createEmptyWeeklyPriorityOrder,
+  createOwnedScooter,
   createOwnedVan,
+  getBicycleResaleValue,
+  getScooterModelSpec,
+  getScooterResaleValue,
   getVanModelSpec,
+  getVanResaleValue,
   roundCurrency,
 } from './constantsAndHelpers';
 import { generateOffersBatch } from './offerGenerator';
 
-/** Returns package capacity for the selected generic vehicle type (5 for bicycle, max 20 for van) */
+/** Returns normalized owned bicycle count (may reach 0 after selling starter bike once another vehicle exists). */
+export function getOwnedBikesCount(state: OrderEconomyState): number {
+  const raw = state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES;
+  return Math.max(0, Math.min(MAX_TWO_WHEELERS, Math.floor(raw)));
+}
+
+/** Returns normalized list of owned delivery scooters. */
+export function getOwnedScooters(state: OrderEconomyState): OwnedScooter[] {
+  if (Array.isArray(state.scooters)) {
+    return state.scooters;
+  }
+  return [];
+}
+
+/** Finds an owned scooter by its 1-based fleet index (`Skuter #1..#4`). */
+export function getOwnedScooterByIndex(
+  state: OrderEconomyState,
+  index: number
+): OwnedScooter | undefined {
+  const scooters = getOwnedScooters(state);
+  return scooters.find((s) => s.index === index) ?? scooters[index - 1];
+}
+
+/** Total number of owned two-wheelers occupying the shared 4-bay Base shelter. */
+export function getTotalTwoWheelersCount(state: OrderEconomyState): number {
+  return getOwnedBikesCount(state) + getOwnedScooters(state).length;
+}
+
+/** Total number of owned vehicles across the whole company (bikes + scooters + vans). */
+export function getTotalOwnedVehiclesCount(state: OrderEconomyState): number {
+  return getTotalTwoWheelersCount(state) + getOwnedVans(state).length;
+}
+
+/** Returns package capacity for the selected generic vehicle type (5 for bicycle, 8 max scooter, 20 max van). */
 export function getVehicleCourierCapacity(vehicleType: ActiveVehicleType): number {
-  return vehicleType === 'van' ? VAN_COURIER_CAPACITY : BIKE_COURIER_CAPACITY;
+  if (vehicleType === 'van') return VAN_COURIER_CAPACITY;
+  if (vehicleType === 'scooter') return SCOOTER_MODELS.scooter_cargo.capacity;
+  return BIKE_COURIER_CAPACITY;
 }
 
 /** Returns the normalized list of owned delivery vans (falls back cleanly for legacy saves). */
@@ -99,7 +148,7 @@ export function getOwnedVanByIndex(
 
 /**
  * Returns the exact package carrying capacity for a concrete vehicle selection
- * (`5` for any bicycle, or `10 / 12 / 14 / 15 / 17 / 20` matching the specific `Bus #N` model).
+ * (`5` for bicycle, `7`/`8` for scooter models, or `10..20` matching the specific `Bus #N` model).
  */
 export function getVehicleCourierCapacityForSelection(
   state: OrderEconomyState,
@@ -107,6 +156,10 @@ export function getVehicleCourierCapacityForSelection(
 ): number {
   if (!selection || selection.type === 'bike') {
     return BIKE_COURIER_CAPACITY;
+  }
+  if (selection.type === 'scooter') {
+    const ownedScooter = getOwnedScooterByIndex(state, selection.index);
+    return getScooterModelSpec(ownedScooter?.modelId ?? DEFAULT_LEGACY_SCOOTER_MODEL_ID).capacity;
   }
   const ownedVan = getOwnedVanByIndex(state, selection.index);
   if (!ownedVan) {
@@ -121,14 +174,14 @@ export function getVehicleCourierCapacityForSelection(
 
 /**
  * Returns whether a courier is qualified to drive the given vehicle type.
- * - Bicycles: all couriers (Owner, Rower, Rower + Bus)
+ * - Bicycles & Scooters: all couriers (Owner, bike_only, bike_and_van)
  * - Vans: only Właściciel (#1) and couriers with 'bike_and_van' qualification
  */
 export function canCourierDriveVehicle(
   courier: Pick<CompanyCourier, 'isOwner' | 'qualification'>,
   vehicleType: ActiveVehicleType
 ): boolean {
-  if (vehicleType === 'bike') return true;
+  if (vehicleType === 'bike' || vehicleType === 'scooter') return true;
   return courier.isOwner || courier.qualification === 'bike_and_van';
 }
 
@@ -155,19 +208,20 @@ export function vehiclesEqual(
   return Boolean(a && b && a.type === b.type && a.index === b.index);
 }
 
-/** Lists all concrete vehicles currently owned by the company (Rower #1–3, Bus #1–8). */
+/** Lists all concrete vehicles currently owned by the company (Rower, Skuter, Bus). */
 export function getOwnedFleetVehicles(state: OrderEconomyState): ActiveVehicleSelection[] {
-  const bikesCount = Math.max(
-    INITIAL_BICYCLES,
-    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
-  );
-  const vansCount = getOwnedVans(state).length;
+  const bikesCount = getOwnedBikesCount(state);
+  const ownedScooters = getOwnedScooters(state);
+  const ownedVans = getOwnedVans(state);
   const list: ActiveVehicleSelection[] = [];
   for (let i = 1; i <= bikesCount; i++) {
     list.push({ type: 'bike', index: i });
   }
-  for (let i = 1; i <= vansCount; i++) {
-    list.push({ type: 'van', index: i });
+  for (const s of ownedScooters) {
+    list.push({ type: 'scooter', index: s.index });
+  }
+  for (const v of ownedVans) {
+    list.push({ type: 'van', index: v.index });
   }
   return list;
 }
@@ -272,6 +326,8 @@ export function createInitialOrderEconomyState(
     bikesCount: INITIAL_BICYCLES,
     bicyclesCount: INITIAL_BICYCLES,
     bikeDurabilities: Array.from({ length: INITIAL_BICYCLES }, () => DEFAULT_VEHICLE_DURABILITY),
+    scooters: [],
+    scootersCount: INITIAL_SCOOTERS,
     vans: [],
     vansCount: INITIAL_VANS,
     deliveryVansCount: INITIAL_VANS,
@@ -312,8 +368,9 @@ export function createInitialOrderEconomyState(
 export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyCostBreakdown {
   const warehouseConfig = getWarehouseTierConfig(state.warehouseLevel ?? state.warehouseTier);
   const baseUpkeepAndTaxCost = warehouseConfig.monthlyUpkeepCost;
-  const bikesCount = state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES;
+  const bikesCount = getOwnedBikesCount(state);
   const additionalBikes = Math.max(0, bikesCount - 1);
+  const ownedScooters = getOwnedScooters(state);
   const ownedVans = getOwnedVans(state);
 
   let salariesCost = 0;
@@ -334,6 +391,11 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
     }
   }
 
+  let scooterInsuranceRaw = 0;
+  for (const scooter of ownedScooters) {
+    scooterInsuranceRaw += getScooterModelSpec(scooter.modelId).monthlyInsurance;
+  }
+
   let vanInsuranceRaw = 0;
   for (const van of ownedVans) {
     vanInsuranceRaw += getVanModelSpec(van.modelId).monthlyInsurance;
@@ -341,14 +403,16 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
 
   salariesCost = roundCurrency(salariesCost);
   const courierInsuranceCost = roundCurrency(additionalBikes * COURIER_INSURANCE_COST);
+  const scooterInsuranceCost = roundCurrency(scooterInsuranceRaw);
   const vanInsuranceCost = roundCurrency(vanInsuranceRaw);
-  const insuranceCost = roundCurrency(courierInsuranceCost + vanInsuranceCost);
+  const insuranceCost = roundCurrency(courierInsuranceCost + scooterInsuranceCost + vanInsuranceCost);
   const totalFixedCosts = roundCurrency(baseUpkeepAndTaxCost + salariesCost + insuranceCost);
 
   return {
     baseUpkeepAndTaxCost,
     salariesCost,
     courierInsuranceCost,
+    scooterInsuranceCost,
     vanInsuranceCost,
     insuranceCost,
     totalFixedCosts,
@@ -356,11 +420,11 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
 }
 
 /**
- * Purchases an additional bicycle ($450 each) up to MAX_BICYCLES = 3 (including owner's starter bike).
+ * Purchases an additional bicycle ($450 each) within the shared 4-slot two-wheeler shelter.
  */
 export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult {
-  const currentBikes = state.bikesCount ?? state.bicyclesCount;
-  if (currentBikes >= MAX_BICYCLES) {
+  const currentBikes = getOwnedBikesCount(state);
+  if (getTotalTwoWheelersCount(state) >= MAX_TWO_WHEELERS) {
     return { state, purchased: false, cost: 0, reason: 'max_reached' };
   }
   if (state.balance < BICYCLE_PURCHASE_COST) {
@@ -382,6 +446,40 @@ export function purchaseBicycle(state: OrderEconomyState): UpgradePurchaseResult
   };
 }
 
+/**
+ * Purchases a courier scooter (City or Cargo) within the shared 4-slot two-wheeler shelter.
+ */
+export function purchaseScooter(
+  state: OrderEconomyState,
+  modelId: ScooterModelId = DEFAULT_LEGACY_SCOOTER_MODEL_ID
+): UpgradePurchaseResult {
+  const spec = getScooterModelSpec(modelId);
+  if (getTotalTwoWheelersCount(state) >= MAX_TWO_WHEELERS) {
+    return { state, purchased: false, cost: 0, reason: 'max_reached' };
+  }
+  if (state.balance < spec.purchasePrice) {
+    return { state, purchased: false, cost: spec.purchasePrice, reason: 'insufficient_funds' };
+  }
+
+  const existingScooters = getOwnedScooters(state);
+  const nextIndex = existingScooters.length + 1;
+  const nextScooters: OwnedScooter[] = [
+    ...existingScooters,
+    createOwnedScooter(nextIndex, spec.id),
+  ];
+
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - spec.purchasePrice),
+      scooters: nextScooters,
+      scootersCount: nextScooters.length,
+    },
+    purchased: true,
+    cost: spec.purchasePrice,
+  };
+}
+
 // ============================================================================
 // Vehicle Durability, Dynamic Repair Cost & Service Queue Helpers
 // ============================================================================
@@ -395,8 +493,8 @@ export function getNormalizedBikeDurabilities(
   bikesCountOverride?: number
 ): number[] {
   const count = Math.max(
-    INITIAL_BICYCLES,
-    Math.min(MAX_BICYCLES, bikesCountOverride ?? state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES)
+    0,
+    Math.min(MAX_TWO_WHEELERS, bikesCountOverride ?? getOwnedBikesCount(state))
   );
   const raw = Array.isArray(state.bikeDurabilities) ? state.bikeDurabilities : [];
   return Array.from({ length: count }, (_, idx) =>
@@ -406,7 +504,7 @@ export function getNormalizedBikeDurabilities(
   );
 }
 
-/** Returns current durability (0–100) for any owned bicycle or delivery van. */
+/** Returns current durability (0–100) for any owned bicycle, scooter, or delivery van. */
 export function getVehicleDurability(
   state: OrderEconomyState,
   vehicle: ActiveVehicleSelection | null | undefined
@@ -415,6 +513,13 @@ export function getVehicleDurability(
   if (vehicle.type === 'bike') {
     const durabilities = getNormalizedBikeDurabilities(state);
     return durabilities[vehicle.index - 1] ?? DEFAULT_VEHICLE_DURABILITY;
+  }
+  if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    if (!scooter) return DEFAULT_VEHICLE_DURABILITY;
+    return typeof scooter.durability === 'number' && Number.isFinite(scooter.durability)
+      ? clampVehicleDurability(scooter.durability)
+      : DEFAULT_VEHICLE_DURABILITY;
   }
   const van = getOwnedVanByIndex(state, vehicle.index);
   if (!van) return DEFAULT_VEHICLE_DURABILITY;
@@ -436,6 +541,12 @@ export function getVehicleWearPerWorldPx(
   if (vehicle.type === 'bike') {
     return BIKE_WEAR_PER_WORLD_PX;
   }
+  if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    return scooter?.modelId === 'scooter_cargo'
+      ? SCOOTER_CARGO_WEAR_PER_WORLD_PX
+      : SCOOTER_CITY_WEAR_PER_WORLD_PX;
+  }
   const van = getOwnedVanByIndex(state, vehicle.index);
   const condition = van?.condition ?? 'used';
   return condition === 'new' ? NEW_VAN_WEAR_PER_WORLD_PX : USED_VAN_WEAR_PER_WORLD_PX;
@@ -443,13 +554,15 @@ export function getVehicleWearPerWorldPx(
 
 /**
  * Dynamic repair cost scaling with wear (100 - durability) and vehicle class/model:
- * - Bicycle: -50% vs initial pricing (at 50% wear: ~$29)
- * - Vans (Used & New): -25% vs initial pricing (at 50% wear: ~$203–$338 depending on tier)
+ * - Bicycle: -50% (at 50% wear: ~$29)
+ * - City Scooter: 0.6x (at 50% wear: ~$65)
+ * - Cargo Scooter: 0.65x (at 50% wear: ~$95)
+ * - Vans (Used & New): 0.75x (at 50% wear: ~$203–$338 depending on tier)
  */
 export function calculateVehicleRepairCost(
   vehicleType: ActiveVehicleType,
   durability: number,
-  vanModelId?: VanModelId
+  modelId?: VanModelId | ScooterModelId
 ): number {
   const clamped = clampVehicleDurability(durability);
   const wear = Math.max(0, 100 - clamped);
@@ -459,7 +572,16 @@ export function calculateVehicleRepairCost(
     return Math.max(1, Math.round((12 + wear * 0.9) * BIKE_REPAIR_COST_MULTIPLIER));
   }
 
-  const modelId: VanModelId = vanModelId ?? DEFAULT_LEGACY_VAN_MODEL_ID;
+  if (vehicleType === 'scooter') {
+    const scooterId: ScooterModelId =
+      modelId === 'scooter_cargo' ? 'scooter_cargo' : 'scooter_city';
+    if (scooterId === 'scooter_cargo') {
+      return Math.max(1, Math.round((26 + wear * 2.4) * SCOOTER_CARGO_REPAIR_COST_MULTIPLIER));
+    }
+    return Math.max(1, Math.round((18 + wear * 1.8) * SCOOTER_CITY_REPAIR_COST_MULTIPLIER));
+  }
+
+  const vanModel: VanModelId = (modelId as VanModelId | undefined) ?? DEFAULT_LEGACY_VAN_MODEL_ID;
   const vanRates: Record<VanModelId, { base: number; perWearPct: number }> = {
     used_lite: { base: 45, perWearPct: 4.5 },
     used_standard: { base: 55, perWearPct: 5.3 },
@@ -468,7 +590,7 @@ export function calculateVehicleRepairCost(
     new_standard: { base: 70, perWearPct: 6.4 },
     new_pro: { base: 80, perWearPct: 7.4 },
   };
-  const rate = vanRates[modelId] ?? vanRates[DEFAULT_LEGACY_VAN_MODEL_ID];
+  const rate = vanRates[vanModel] ?? vanRates[DEFAULT_LEGACY_VAN_MODEL_ID];
   return Math.max(1, Math.round((rate.base + wear * rate.perWearPct) * VAN_REPAIR_COST_MULTIPLIER));
 }
 
@@ -522,23 +644,27 @@ export function requestVehicleRepair(
   vehicle: ActiveVehicleSelection,
   currentGameDay?: number
 ): VehicleRepairRequestResult {
-  const bikesCount = Math.max(
-    INITIAL_BICYCLES,
-    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
-  );
+  const bikesCount = getOwnedBikesCount(state);
+  const ownedScooters = getOwnedScooters(state);
   const ownedVans = getOwnedVans(state);
 
-  let vanModelId: VanModelId | undefined;
+  let repairModelId: VanModelId | ScooterModelId | undefined;
   if (vehicle.type === 'bike') {
     if (!Number.isInteger(vehicle.index) || vehicle.index < 1 || vehicle.index > bikesCount) {
       return { state, queued: false, cost: 0, reason: 'not_found' };
     }
+  } else if (vehicle.type === 'scooter') {
+    const ownedScooter = getOwnedScooterByIndex(state, vehicle.index);
+    if (!ownedScooter || vehicle.index < 1 || vehicle.index > ownedScooters.length) {
+      return { state, queued: false, cost: 0, reason: 'not_found' };
+    }
+    repairModelId = ownedScooter.modelId;
   } else {
     const ownedVan = getOwnedVanByIndex(state, vehicle.index);
     if (!ownedVan || vehicle.index < 1 || vehicle.index > ownedVans.length) {
       return { state, queued: false, cost: 0, reason: 'not_found' };
     }
-    vanModelId = ownedVan.modelId;
+    repairModelId = ownedVan.modelId;
   }
 
   if (isVehicleRepairPending(state, vehicle)) {
@@ -550,7 +676,7 @@ export function requestVehicleRepair(
     return { state, queued: false, cost: 0, reason: 'above_threshold' };
   }
 
-  const cost = calculateVehicleRepairCost(vehicle.type, durability, vanModelId);
+  const cost = calculateVehicleRepairCost(vehicle.type, durability, repairModelId);
   if (state.balance < cost) {
     return { state, queued: false, cost, reason: 'insufficient_funds' };
   }
@@ -585,6 +711,7 @@ export function applyVehicleWearBatch(
   if (wearEntries.length === 0) return state;
 
   let nextBikeDurabilities: number[] | null = null;
+  let nextScooters: OwnedScooter[] | null = null;
   let nextVans: OwnedVan[] | null = null;
   let changed = false;
 
@@ -604,6 +731,21 @@ export function applyVehicleWearBatch(
         const updatedBikes: number[] = nextBikeDurabilities ?? [...baseBikes];
         updatedBikes[idx] = nextDur;
         nextBikeDurabilities = updatedBikes;
+        changed = true;
+      }
+    } else if (entry.vehicle.type === 'scooter') {
+      const baseScooters: OwnedScooter[] = nextScooters ?? getOwnedScooters(state);
+      const targetIdx = baseScooters.findIndex((s) => s.index === entry.vehicle.index);
+      if (targetIdx === -1) continue;
+      const prevDur =
+        typeof baseScooters[targetIdx].durability === 'number'
+          ? baseScooters[targetIdx].durability
+          : DEFAULT_VEHICLE_DURABILITY;
+      const nextDur = clampVehicleDurability(prevDur - wearDelta);
+      if (nextDur !== prevDur) {
+        const updatedScooters: OwnedScooter[] = nextScooters ?? baseScooters.map((s) => ({ ...s }));
+        updatedScooters[targetIdx] = { ...updatedScooters[targetIdx], durability: nextDur };
+        nextScooters = updatedScooters;
         changed = true;
       }
     } else {
@@ -629,6 +771,7 @@ export function applyVehicleWearBatch(
   return {
     ...state,
     ...(nextBikeDurabilities ? { bikeDurabilities: nextBikeDurabilities } : {}),
+    ...(nextScooters ? { scooters: nextScooters, scootersCount: nextScooters.length } : {}),
     ...(nextVans ? { vans: nextVans } : {}),
   };
 }
@@ -647,6 +790,7 @@ export function completeVehicleRepair(
   );
 
   let nextBikeDurabilities = getNormalizedBikeDurabilities(state);
+  let nextScooters = getOwnedScooters(state);
   let nextVans = getOwnedVans(state);
 
   if (vehicle.type === 'bike') {
@@ -655,6 +799,10 @@ export function completeVehicleRepair(
       nextBikeDurabilities = [...nextBikeDurabilities];
       nextBikeDurabilities[idx] = DEFAULT_VEHICLE_DURABILITY;
     }
+  } else if (vehicle.type === 'scooter') {
+    nextScooters = nextScooters.map((s) =>
+      s.index === vehicle.index ? { ...s, durability: DEFAULT_VEHICLE_DURABILITY } : s
+    );
   } else {
     nextVans = nextVans.map((v) =>
       v.index === vehicle.index ? { ...v, durability: DEFAULT_VEHICLE_DURABILITY } : v
@@ -671,6 +819,8 @@ export function completeVehicleRepair(
   return {
     ...state,
     bikeDurabilities: nextBikeDurabilities,
+    scooters: nextScooters,
+    scootersCount: nextScooters.length,
     vans: nextVans,
     pendingVehicleRepairs: nextPendingRepairs,
     weeklyPriorityOrder: nextWeeklyPriority,
@@ -720,6 +870,210 @@ export function purchaseUsedVan(state: OrderEconomyState): UpgradePurchaseResult
   return purchaseVan(state, DEFAULT_LEGACY_VAN_MODEL_ID);
 }
 
+export interface VehicleSellResult {
+  state: OrderEconomyState;
+  sold: boolean;
+  refund: number;
+  reason?: 'not_found' | 'last_vehicle' | 'in_route' | 'repair_pending';
+}
+
+/**
+ * Returns the 30% resale refund for any owned vehicle in the fleet (bike, scooter, or van).
+ */
+export function getVehicleSellRefund(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection
+): number {
+  if (vehicle.type === 'bike') {
+    return getBicycleResaleValue();
+  }
+  if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    return scooter ? getScooterResaleValue(scooter.modelId) : 0;
+  }
+  const van = getOwnedVanByIndex(state, vehicle.index);
+  return van ? getVanResaleValue(van.modelId) : 0;
+}
+
+/**
+ * Sells an owned vehicle (bicycle, scooter, or van) for 30% of its catalog purchase price.
+ * Blocked when the vehicle is currently in route, awaiting/undergoing repair, or is the
+ * last remaining vehicle in the entire company.
+ */
+export function sellVehicle(
+  state: OrderEconomyState,
+  vehicle: ActiveVehicleSelection,
+  inRouteVehicles: readonly ActiveVehicleSelection[] = []
+): VehicleSellResult {
+  if (!Number.isInteger(vehicle.index) || vehicle.index < 1) {
+    return { state, sold: false, refund: 0, reason: 'not_found' };
+  }
+
+  const bikesCount = getOwnedBikesCount(state);
+  const ownedScooters = getOwnedScooters(state);
+  const ownedVans = getOwnedVans(state);
+
+  let refund = 0;
+  if (vehicle.type === 'bike') {
+    if (vehicle.index > bikesCount) {
+      return { state, sold: false, refund: 0, reason: 'not_found' };
+    }
+    refund = getBicycleResaleValue();
+  } else if (vehicle.type === 'scooter') {
+    const scooter = getOwnedScooterByIndex(state, vehicle.index);
+    if (!scooter || vehicle.index > ownedScooters.length) {
+      return { state, sold: false, refund: 0, reason: 'not_found' };
+    }
+    refund = getScooterResaleValue(scooter.modelId);
+  } else {
+    const van = getOwnedVanByIndex(state, vehicle.index);
+    if (!van || vehicle.index > ownedVans.length) {
+      return { state, sold: false, refund: 0, reason: 'not_found' };
+    }
+    refund = getVanResaleValue(van.modelId);
+  }
+
+  if (getTotalOwnedVehiclesCount(state) <= 1) {
+    return { state, sold: false, refund: 0, reason: 'last_vehicle' };
+  }
+  if (inRouteVehicles.some((v) => vehiclesEqual(v, vehicle))) {
+    return { state, sold: false, refund: 0, reason: 'in_route' };
+  }
+  if (isVehicleRepairPending(state, vehicle)) {
+    return { state, sold: false, refund: 0, reason: 'repair_pending' };
+  }
+
+  let nextBikeDurabilities = getNormalizedBikeDurabilities(state, bikesCount);
+  let nextBikesCount = bikesCount;
+  let nextScooters = ownedScooters;
+  let nextVans = ownedVans;
+
+  if (vehicle.type === 'bike') {
+    nextBikeDurabilities = nextBikeDurabilities.filter((_, idx) => idx !== vehicle.index - 1);
+    nextBikesCount = nextBikeDurabilities.length;
+  } else if (vehicle.type === 'scooter') {
+    nextScooters = ownedScooters
+      .filter((s) => s.index !== vehicle.index)
+      .map((s, idx) => ({
+        ...s,
+        index: idx + 1,
+        id: `scooter-${idx + 1}`,
+      }));
+  } else {
+    nextVans = ownedVans
+      .filter((v) => v.index !== vehicle.index)
+      .map((v, idx) => ({
+        ...v,
+        index: idx + 1,
+        id: `van-${idx + 1}`,
+      }));
+  }
+
+  const remapSelectionAfterSale = (
+    sel: ActiveVehicleSelection | null | undefined
+  ): ActiveVehicleSelection | null => {
+    if (!sel) return null;
+    if (vehiclesEqual(sel, vehicle)) return null;
+    if (sel.type === vehicle.type && sel.index > vehicle.index) {
+      return { type: sel.type, index: sel.index - 1 };
+    }
+    return sel;
+  };
+
+  let nextCouriers = state.couriers.map((c) => ({
+    ...c,
+    assignedVehicle: remapSelectionAfterSale(c.assignedVehicle),
+  }));
+
+  // If the Owner's vehicle was sold, auto-assign the first free remaining vehicle so Owner stays operational when possible
+  const owner = nextCouriers.find((c) => c.isOwner);
+  let nextActiveVehicle: ActiveVehicleSelection =
+    remapSelectionAfterSale(state.activeVehicle) ?? { type: 'bike', index: 1 };
+
+  const tempFleetState: OrderEconomyState = {
+    ...state,
+    bikesCount: nextBikesCount,
+    bicyclesCount: nextBikesCount,
+    bikeDurabilities: nextBikeDurabilities,
+    scooters: nextScooters,
+    scootersCount: nextScooters.length,
+    vans: nextVans,
+    vansCount: nextVans.length,
+    deliveryVansCount: nextVans.length,
+    couriers: nextCouriers,
+  };
+
+  const remainingVehicles = getOwnedFleetVehicles(tempFleetState);
+  if (owner && owner.assignedVehicle === null) {
+    const firstFreeForOwner = remainingVehicles.find(
+      (candidate) => findCourierAssignedToVehicle(nextCouriers, candidate, owner.slotIndex) === null
+    );
+    if (firstFreeForOwner) {
+      nextCouriers = nextCouriers.map((c) =>
+        c.isOwner ? { ...c, assignedVehicle: firstFreeForOwner } : c
+      );
+      nextActiveVehicle = firstFreeForOwner;
+    } else if (remainingVehicles.length > 0) {
+      nextActiveVehicle = remainingVehicles[0];
+    }
+  } else if (owner?.assignedVehicle) {
+    nextActiveVehicle = owner.assignedVehicle;
+  } else if (remainingVehicles.length > 0) {
+    nextActiveVehicle = remainingVehicles[0];
+  }
+
+  // Re-map any pending repairs & weeklyPriorityOrder repair IDs whose vehicle index shifted down
+  const idRenameMap = new Map<string, string>();
+  const nextPendingRepairs = getPendingVehicleRepairs(state)
+    .map((task) => {
+      const remapped = remapSelectionAfterSale(task.vehicle);
+      if (!remapped) return null;
+      const nextId = makeVehicleRepairTaskId(remapped);
+      if (nextId !== task.id) {
+        idRenameMap.set(task.id, nextId);
+      }
+      return {
+        ...task,
+        id: nextId,
+        vehicle: remapped,
+      };
+    })
+    .filter((task): task is VehicleRepairTask => task !== null);
+
+  let nextWeeklyPriority = state.weeklyPriorityOrder;
+  if (idRenameMap.size > 0) {
+    const updatedPriority: Record<number, string[]> = {};
+    for (let wd = 0; wd < 7; wd++) {
+      updatedPriority[wd] = (state.weeklyPriorityOrder[wd] ?? []).map(
+        (id) => idRenameMap.get(id) ?? id
+      );
+    }
+    nextWeeklyPriority = updatedPriority;
+  }
+
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance + refund),
+      bikesCount: nextBikesCount,
+      bicyclesCount: nextBikesCount,
+      bikeDurabilities: nextBikeDurabilities,
+      scooters: nextScooters,
+      scootersCount: nextScooters.length,
+      vans: nextVans,
+      vansCount: nextVans.length,
+      deliveryVansCount: nextVans.length,
+      couriers: nextCouriers,
+      employees: syncEmployeesFromCouriers(nextCouriers),
+      activeVehicle: nextActiveVehicle,
+      pendingVehicleRepairs: nextPendingRepairs,
+      weeklyPriorityOrder: nextWeeklyPriority,
+    },
+    sold: true,
+    refund,
+  };
+}
+
 /**
  * Assigns a specific vehicle from the owned fleet (or `null` = "Brak pojazdu" for slots #2–#6)
  * to the courier in `slotIndex`. Enforces strict uniqueness (one vehicle per courier) and
@@ -736,22 +1090,23 @@ export function assignCourierVehicle(
     return state;
   }
 
-  // Kurier #1 (Właściciel) always stays bound to a concrete owned vehicle so map simulation stays active
+  // Kurier #1 (Właściciel) stays bound when vehicles are assigned (only unset when sold while all others occupied)
   if (target.isOwner && vehicle === null) {
     return state;
   }
 
-  const bikesCount = Math.max(
-    INITIAL_BICYCLES,
-    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
-  );
-  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  const bikesCount = getOwnedBikesCount(state);
+  const scootersCount = getOwnedScooters(state).length;
+  const vansCount = getOwnedVans(state).length;
 
   if (vehicle !== null) {
     if (!Number.isInteger(vehicle.index) || vehicle.index < 1) {
       return state;
     }
     if (vehicle.type === 'bike' && vehicle.index > bikesCount) {
+      return state;
+    }
+    if (vehicle.type === 'scooter' && vehicle.index > scootersCount) {
       return state;
     }
     if (vehicle.type === 'van' && vehicle.index > vansCount) {
@@ -792,7 +1147,7 @@ export function assignCourierVehicle(
 }
 
 /**
- * Updates the owner courier's (Kurier #1) active vehicle selection among free owned bicycles and vans.
+ * Updates the owner courier's (Kurier #1) active vehicle selection among free owned vehicles.
  * Synchronizes both `activeVehicle` and `couriers[0].assignedVehicle`.
  */
 export function setOwnerActiveVehicle(
@@ -805,8 +1160,8 @@ export function setOwnerActiveVehicle(
 /**
  * Hires a new courier in an unlocked, vacant license slot (#2–#6) with $0 recruitment fee.
  * Accepts chosen qualification profile:
- * - `'bike_only'`: $1 600/mies., may only drive bicycles
- * - `'bike_and_van'`: $2 300/mies., may drive bicycles and delivery vans
+ * - `'bike_only'`: $1 600/mies., may drive bicycles and scooters
+ * - `'bike_and_van'`: $2 300/mies., may drive bicycles, scooters and delivery vans
  */
 export function hireCourierInSlot(
   state: OrderEconomyState,
@@ -819,16 +1174,24 @@ export function hireCourierInSlot(
     return { state, hired: false };
   }
 
-  const bikesCount = Math.max(
-    INITIAL_BICYCLES,
-    state.bikesCount ?? state.bicyclesCount ?? INITIAL_BICYCLES
-  );
-  const vansCount = Math.max(0, state.vansCount ?? state.deliveryVansCount ?? INITIAL_VANS);
+  const bikesCount = getOwnedBikesCount(state);
+  const ownedScooters = getOwnedScooters(state);
+  const ownedVans = getOwnedVans(state);
   let defaultVehicle: ActiveVehicleSelection | null = null;
 
   if (qualification === 'bike_and_van') {
-    for (let i = 1; i <= vansCount; i++) {
-      const candidate: ActiveVehicleSelection = { type: 'van', index: i };
+    for (const v of ownedVans) {
+      const candidate: ActiveVehicleSelection = { type: 'van', index: v.index };
+      if (findCourierAssignedToVehicle(state.couriers, candidate) === null) {
+        defaultVehicle = candidate;
+        break;
+      }
+    }
+  }
+
+  if (defaultVehicle === null) {
+    for (const s of ownedScooters) {
+      const candidate: ActiveVehicleSelection = { type: 'scooter', index: s.index };
       if (findCourierAssignedToVehicle(state.couriers, candidate) === null) {
         defaultVehicle = candidate;
         break;

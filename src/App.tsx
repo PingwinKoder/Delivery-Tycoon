@@ -20,6 +20,7 @@ import type {
   CompanyCourier,
   CourierQualification,
   OrderEconomyState,
+  ScooterModelId,
   VanModelId,
   WarehouseLoadedBatch,
   WeeklyScheduleTask,
@@ -61,6 +62,7 @@ import {
   purchaseBicycle,
   purchaseEmployeeLicense,
   purchaseParkingSpot,
+  purchaseScooter,
   purchaseVan,
   purchaseWarehouseUpgrade,
   recordPackageDelivery,
@@ -68,6 +70,7 @@ import {
   rejectOrderOffer,
   requestVehicleRepair,
   returnPackagesToWarehouse,
+  sellVehicle,
   setOwnerActiveVehicle,
   sortWeeklyTasksPriority,
   unloadPackagesToWarehouse,
@@ -274,9 +277,15 @@ function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyS
     couriers: cleanCouriers,
     bikesCount: saved.bikesCount,
     bicyclesCount: saved.bikesCount,
+    bikeDurabilities: saved.bikeDurabilities ? [...saved.bikeDurabilities] : base.bikeDurabilities,
+    scooters: saved.scooters ? saved.scooters.map((s) => ({ ...s })) : base.scooters ?? [],
+    scootersCount:
+      saved.scootersCount ?? saved.scooters?.length ?? base.scootersCount ?? 0,
+    vans: saved.vans ? saved.vans.map((v) => ({ ...v })) : base.vans,
     vansCount: saved.vansCount,
     deliveryVansCount: saved.vansCount,
     activeVehicle: { ...saved.activeVehicle },
+    pendingVehicleRepairs: saved.pendingVehicleRepairs ?? base.pendingVehicleRepairs,
     pendingOffers: saved.offeredOrders,
     activeOrders: saved.activeOrders,
     weeklyPriorityOrder,
@@ -1035,9 +1044,31 @@ export function App() {
     applyEconomyUpdate((prev) => purchaseBicycle(prev).state);
   }, [applyEconomyUpdate]);
 
+  const handleBuyScooter = useCallback(
+    (modelId: ScooterModelId) => {
+      applyEconomyUpdate((prev) => purchaseScooter(prev, modelId).state);
+    },
+    [applyEconomyUpdate]
+  );
+
   const handleBuyVan = useCallback(
     (modelId: VanModelId) => {
       applyEconomyUpdate((prev) => purchaseVan(prev, modelId).state);
+    },
+    [applyEconomyUpdate]
+  );
+
+  const handleSellVehicle = useCallback(
+    (vehicle: ActiveVehicleSelection) => {
+      applyEconomyUpdate((prev) => {
+        const liveInRoute: ActiveVehicleSelection[] = [];
+        for (const c of prev.couriers) {
+          if (c.hired && c.assignedVehicle && courierAtBaseBySlotRef.current[c.slotIndex] === false) {
+            liveInRoute.push(c.assignedVehicle);
+          }
+        }
+        return sellVehicle(prev, vehicle, liveInRoute).state;
+      });
     },
     [applyEconomyUpdate]
   );
@@ -1228,7 +1259,9 @@ export function App() {
           onUpgradeWarehouse={handleUpgradeWarehouse}
           onBuyParkingSpot={handleBuyParkingSpot}
           onBuyBicycle={handleBuyBicycle}
+          onBuyScooter={handleBuyScooter}
           onBuyVan={handleBuyVan}
+          onSellVehicle={handleSellVehicle}
           onRequestVehicleRepair={handleRequestVehicleRepair}
           onSelectActiveVehicle={handleSelectActiveVehicle}
           onBuyEmployeeLicense={handleBuyEmployeeLicense}

@@ -4,6 +4,7 @@ import type {
   ActiveVehicleSelection,
   ActiveVehicleType,
   OrderEconomyState,
+  ScooterModelId,
   VehicleRepairTask,
   WeeklyScheduleTask,
 } from '../../types/orders';
@@ -11,7 +12,12 @@ import type { Point } from '../../types/roadGraph';
 import { BASE_GAME_MINUTES_PER_REAL_SECOND } from '../gameClock';
 import {
   BIKE_REPAIR_GAME_MINUTES,
+  DEFAULT_LEGACY_SCOOTER_MODEL_ID,
+  SCOOTER_CARGO_REPAIR_GAME_MINUTES,
+  SCOOTER_CITY_REPAIR_GAME_MINUTES,
+  SCOOTER_MODELS,
   VAN_REPAIR_GAME_MINUTES,
+  getOwnedScooterByIndex,
   getVehicleCourierCapacity,
   getVehicleCourierCapacityForSelection,
 } from '../orderEconomy';
@@ -161,11 +167,13 @@ export interface CourierState {
   wheelPhase: number;
   /** Active mission kind */
   missionKind: CourierMissionKind;
-  /** Vehicle currently driven on this mission ('bike' | 'van') */
+  /** Vehicle currently driven on this mission ('bike' | 'scooter' | 'van') */
   vehicleType: ActiveVehicleType;
-  /** 1-based fleet index of the active vehicle (e.g. Rower #1, Bus #1..#8) */
+  /** 1-based fleet index of the active vehicle (e.g. Rower #1, Skuter #1, Bus #1..#8) */
   vehicleIndex: number;
-  /** Package carrying capacity of the active vehicle (5 for bike, 20 for used van) */
+  /** Optional scooter model ID when vehicleType === 'scooter' */
+  scooterModelId?: ScooterModelId;
+  /** Package carrying capacity of the active vehicle (5 bike, 7/8 scooter, 10–20 van) */
   cargoCapacity: number;
   /** Ordered stops for the current mission */
   stops: CourierMissionStop[];
@@ -201,26 +209,39 @@ export interface DeliveryStopInput {
   items: CourierCargoItem[];
 }
 
-/** Original base bicycle speed before the 30% pacing reduction */
-const ORIGINAL_BIKE_COURIER_SPEED = 180;
-/** Base bicycle courier cruising speed reduced by 30% (180 * 0.7 = 126 world px/s) */
-export const DEFAULT_COURIER_SPEED = Math.round(ORIGINAL_BIKE_COURIER_SPEED * 0.7);
-/** Used delivery van speed multiplier (~1.65x bicycle speed) */
-export const VAN_SPEED_MULTIPLIER = 1.65;
+/** Bicycle courier cruising speed reduced by 10% (from 126 to 113 world px/s) */
+export const DEFAULT_COURIER_SPEED = 113;
+/** City & Cargo scooter cruising speeds in world px/s */
+export const SCOOTER_CITY_SPEED = SCOOTER_MODELS.scooter_city.speedPxPerSec; // 152
+export const SCOOTER_CARGO_SPEED = SCOOTER_MODELS.scooter_cargo.speedPxPerSec; // 168
 /** Delivery van cruising speed on city roads (~208 world px/s) */
-export const VAN_COURIER_SPEED = Math.round(DEFAULT_COURIER_SPEED * VAN_SPEED_MULTIPLIER);
+export const VAN_COURIER_SPEED = 208;
+export const VAN_SPEED_MULTIPLIER = VAN_COURIER_SPEED / DEFAULT_COURIER_SPEED;
 export const DELIVERY_PAUSE_SECONDS = 1.8;
-/** Mechanic garage stop durations in simulation seconds (30 game min -> 24s bike, 60 game min -> 48s van at 1x) */
+/** Mechanic garage stop durations in simulation seconds */
 export const BIKE_REPAIR_SERVICE_PAUSE_SECONDS =
   BIKE_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
+export const SCOOTER_CITY_REPAIR_SERVICE_PAUSE_SECONDS =
+  SCOOTER_CITY_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
+export const SCOOTER_CARGO_REPAIR_SERVICE_PAUSE_SECONDS =
+  SCOOTER_CARGO_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
 export const VAN_REPAIR_SERVICE_PAUSE_SECONDS =
   VAN_REPAIR_GAME_MINUTES / BASE_GAME_MINUTES_PER_REAL_SECOND;
 export const REPAIR_SERVICE_PAUSE_SECONDS = BIKE_REPAIR_SERVICE_PAUSE_SECONDS;
 export const BASE_TRANSFER_PAUSE_SECONDS = 1.0;
 
-export function getRepairServicePauseSeconds(vehicleType: ActiveVehicleType): number {
+export function getRepairServicePauseSeconds(
+  vehicleType: ActiveVehicleType,
+  scooterModelId?: ScooterModelId
+): number {
   const repairGameMinutes =
-    vehicleType === 'van' ? VAN_REPAIR_GAME_MINUTES : BIKE_REPAIR_GAME_MINUTES;
+    vehicleType === 'van'
+      ? VAN_REPAIR_GAME_MINUTES
+      : vehicleType === 'scooter'
+        ? scooterModelId === 'scooter_cargo'
+          ? SCOOTER_CARGO_REPAIR_GAME_MINUTES
+          : SCOOTER_CITY_REPAIR_GAME_MINUTES
+        : BIKE_REPAIR_GAME_MINUTES;
   return repairGameMinutes / BASE_GAME_MINUTES_PER_REAL_SECOND;
 }
 export const MAX_REAL_FRAME_DT = 0.05;
@@ -233,8 +254,30 @@ export const CORNER_LOOKAHEAD_DISTANCE = 44; // world px ahead to scan for turns
 export const MIN_CORNER_SPEED_FACTOR = 0.48; // 48% of cruise speed on tight 90°+ turns
 export const MIN_APPROACH_SPEED = 18; // world px/s floor so the vehicle completes arrival cleanly
 
-export function getCourierSpeedForVehicle(vehicleType: ActiveVehicleType): number {
-  return vehicleType === 'van' ? VAN_COURIER_SPEED : DEFAULT_COURIER_SPEED;
+export function getCourierSpeedForVehicle(
+  vehicleType: ActiveVehicleType,
+  scooterModelId?: ScooterModelId
+): number {
+  if (vehicleType === 'van') return VAN_COURIER_SPEED;
+  if (vehicleType === 'scooter') {
+    return scooterModelId === 'scooter_cargo' ? SCOOTER_CARGO_SPEED : SCOOTER_CITY_SPEED;
+  }
+  return DEFAULT_COURIER_SPEED;
+}
+
+export function getCourierSpeedForSelection(
+  state: OrderEconomyState,
+  selection: ActiveVehicleSelection | null | undefined
+): number {
+  if (!selection || selection.type === 'bike') {
+    return DEFAULT_COURIER_SPEED;
+  }
+  if (selection.type === 'scooter') {
+    const ownedScooter = getOwnedScooterByIndex(state, selection.index);
+    const modelId = ownedScooter?.modelId ?? DEFAULT_LEGACY_SCOOTER_MODEL_ID;
+    return getCourierSpeedForVehicle('scooter', modelId);
+  }
+  return VAN_COURIER_SPEED;
 }
 
 export function getCourierCapacityForVehicle(vehicleType: ActiveVehicleType): number {

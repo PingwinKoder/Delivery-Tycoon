@@ -533,19 +533,22 @@ export function getReservedWarehouseSpaceForFleet(
 
 export function getActiveOutVehiclesForFleet(
   fleet: Readonly<MultiCourierFleetState>
-): { bikeIndices: Set<number>; vanIndices: Set<number> } {
+): { bikeIndices: Set<number>; scooterIndices: Set<number>; vanIndices: Set<number> } {
   const bikeIndices = new Set<number>();
+  const scooterIndices = new Set<number>();
   const vanIndices = new Set<number>();
   for (const slotIndex of COURIER_SLOT_INDICES) {
     const entry = fleet[slotIndex];
     if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
     if (entry.courier.vehicleType === 'van') {
       vanIndices.add(entry.courier.vehicleIndex);
+    } else if (entry.courier.vehicleType === 'scooter') {
+      scooterIndices.add(entry.courier.vehicleIndex);
     } else {
       bikeIndices.add(entry.courier.vehicleIndex);
     }
   }
-  return { bikeIndices, vanIndices };
+  return { bikeIndices, scooterIndices, vanIndices };
 }
 
 export function isVehicleCurrentlyInRoute(

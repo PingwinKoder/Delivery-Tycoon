@@ -22,7 +22,9 @@ import type {
   CompanyCourier,
   CourierQualification,
   OrderEconomyState,
+  OwnedScooter,
   OwnedVan,
+  ScooterModelId,
   VanCondition,
   VanModelId,
   VanTier,
@@ -35,13 +37,15 @@ import {
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
   LOW_DURABILITY_SPEED_THRESHOLD,
-  MAX_BICYCLES,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
+  MAX_TWO_WHEELERS,
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
   REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
+  SCOOTER_MODELS,
+  SCOOTER_MODEL_IDS_ORDER,
   VAN_MODELS,
   VAN_MODEL_IDS_BY_CONDITION,
   WAREHOUSE_TIERS,
@@ -55,12 +59,18 @@ import {
   getNextParkingSpotUpgrade,
   getNextWarehouseUpgrade,
   getOwnedFleetVehicles,
+  getOwnedScooterByIndex,
+  getOwnedScooters,
   getOwnedVanByIndex,
   getOwnedVans,
   getRepairCourierReadiness,
+  getScooterModelSpec,
+  getTotalOwnedVehiclesCount,
+  getTotalTwoWheelersCount,
   getVanModelSpec,
   getVehicleCourierCapacityForSelection,
   getVehicleDurability,
+  getVehicleSellRefund,
   getWarehouseTierConfig,
   isVehicleRepairPending,
   vehiclesEqual,
@@ -108,6 +118,12 @@ function getDurabilityBadgeClass(durability: number): string {
   return 'bg-rose-500/15 border-rose-400/45 text-rose-300';
 }
 
+function getScooterModelDisplayName(lang: SupportedLanguage, modelId: ScooterModelId): string {
+  return modelId === 'scooter_cargo'
+    ? t(lang, 'company.scooterCargoTitle')
+    : t(lang, 'company.scooterCityTitle');
+}
+
 function formatVehicleDisplayLabel(
   lang: SupportedLanguage,
   economyState: OrderEconomyState,
@@ -115,6 +131,16 @@ function formatVehicleDisplayLabel(
 ): string {
   if (vehicle.type === 'bike') {
     return t(lang, 'company.vehicleBike', { index: vehicle.index });
+  }
+  if (vehicle.type === 'scooter') {
+    const ownedScooter = getOwnedScooterByIndex(economyState, vehicle.index);
+    if (!ownedScooter) {
+      return t(lang, 'company.vehicleScooter', { index: vehicle.index });
+    }
+    return t(lang, 'company.vehicleScooterFull', {
+      index: vehicle.index,
+      model: getScooterModelDisplayName(lang, ownedScooter.modelId),
+    });
   }
   const ownedVan = getOwnedVanByIndex(economyState, vehicle.index);
   if (!ownedVan) {
@@ -126,6 +152,77 @@ function formatVehicleDisplayLabel(
     tier: getVanTierLabel(lang, ownedVan.tier),
   });
 }
+
+const ScooterBadgeIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <circle cx="6.5" cy="17.5" r="2.75" />
+    <circle cx="18" cy="17.5" r="2.75" />
+    <path d="M9.5 17.5h4.2l1.8-6h2" />
+    <path d="M5 13h5l1.5-2.5H15" />
+    <path d="M14.5 7.5h2.2l1.3 4" />
+    <rect x="3" y="9" width="4.5" height="3.5" rx="0.8" />
+  </svg>
+);
+
+const ScooterPreviewIllustration: React.FC<{ modelId: ScooterModelId }> = ({ modelId }) => {
+  const isCargo = modelId === 'scooter_cargo';
+  const bodyColor = isCargo ? '#ea580c' : '#0284c7';
+  const accentColor = isCargo ? '#fb923c' : '#38bdf8';
+
+  return (
+    <div className="w-full h-10 [@media(min-width:1024px)_and_(min-height:541px)]:h-16 rounded-md bg-slate-950/85 border border-slate-800/90 flex items-center justify-center px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 overflow-hidden">
+      <svg
+        viewBox="0 0 120 58"
+        className="w-full max-w-[96px] h-9 [@media(min-width:1024px)_and_(min-height:541px)]:max-w-[144px] [@media(min-width:1024px)_and_(min-height:541px)]:h-14"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <ellipse cx="60" cy="50.5" rx="38" ry="3.2" fill="rgba(15, 23, 42, 0.85)" />
+        {/* Courier Rear Top-Box */}
+        {isCargo ? (
+          <>
+            <rect x="20" y="15" width="22" height="16" rx="2" fill="#ea580c" stroke="#1e293b" strokeWidth="1.4" />
+            <rect x="22" y="18" width="18" height="3" rx="0.6" fill="#f8fafc" />
+          </>
+        ) : (
+          <rect x="25" y="19" width="16" height="12" rx="2" fill="#f97316" stroke="#1e293b" strokeWidth="1.4" />
+        )}
+        {/* Step-through Scooter Body */}
+        <path
+          d="M 28 36 Q 32 29 52 30 L 58 39 L 76 39 L 80 23 L 89 24 L 91 39 L 79 44 L 30 43 Z"
+          fill={bodyColor}
+          stroke="#1e293b"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+        {/* Saddle */}
+        <path d="M 38 28 Q 48 26 57 29 L 55 32 L 36 32 Z" fill="#0f172a" stroke="#334155" strokeWidth="1" />
+        {/* Front apron + headlight + cargo windscreen */}
+        <path d="M 81 24 L 88 25 L 89 35 L 82 35 Z" fill={isCargo ? '#f8fafc' : '#e0f2fe'} />
+        <circle cx="90.5" cy="27.5" r="2.2" fill="#fde047" stroke="#1e293b" strokeWidth="0.9" />
+        <line x1="78" y1="22" x2="83" y2="17" stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+        {isCargo && (
+          <path d="M 80 18 L 83 11 L 85 18 Z" fill="rgba(186, 230, 253, 0.72)" stroke="#334155" strokeWidth="0.9" />
+        )}
+        {/* Front & Rear Wheels */}
+        <circle cx="36" cy="43" r="7.2" fill="#0f172a" stroke="#1e293b" strokeWidth="1.4" />
+        <circle cx="36" cy="43" r="3.4" fill="#94a3b8" />
+        <circle cx="84" cy="43" r="7.2" fill="#0f172a" stroke="#1e293b" strokeWidth="1.4" />
+        <circle cx="84" cy="43" r="3.4" fill="#94a3b8" />
+        <rect x="44" y="34" width="12" height="2.4" rx="1" fill={accentColor} />
+      </svg>
+    </div>
+  );
+};
 
 interface VanPreviewIllustrationProps {
   condition: VanCondition;
@@ -312,7 +409,9 @@ interface CompanyModalProps {
   onUpgradeWarehouse: () => void;
   onBuyParkingSpot: () => void;
   onBuyBicycle: () => void;
+  onBuyScooter: (modelId: ScooterModelId) => void;
   onBuyVan: (modelId: VanModelId) => void;
+  onSellVehicle: (vehicle: ActiveVehicleSelection) => void;
   onRequestVehicleRepair: (vehicle: ActiveVehicleSelection) => void;
   onSelectActiveVehicle: (vehicle: ActiveVehicleSelection) => void;
   onBuyEmployeeLicense: () => void;
@@ -396,6 +495,8 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
         <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
           {effectiveAssigned?.type === 'van' ? (
             <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
+          ) : effectiveAssigned?.type === 'scooter' ? (
+            <ScooterBadgeIcon className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-cyan-400 shrink-0" />
           ) : effectiveAssigned?.type === 'bike' ? (
             <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
           ) : (
@@ -453,6 +554,7 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
           {availableVehicles.map((vehicle) => {
             const isSelected = vehiclesEqual(effectiveAssigned, vehicle);
             const isVan = vehicle.type === 'van';
+            const isScooter = vehicle.type === 'scooter';
             const label = formatVehicleDisplayLabel(language, economyState, vehicle);
             const optionDurability = Math.round(getVehicleDurability(economyState, vehicle));
 
@@ -476,6 +578,8 @@ const CourierVehicleDropdown: React.FC<CourierVehicleDropdownProps> = ({
                   <span className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0 truncate">
                     {isVan ? (
                       <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                    ) : isScooter ? (
+                      <ScooterBadgeIcon className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-cyan-400 shrink-0" />
                     ) : (
                       <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
                     )}
@@ -516,7 +620,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onUpgradeWarehouse,
   onBuyParkingSpot,
   onBuyBicycle,
+  onBuyScooter,
   onBuyVan,
+  onSellVehicle,
   onRequestVehicleRepair,
   onSelectActiveVehicle,
   onBuyEmployeeLicense,
@@ -528,6 +634,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   const [activeTab, setActiveTab] = useState<CompanyTabId>('base');
   const [vanShopCondition, setVanShopCondition] = useState<VanCondition>('used');
   const [openVehicleSlot, setOpenVehicleSlot] = useState<number | null>(null);
+  const [confirmSellKey, setConfirmSellKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -552,16 +659,34 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
   useEffect(() => {
     setOpenVehicleSlot(null);
-  }, [activeTab]);
+    setConfirmSellKey(null);
+  }, [activeTab, isOpen]);
 
   const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
-  const bikesCount = economyState.bikesCount ?? economyState.bicyclesCount;
+  const bikesCount = Math.max(0, economyState.bikesCount ?? economyState.bicyclesCount ?? 0);
+  const ownedScooters: OwnedScooter[] = useMemo(
+    () => getOwnedScooters(economyState),
+    [economyState]
+  );
+  const scootersCount = ownedScooters.length;
+  const twoWheelersCount = getTotalTwoWheelersCount(economyState);
   const ownedVans: OwnedVan[] = useMemo(() => getOwnedVans(economyState), [economyState]);
   const vansCount = ownedVans.length;
+  const totalOwnedVehicles = getTotalOwnedVehiclesCount(economyState);
   const activeVehicle: ActiveVehicleSelection = economyState.activeVehicle ?? {
     type: 'bike',
     index: 1,
   };
+
+  const inRouteVehicleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const courier of economyState.couriers) {
+      if (courier.hired && courier.assignedVehicle && courierAtBaseBySlot?.[courier.slotIndex] === false) {
+        keys.add(`${courier.assignedVehicle.type}:${courier.assignedVehicle.index}`);
+      }
+    }
+    return keys;
+  }, [economyState.couriers, courierAtBaseBySlot]);
 
   const monthlyCosts = useMemo(
     () => calculateMonthlyCompanyCosts(economyState),
@@ -597,6 +722,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
         })
       );
     }
+    if (monthlyCosts.scooterInsuranceCost > 0) {
+      parts.push(
+        t(language, 'company.costScooters', {
+          amount: formatCurrencyUsd(monthlyCosts.scooterInsuranceCost, false),
+        })
+      );
+    }
     if (monthlyCosts.vanInsuranceCost > 0) {
       parts.push(
         t(language, 'company.costVans', {
@@ -621,8 +753,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
     nextWarehouseUpgrade !== null && economyState.balance >= nextWarehouseUpgrade.cost;
   const canBuyParkingSpot =
     nextParkingUpgrade !== null && economyState.balance >= nextParkingUpgrade.cost;
-  const bikesMaxed = bikesCount >= MAX_BICYCLES;
-  const canBuyBicycle = !bikesMaxed && economyState.balance >= BICYCLE_PURCHASE_COST;
+  const twoWheelersMaxed = twoWheelersCount >= MAX_TWO_WHEELERS;
+  const canBuyBicycle = !twoWheelersMaxed && economyState.balance >= BICYCLE_PURCHASE_COST;
   const vansMaxed = vansCount >= MAX_VANS;
   const hasFreeParkingForVan = vansCount < economyState.parkingSpots;
 
@@ -687,10 +819,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
             <span className="text-slate-600" aria-hidden="true">|</span>
 
-            <span className="whitespace-nowrap">
+            <span
+              className="whitespace-nowrap"
+              title={`${t(language, 'save.bikes', { count: bikesCount })} • ${t(language, 'save.scooters', { count: scootersCount })}`}
+            >
               <span className="text-slate-400">{t(language, 'company.bikes')} </span>
               <span className="font-bold text-sky-300 font-mono-nums">
-                {bikesCount}/{MAX_BICYCLES}
+                {twoWheelersCount}/{MAX_TWO_WHEELERS}
               </span>
             </span>
 
@@ -1193,354 +1328,751 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                 </div>
               </section>
 
-              {/* Bottom Row: Courier Bikes & Owned Fleet List */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3.5">
-                {/* Card: Courier Bikes */}
-                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
-                  <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
-                        <Bike className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-sky-400 shrink-0" aria-hidden="true" />
-                        <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
-                          {t(language, 'company.bikesTitle')}
-                        </h3>
-                      </div>
-                      <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-sky-300 font-mono-nums shrink-0">
-                        {bikesCount} / {MAX_BICYCLES}
-                      </span>
-                    </div>
+              {/* Two-Wheelers Shelter Dealership (Bikes + 2 Scooter Models sharing 4-bay cap) */}
+              <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
+                  <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                    <ScooterBadgeIcon className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-cyan-400 shrink-0" />
+                    <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
+                      {t(language, 'company.scootersCatalogTitle')}
+                    </h3>
+                    <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-sky-300 font-mono-nums shrink-0">
+                      {t(language, 'company.twoWheelersShelterTitle', {
+                        current: twoWheelersCount,
+                        max: MAX_TWO_WHEELERS,
+                      })}
+                    </span>
+                  </div>
+                  <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
+                    {t(language, 'company.twoWheelersShelterHint')}
+                  </span>
+                </div>
 
-                    <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
-                      {t(language, 'company.bikesDesc')}
-                    </p>
-
-                    <div className="rounded-md bg-slate-900/70 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-400">
-                          {t(language, 'company.payloadLabel')}
-                        </span>
-                        <span className="text-slate-100 font-semibold">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                  {/* Bicycle Card */}
+                  <article className="rounded-lg bg-slate-900/75 border border-slate-700/80 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
+                    <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                          <Bike className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                          <h4 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100 truncate">
+                            {t(language, 'company.bikesTitle')}
+                          </h4>
+                        </div>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums border bg-sky-500/15 border-sky-400/40 text-sky-300 shrink-0">
                           {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-400">
-                          {t(language, 'company.bikeInsuranceLabel')}
-                        </span>
-                        <span className="text-rose-300 font-semibold">
-                          +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
-                          {perMonth}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-400">
-                          {t(language, 'company.currentInsuranceLabel')}
-                        </span>
-                        <span className="text-slate-200 font-semibold">
-                          +{formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false)}
-                          {perMonth}
-                        </span>
+                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
+                        {t(language, 'company.bikesDesc')}
+                      </p>
+                      <div className="rounded-md bg-slate-950/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
+                          <span className="text-slate-100 font-semibold">
+                            {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400">{t(language, 'company.speedLabel')}</span>
+                          <span className="text-sky-300 font-semibold">
+                            {t(language, 'company.speedPxValue', { speed: 113 })}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400">{t(language, 'company.bikeInsuranceLabel')}</span>
+                          <span className="text-rose-300 font-semibold">
+                            +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                            {perMonth}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="pt-1 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 space-y-1">
-                    {!bikesMaxed && !canBuyBicycle && (
-                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums leading-tight">
-                        {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance, language)}
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      disabled={!canBuyBicycle}
-                      onClick={onBuyBicycle}
-                      className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canBuyBicycle
-                          ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
-                          : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
-                        }`}
-                    >
-                      {bikesMaxed
-                        ? t(language, 'company.limitReached', {
-                          current: MAX_BICYCLES,
-                          max: MAX_BICYCLES,
-                        })
-                        : t(language, 'company.buyBikeBtn', {
-                          amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
-                        })}
-                    </button>
-                  </div>
-                </article>
+                    <div className="space-y-1">
+                      {!twoWheelersMaxed && !canBuyBicycle && (
+                        <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums leading-tight">
+                          {formatMissingFunds(BICYCLE_PURCHASE_COST, economyState.balance, language)}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        disabled={!canBuyBicycle}
+                        onClick={onBuyBicycle}
+                        className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canBuyBicycle
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
+                          }`}
+                      >
+                        {twoWheelersMaxed
+                          ? t(language, 'company.limitReached', {
+                            current: twoWheelersCount,
+                            max: MAX_TWO_WHEELERS,
+                          })
+                          : t(language, 'company.buyBikeBtn', {
+                            amount: formatCurrencyUsd(BICYCLE_PURCHASE_COST, false),
+                          })}
+                      </button>
+                    </div>
+                  </article>
 
-                {/* Card: Owned Fleet Roster */}
-                <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
-                      {t(language, 'company.ownedFleetTitle', {
-                        count: ownedFleet.length,
-                      })}
-                    </h3>
-                    <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums text-rose-300 font-semibold">
-                      {t(language, 'company.currentInsuranceLabel')}{' '}
-                      +{formatCurrencyUsd(monthlyCosts.vanInsuranceCost + monthlyCosts.courierInsuranceCost, false)}
-                      {perMonth}
-                    </span>
-                  </div>
+                  {/* 2 Scooter Models (City & Cargo) */}
+                  {SCOOTER_MODEL_IDS_ORDER.map((scooterId) => {
+                    const spec = SCOOTER_MODELS[scooterId];
+                    const canAfford = economyState.balance >= spec.purchasePrice;
+                    const canPurchase = !twoWheelersMaxed && canAfford;
+                    const title = getScooterModelDisplayName(language, scooterId);
+                    const desc =
+                      scooterId === 'scooter_cargo'
+                        ? t(language, 'company.scooterCargoDesc')
+                        : t(language, 'company.scooterCityDesc');
 
-                  <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2 max-h-44 [@media(min-width:1024px)_and_(min-height:541px)]:max-h-72 overflow-y-auto overscroll-contain pr-0.5">
-                    {ownedVans.map((van) => {
-                      const vehicleSel: ActiveVehicleSelection = { type: 'van', index: van.index };
-                      const spec = getVanModelSpec(van.modelId);
-                      const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
-                      const driverName = driver
-                        ? driver.isOwner
-                          ? t(language, 'orders.ownerBadge')
-                          : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
-                        : null;
-                      const durability = getVehicleDurability(economyState, vehicleSel);
-                      const roundedDurability = Math.round(durability);
-                      const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
-                      const repairPending = isVehicleRepairPending(economyState, vehicleSel);
-                      const repairEligible =
-                        !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
-                      const repairCost = calculateVehicleRepairCost('van', durability, van.modelId);
-                      const canAffordRepair = economyState.balance >= repairCost;
-                      const repairReadiness = repairPending
-                        ? getRepairCourierReadiness(economyState, vehicleSel)
-                        : null;
-
-                      return (
-                        <div
-                          key={van.id}
-                          className="rounded-md bg-slate-900/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
-                        >
+                    return (
+                      <article
+                        key={scooterId}
+                        className="rounded-lg bg-slate-900/75 border border-slate-700/80 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5"
+                      >
+                        <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2">
                           <div className="flex items-center justify-between gap-1.5">
                             <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
-                              <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
-                              <span className="font-semibold text-slate-100 truncate">
-                                {t(language, 'company.vehicleVanFull', {
-                                  index: van.index,
-                                  condition: getVanConditionLabel(language, van.condition),
-                                  tier: getVanTierLabel(language, van.tier),
-                                })}
-                              </span>
-                              <span className="text-slate-400 shrink-0">
-                                ({t(language, 'company.packagesCount', { count: spec.capacity })})
+                              <ScooterBadgeIcon
+                                className={`w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 ${scooterId === 'scooter_cargo' ? 'text-orange-400' : 'text-cyan-400'
+                                  }`}
+                              />
+                              <h4 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100 truncate">
+                                {title}
+                              </h4>
+                            </div>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums border shrink-0 ${scooterId === 'scooter_cargo'
+                                  ? 'bg-orange-500/15 border-orange-400/40 text-orange-300'
+                                  : 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
+                                }`}
+                            >
+                              {t(language, 'company.packagesCount', { count: spec.capacity })}
+                            </span>
+                          </div>
+
+                          <ScooterPreviewIllustration modelId={scooterId} />
+
+                          <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
+                            {desc}
+                          </p>
+
+                          <div className="rounded-md bg-slate-950/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
+                              <span className="text-slate-100 font-semibold">
+                                {t(language, 'company.packagesCount', { count: spec.capacity })}
                               </span>
                             </div>
-                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
-                              <span
-                                title={
-                                  isSlowed
-                                    ? t(language, 'company.durabilitySlowHint')
-                                    : t(language, 'company.durabilityLabel', {
-                                      percent: roundedDurability,
-                                    })
-                                }
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
-                              >
-                                {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">{t(language, 'company.speedLabel')}</span>
+                              <span className="text-cyan-300 font-semibold">
+                                {t(language, 'company.speedPxValue', { speed: spec.speedPxPerSec })}
                               </span>
-                              <span className="text-rose-300 hidden sm:inline">
-                                -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">{t(language, 'company.vanInsuranceShort')}</span>
+                              <span className="text-rose-300 font-semibold">
+                                +{formatCurrencyUsd(spec.monthlyInsurance, false)}
                                 {perMonth}
                               </span>
-                              <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border ${driverName
-                                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                                    : 'bg-slate-800 border-slate-700 text-slate-400'
-                                  }`}
-                              >
-                                {driverName
-                                  ? t(language, 'company.assignedToLabel', { name: driverName })
-                                  : t(language, 'company.unassignedBadge')}
-                              </span>
                             </div>
                           </div>
-
-                          {(repairPending || repairEligible) && (
-                            <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
-                              {repairPending ? (
-                                <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
-                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
-                                    <span>{t(language, 'company.repairQueuedBadge')}</span>
-                                  </span>
-                                  {repairReadiness && !repairReadiness.ready && (
-                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
-                                      {repairReadiness.reason === 'no_van_license'
-                                        ? t(language, 'company.repairNeedsVanLicense')
-                                        : t(language, 'company.repairNeedsCourier')}
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <>
-                                  {!canAffordRepair ? (
-                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
-                                      {formatMissingFunds(repairCost, economyState.balance, language)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
-                                      {isSlowed
-                                        ? t(language, 'company.durabilitySlowHint')
-                                        : t(language, 'company.repairReadyHint')}
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    disabled={!canAffordRepair}
-                                    onClick={() => onRequestVehicleRepair(vehicleSel)}
-                                    title={
-                                      !canAffordRepair
-                                        ? formatMissingFunds(repairCost, economyState.balance, language)
-                                        : undefined
-                                    }
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
-                                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
-                                        : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                                      }`}
-                                  >
-                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
-                                    <span>
-                                      {t(language, 'company.sendToMechanicBtn', {
-                                        amount: formatCurrencyUsd(repairCost, false),
-                                      })}
-                                    </span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
-                      );
+
+                        <div className="space-y-1">
+                          {!twoWheelersMaxed && !canAfford && (
+                            <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums leading-tight">
+                              {formatMissingFunds(spec.purchasePrice, economyState.balance, language)}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            disabled={!canPurchase}
+                            onClick={() => onBuyScooter(scooterId)}
+                            className={`w-full px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canPurchase
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
+                              }`}
+                          >
+                            {twoWheelersMaxed
+                              ? t(language, 'company.limitReached', {
+                                current: twoWheelersCount,
+                                max: MAX_TWO_WHEELERS,
+                              })
+                              : t(language, 'company.buyScooterBtn', {
+                                amount: formatCurrencyUsd(spec.purchasePrice, false),
+                              })}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Owned Fleet Roster (Vans, Scooters, Bicycles with Repair + Sell 30%) */}
+              <article className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
+                    {t(language, 'company.ownedFleetTitle', {
+                      count: ownedFleet.length,
                     })}
+                  </h3>
+                  <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums text-rose-300 font-semibold">
+                    {t(language, 'company.currentInsuranceLabel')}{' '}
+                    +{formatCurrencyUsd(monthlyCosts.insuranceCost, false)}
+                    {perMonth}
+                  </span>
+                </div>
 
-                    {Array.from({ length: bikesCount }, (_, i) => {
-                      const bikeIndex = i + 1;
-                      const vehicleSel: ActiveVehicleSelection = { type: 'bike', index: bikeIndex };
-                      const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
-                      const driverName = driver
-                        ? driver.isOwner
-                          ? t(language, 'orders.ownerBadge')
-                          : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
-                        : null;
-                      const durability = getVehicleDurability(economyState, vehicleSel);
-                      const roundedDurability = Math.round(durability);
-                      const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
-                      const repairPending = isVehicleRepairPending(economyState, vehicleSel);
-                      const repairEligible =
-                        !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
-                      const repairCost = calculateVehicleRepairCost('bike', durability);
-                      const canAffordRepair = economyState.balance >= repairCost;
-                      const repairReadiness = repairPending
-                        ? getRepairCourierReadiness(economyState, vehicleSel)
-                        : null;
+                <div className="space-y-1 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2 max-h-56 [@media(min-width:1024px)_and_(min-height:541px)]:max-h-80 overflow-y-auto overscroll-contain pr-0.5">
+                  {ownedVans.map((van) => {
+                    const vehicleSel: ActiveVehicleSelection = { type: 'van', index: van.index };
+                    const vehicleKey = `van:${van.index}`;
+                    const spec = getVanModelSpec(van.modelId);
+                    const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
+                    const driverName = driver
+                      ? driver.isOwner
+                        ? t(language, 'orders.ownerBadge')
+                        : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
+                      : null;
+                    const durability = getVehicleDurability(economyState, vehicleSel);
+                    const roundedDurability = Math.round(durability);
+                    const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
+                    const repairPending = isVehicleRepairPending(economyState, vehicleSel);
+                    const repairEligible =
+                      !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
+                    const repairCost = calculateVehicleRepairCost('van', durability, van.modelId);
+                    const canAffordRepair = economyState.balance >= repairCost;
+                    const repairReadiness = repairPending
+                      ? getRepairCourierReadiness(economyState, vehicleSel)
+                      : null;
+                    const sellRefund = getVehicleSellRefund(economyState, vehicleSel);
+                    const isVehicleInRoute = inRouteVehicleKeys.has(vehicleKey);
+                    const sellBlockedReason = isVehicleInRoute
+                      ? t(language, 'company.sellBlockedInRoute')
+                      : repairPending
+                        ? t(language, 'company.sellBlockedRepair')
+                        : totalOwnedVehicles <= 1
+                          ? t(language, 'company.sellBlockedLast')
+                          : null;
+                    const canSell = sellBlockedReason === null;
+                    const isConfirmingSell = confirmSellKey === vehicleKey;
 
-                      return (
-                        <div
-                          key={`bike-${bikeIndex}`}
-                          className="rounded-md bg-slate-900/60 border border-slate-800/80 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
-                        >
-                          <div className="flex items-center justify-between gap-1.5">
-                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
-                              <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
-                              <span className="font-semibold text-slate-200 truncate">
-                                {t(language, 'company.vehicleBike', { index: bikeIndex })}
-                              </span>
-                              <span className="text-slate-400 shrink-0">
-                                ({t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })})
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
-                              <span
-                                title={
-                                  isSlowed
-                                    ? t(language, 'company.durabilitySlowHint')
-                                    : t(language, 'company.durabilityLabel', {
-                                      percent: roundedDurability,
-                                    })
-                                }
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
-                              >
-                                {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
-                              </span>
-                              <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border shrink-0 ${driverName
-                                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                    return (
+                      <div
+                        key={van.id}
+                        className="rounded-md bg-slate-900/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                            <Car className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                            <span className="font-semibold text-slate-100 truncate">
+                              {t(language, 'company.vehicleVanFull', {
+                                index: van.index,
+                                condition: getVanConditionLabel(language, van.condition),
+                                tier: getVanTierLabel(language, van.tier),
+                              })}
+                            </span>
+                            <span className="text-slate-400 shrink-0">
+                              ({t(language, 'company.packagesCount', { count: spec.capacity })})
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
+                            <span
+                              title={
+                                isSlowed
+                                  ? t(language, 'company.durabilitySlowHint')
+                                  : t(language, 'company.durabilityLabel', {
+                                    percent: roundedDurability,
+                                  })
+                              }
+                              className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
+                            >
+                              {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
+                            </span>
+                            <span className="text-rose-300 hidden sm:inline">
+                              -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                              {perMonth}
+                            </span>
+                            <span
+                              className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border ${driverName
+                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                                }`}
+                            >
+                              {driverName
+                                ? t(language, 'company.assignedToLabel', { name: driverName })
+                                : t(language, 'company.unassignedBadge')}
+                            </span>
+                            {isConfirmingSell && canSell ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setConfirmSellKey(null);
+                                    onSellVehicle(vehicleSel);
+                                  }}
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded bg-rose-600 hover:bg-rose-500 text-white text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold cursor-pointer"
+                                >
+                                  {t(language, 'company.sellConfirmBtn', {
+                                    amount: formatCurrencyUsd(sellRefund, false),
+                                  })}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmSellKey(null)}
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold cursor-pointer"
+                                >
+                                  {t(language, 'company.sellCancelBtn')}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canSell}
+                                title={sellBlockedReason ?? undefined}
+                                onClick={() => setConfirmSellKey(vehicleKey)}
+                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors ${canSell
+                                    ? 'bg-slate-800 hover:bg-rose-950/70 text-rose-300 border-rose-500/40 cursor-pointer'
+                                    : 'bg-slate-900 text-slate-500 border-slate-800 cursor-not-allowed'
                                   }`}
                               >
-                                {driverName
-                                  ? t(language, 'company.assignedToLabel', { name: driverName })
-                                  : t(language, 'company.unassignedBadge')}
-                              </span>
-                            </div>
+                                {sellBlockedReason ??
+                                  t(language, 'company.sellBtn', {
+                                    amount: formatCurrencyUsd(sellRefund, false),
+                                  })}
+                              </button>
+                            )}
                           </div>
-
-                          {(repairPending || repairEligible) && (
-                            <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
-                              {repairPending ? (
-                                <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
-                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
-                                    <span>{t(language, 'company.repairQueuedBadge')}</span>
-                                  </span>
-                                  {repairReadiness && !repairReadiness.ready && (
-                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
-                                      {t(language, 'company.repairNeedsCourier')}
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <>
-                                  {!canAffordRepair ? (
-                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
-                                      {formatMissingFunds(repairCost, economyState.balance, language)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
-                                      {isSlowed
-                                        ? t(language, 'company.durabilitySlowHint')
-                                        : t(language, 'company.repairReadyHint')}
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    disabled={!canAffordRepair}
-                                    onClick={() => onRequestVehicleRepair(vehicleSel)}
-                                    title={
-                                      !canAffordRepair
-                                        ? formatMissingFunds(repairCost, economyState.balance, language)
-                                        : undefined
-                                    }
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
-                                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
-                                        : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                                      }`}
-                                  >
-                                    <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
-                                    <span>
-                                      {t(language, 'company.sendToMechanicBtn', {
-                                        amount: formatCurrencyUsd(repairCost, false),
-                                      })}
-                                    </span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
-                      );
-                    })}
 
-                    {ownedVans.length === 0 && (
-                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 pt-1 leading-snug">
-                        {t(language, 'company.ownedFleetEmptyVans')}
-                      </p>
-                    )}
-                  </div>
-                </article>
-              </div>
+                        {(repairPending || repairEligible) && (
+                          <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
+                            {repairPending ? (
+                              <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                  <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>{t(language, 'company.repairQueuedBadge')}</span>
+                                </span>
+                                {repairReadiness && !repairReadiness.ready && (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
+                                    {repairReadiness.reason === 'no_van_license'
+                                      ? t(language, 'company.repairNeedsVanLicense')
+                                      : t(language, 'company.repairNeedsCourier')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                {!canAffordRepair ? (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
+                                    {formatMissingFunds(repairCost, economyState.balance, language)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
+                                    {isSlowed
+                                      ? t(language, 'company.durabilitySlowHint')
+                                      : t(language, 'company.repairReadyHint')}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={!canAffordRepair}
+                                  onClick={() => onRequestVehicleRepair(vehicleSel)}
+                                  title={
+                                    !canAffordRepair
+                                      ? formatMissingFunds(repairCost, economyState.balance, language)
+                                      : undefined
+                                  }
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
+                                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                                      : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                    }`}
+                                >
+                                  <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>
+                                    {t(language, 'company.sendToMechanicBtn', {
+                                      amount: formatCurrencyUsd(repairCost, false),
+                                    })}
+                                  </span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {ownedScooters.map((scooter) => {
+                    const vehicleSel: ActiveVehicleSelection = { type: 'scooter', index: scooter.index };
+                    const vehicleKey = `scooter:${scooter.index}`;
+                    const spec = getScooterModelSpec(scooter.modelId);
+                    const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
+                    const driverName = driver
+                      ? driver.isOwner
+                        ? t(language, 'orders.ownerBadge')
+                        : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
+                      : null;
+                    const durability = getVehicleDurability(economyState, vehicleSel);
+                    const roundedDurability = Math.round(durability);
+                    const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
+                    const repairPending = isVehicleRepairPending(economyState, vehicleSel);
+                    const repairEligible =
+                      !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
+                    const repairCost = calculateVehicleRepairCost(
+                      'scooter',
+                      durability,
+                      scooter.modelId
+                    );
+                    const canAffordRepair = economyState.balance >= repairCost;
+                    const repairReadiness = repairPending
+                      ? getRepairCourierReadiness(economyState, vehicleSel)
+                      : null;
+                    const sellRefund = getVehicleSellRefund(economyState, vehicleSel);
+                    const isVehicleInRoute = inRouteVehicleKeys.has(vehicleKey);
+                    const sellBlockedReason = isVehicleInRoute
+                      ? t(language, 'company.sellBlockedInRoute')
+                      : repairPending
+                        ? t(language, 'company.sellBlockedRepair')
+                        : totalOwnedVehicles <= 1
+                          ? t(language, 'company.sellBlockedLast')
+                          : null;
+                    const canSell = sellBlockedReason === null;
+                    const isConfirmingSell = confirmSellKey === vehicleKey;
+
+                    return (
+                      <div
+                        key={scooter.id}
+                        className="rounded-md bg-slate-900/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                            <ScooterBadgeIcon
+                              className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 ${scooter.modelId === 'scooter_cargo' ? 'text-orange-400' : 'text-cyan-400'
+                                }`}
+                            />
+                            <span className="font-semibold text-slate-100 truncate">
+                              {t(language, 'company.vehicleScooterFull', {
+                                index: scooter.index,
+                                model: getScooterModelDisplayName(language, scooter.modelId),
+                              })}
+                            </span>
+                            <span className="text-slate-400 shrink-0">
+                              ({t(language, 'company.packagesCount', { count: spec.capacity })})
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
+                            <span
+                              title={
+                                isSlowed
+                                  ? t(language, 'company.durabilitySlowHint')
+                                  : t(language, 'company.durabilityLabel', {
+                                    percent: roundedDurability,
+                                  })
+                              }
+                              className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
+                            >
+                              {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
+                            </span>
+                            <span className="text-rose-300 hidden sm:inline">
+                              -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                              {perMonth}
+                            </span>
+                            <span
+                              className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border ${driverName
+                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                                }`}
+                            >
+                              {driverName
+                                ? t(language, 'company.assignedToLabel', { name: driverName })
+                                : t(language, 'company.unassignedBadge')}
+                            </span>
+                            {isConfirmingSell && canSell ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setConfirmSellKey(null);
+                                    onSellVehicle(vehicleSel);
+                                  }}
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded bg-rose-600 hover:bg-rose-500 text-white text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold cursor-pointer"
+                                >
+                                  {t(language, 'company.sellConfirmBtn', {
+                                    amount: formatCurrencyUsd(sellRefund, false),
+                                  })}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmSellKey(null)}
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold cursor-pointer"
+                                >
+                                  {t(language, 'company.sellCancelBtn')}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canSell}
+                                title={sellBlockedReason ?? undefined}
+                                onClick={() => setConfirmSellKey(vehicleKey)}
+                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors ${canSell
+                                    ? 'bg-slate-800 hover:bg-rose-950/70 text-rose-300 border-rose-500/40 cursor-pointer'
+                                    : 'bg-slate-900 text-slate-500 border-slate-800 cursor-not-allowed'
+                                  }`}
+                              >
+                                {sellBlockedReason ??
+                                  t(language, 'company.sellBtn', {
+                                    amount: formatCurrencyUsd(sellRefund, false),
+                                  })}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {(repairPending || repairEligible) && (
+                          <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
+                            {repairPending ? (
+                              <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                  <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>{t(language, 'company.repairQueuedBadge')}</span>
+                                </span>
+                                {repairReadiness && !repairReadiness.ready && (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
+                                    {t(language, 'company.repairNeedsCourier')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                {!canAffordRepair ? (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
+                                    {formatMissingFunds(repairCost, economyState.balance, language)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
+                                    {isSlowed
+                                      ? t(language, 'company.durabilitySlowHint')
+                                      : t(language, 'company.repairReadyHint')}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={!canAffordRepair}
+                                  onClick={() => onRequestVehicleRepair(vehicleSel)}
+                                  title={
+                                    !canAffordRepair
+                                      ? formatMissingFunds(repairCost, economyState.balance, language)
+                                      : undefined
+                                  }
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
+                                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                                      : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                    }`}
+                                >
+                                  <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>
+                                    {t(language, 'company.sendToMechanicBtn', {
+                                      amount: formatCurrencyUsd(repairCost, false),
+                                    })}
+                                  </span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {Array.from({ length: bikesCount }, (_, i) => {
+                    const bikeIndex = i + 1;
+                    const vehicleSel: ActiveVehicleSelection = { type: 'bike', index: bikeIndex };
+                    const vehicleKey = `bike:${bikeIndex}`;
+                    const driver = findCourierAssignedToVehicle(couriers, vehicleSel);
+                    const driverName = driver
+                      ? driver.isOwner
+                        ? t(language, 'orders.ownerBadge')
+                        : t(language, 'orders.courierBadge', { slot: driver.slotIndex })
+                      : null;
+                    const durability = getVehicleDurability(economyState, vehicleSel);
+                    const roundedDurability = Math.round(durability);
+                    const isSlowed = durability <= LOW_DURABILITY_SPEED_THRESHOLD;
+                    const repairPending = isVehicleRepairPending(economyState, vehicleSel);
+                    const repairEligible =
+                      !repairPending && durability < REPAIR_AVAILABLE_DURABILITY_THRESHOLD;
+                    const repairCost = calculateVehicleRepairCost('bike', durability);
+                    const canAffordRepair = economyState.balance >= repairCost;
+                    const repairReadiness = repairPending
+                      ? getRepairCourierReadiness(economyState, vehicleSel)
+                      : null;
+                    const sellRefund = getVehicleSellRefund(economyState, vehicleSel);
+                    const isVehicleInRoute = inRouteVehicleKeys.has(vehicleKey);
+                    const sellBlockedReason = isVehicleInRoute
+                      ? t(language, 'company.sellBlockedInRoute')
+                      : repairPending
+                        ? t(language, 'company.sellBlockedRepair')
+                        : totalOwnedVehicles <= 1
+                          ? t(language, 'company.sellBlockedLast')
+                          : null;
+                    const canSell = sellBlockedReason === null;
+                    const isConfirmingSell = confirmSellKey === vehicleKey;
+
+                    return (
+                      <div
+                        key={`bike-${bikeIndex}`}
+                        className="rounded-md bg-slate-900/60 border border-slate-800/80 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 flex flex-col gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
+                            <Bike className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
+                            <span className="font-semibold text-slate-200 truncate">
+                              {t(language, 'company.vehicleBike', { index: bikeIndex })}
+                            </span>
+                            <span className="text-slate-400 shrink-0">
+                              ({t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })})
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
+                            <span
+                              title={
+                                isSlowed
+                                  ? t(language, 'company.durabilitySlowHint')
+                                  : t(language, 'company.durabilityLabel', {
+                                    percent: roundedDurability,
+                                  })
+                              }
+                              className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
+                            >
+                              {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
+                            </span>
+                            {bikeIndex > 1 && (
+                              <span className="text-rose-300 hidden sm:inline">
+                                -{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                                {perMonth}
+                              </span>
+                            )}
+                            <span
+                              className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border shrink-0 ${driverName
+                                  ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                                }`}
+                            >
+                              {driverName
+                                ? t(language, 'company.assignedToLabel', { name: driverName })
+                                : t(language, 'company.unassignedBadge')}
+                            </span>
+                            {isConfirmingSell && canSell ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setConfirmSellKey(null);
+                                    onSellVehicle(vehicleSel);
+                                  }}
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded bg-rose-600 hover:bg-rose-500 text-white text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold cursor-pointer"
+                                >
+                                  {t(language, 'company.sellConfirmBtn', {
+                                    amount: formatCurrencyUsd(sellRefund, false),
+                                  })}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmSellKey(null)}
+                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold cursor-pointer"
+                                >
+                                  {t(language, 'company.sellCancelBtn')}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!canSell}
+                                title={sellBlockedReason ?? undefined}
+                                onClick={() => setConfirmSellKey(vehicleKey)}
+                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors ${canSell
+                                    ? 'bg-slate-800 hover:bg-rose-950/70 text-rose-300 border-rose-500/40 cursor-pointer'
+                                    : 'bg-slate-900 text-slate-500 border-slate-800 cursor-not-allowed'
+                                  }`}
+                              >
+                                {sellBlockedReason ??
+                                  t(language, 'company.sellBtn', {
+                                    amount: formatCurrencyUsd(sellRefund, false),
+                                  })}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {(repairPending || repairEligible) && (
+                          <div className="flex flex-wrap items-center justify-between gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 pt-1 border-t border-slate-800/80">
+                            {repairPending ? (
+                              <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border bg-amber-500/15 border-amber-400/45 text-amber-300">
+                                  <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>{t(language, 'company.repairQueuedBadge')}</span>
+                                </span>
+                                {repairReadiness && !repairReadiness.ready && (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-amber-300/90">
+                                    {t(language, 'company.repairNeedsCourier')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                {!canAffordRepair ? (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-rose-300 font-semibold">
+                                    {formatMissingFunds(repairCost, economyState.balance, language)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans text-slate-400">
+                                    {isSlowed
+                                      ? t(language, 'company.durabilitySlowHint')
+                                      : t(language, 'company.repairReadyHint')}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={!canAffordRepair}
+                                  onClick={() => onRequestVehicleRepair(vehicleSel)}
+                                  title={
+                                    !canAffordRepair
+                                      ? formatMissingFunds(repairCost, economyState.balance, language)
+                                      : undefined
+                                  }
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
+                                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                                      : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                                    }`}
+                                >
+                                  <Wrench className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
+                                  <span>
+                                    {t(language, 'company.sendToMechanicBtn', {
+                                      amount: formatCurrencyUsd(repairCost, false),
+                                    })}
+                                  </span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {ownedVans.length === 0 && (
+                    <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 pt-1 leading-snug">
+                      {t(language, 'company.ownedFleetEmptyVans')}
+                    </p>
+                  )}
+                </div>
+              </article>
             </div>
           )}
 
@@ -1623,6 +2155,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 min-w-0">
                               {effectiveAssigned?.type === 'van' ? (
                                 <Car className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
+                              ) : effectiveAssigned?.type === 'scooter' ? (
+                                <ScooterBadgeIcon className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-cyan-400 shrink-0" />
                               ) : effectiveAssigned?.type === 'bike' ? (
                                 <Bike className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-sky-400 shrink-0" aria-hidden="true" />
                               ) : (

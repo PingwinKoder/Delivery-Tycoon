@@ -1,9 +1,12 @@
 import type {
   ActiveOrder,
   OrderEconomyState,
+  OwnedScooter,
   OwnedVan,
   ReputationLevel,
   ReputationTierConfig,
+  ScooterModelId,
+  ScooterModelSpec,
   VanCondition,
   VanModelId,
   VanModelSpec,
@@ -49,11 +52,17 @@ export const BIKE_COURIER_CAPACITY = 5;
 /** Maximum packages a used delivery van (20-package class) can carry in a single run */
 export const VAN_COURIER_CAPACITY = 20;
 
-/** Bicycle fleet configuration (includes owner's starter bike; up to 2 extra bikes at $450 each) */
+/** Shared Base shelter capacity for all two-wheelers (bicycles + scooters combined) */
+export const MAX_TWO_WHEELERS = 4;
+/** Two-wheeler fleet configuration (includes owner's starter bike; shared cap MAX_TWO_WHEELERS = 4) */
 export const INITIAL_BICYCLES = 1;
-export const MAX_BICYCLES = 3;
-export const MAX_ADDITIONAL_BICYCLES = MAX_BICYCLES - INITIAL_BICYCLES; // 2
+export const MAX_BICYCLES = MAX_TWO_WHEELERS;
+export const MAX_ADDITIONAL_BICYCLES = MAX_TWO_WHEELERS - INITIAL_BICYCLES; // 3
 export const BICYCLE_PURCHASE_COST = 450;
+export const INITIAL_SCOOTERS = 0;
+export const DEFAULT_LEGACY_SCOOTER_MODEL_ID: ScooterModelId = 'scooter_city';
+/** Resale refund rate when selling any owned vehicle from Base fleet (30% of catalog purchase price) */
+export const VEHICLE_RESALE_RATE = 0.3;
 
 /** Delivery van fleet configuration (limit = unlocked parkingSpots, max 8) */
 export const INITIAL_VANS = 0;
@@ -74,18 +83,26 @@ export const LOW_DURABILITY_SPEED_MULTIPLIER = 0.8;
  * Durability wear (% lost per 1 world pixel driven while actively moving on route).
  * Calibrated for BASE_GAME_MINUTES_PER_REAL_SECOND = 1.25 (1 game hour = 48 sim seconds)
  * and 10 active driving hours/day to drop from 100% to 25% (-75%):
- * - Bike (~105 px/s avg -> ~5,000 px/h): ~0.25%/h -> 300h (30 days)
+ * - Bike (~96 px/s avg -> ~4,600 px/h): ~0.25%/h -> 300h (30 days)
+ * - City Scooter (152 px/s cruise -> ~6,200 px/h): ~0.167%/h -> 450h (~45 days)
+ * - Cargo Scooter (168 px/s cruise -> ~6,850 px/h): ~0.136%/h -> 550h (~55 days)
  * - Used Van (~166 px/s avg -> ~8,000 px/h): ~0.10%/h -> 750h (~75 days / 2.5 months)
  * - New Van (~166 px/s avg -> ~8,000 px/h): ~0.05%/h -> 1,500h (~150 days / 5 months)
  */
 export const BIKE_WEAR_PER_WORLD_PX = 0.00005;
+export const SCOOTER_CITY_WEAR_PER_WORLD_PX = 0.000027;
+export const SCOOTER_CARGO_WEAR_PER_WORLD_PX = 0.00002;
 export const USED_VAN_WEAR_PER_WORLD_PX = 0.0000125;
 export const NEW_VAN_WEAR_PER_WORLD_PX = 0.00000625;
-/** Repair pricing multipliers: bike -50% (0.5x), vans -25% (0.75x) */
+/** Repair pricing multipliers: bike -50% (0.5x), city scooter 0.6x (~$65 at 50% wear), cargo scooter 0.65x (~$95 at 50% wear), vans 0.75x */
 export const BIKE_REPAIR_COST_MULTIPLIER = 0.5;
+export const SCOOTER_CITY_REPAIR_COST_MULTIPLIER = 0.6;
+export const SCOOTER_CARGO_REPAIR_COST_MULTIPLIER = 0.65;
 export const VAN_REPAIR_COST_MULTIPLIER = 0.75;
-/** Mechanic garage service durations in in-game minutes (30 min for bikes, 60 min / 1 h for vans) */
+/** Mechanic garage service durations in in-game minutes */
 export const BIKE_REPAIR_GAME_MINUTES = 30;
+export const SCOOTER_CITY_REPAIR_GAME_MINUTES = 40;
+export const SCOOTER_CARGO_REPAIR_GAME_MINUTES = 45;
 export const VAN_REPAIR_GAME_MINUTES = 60;
 /** Number of in-game days (including pickup day) to deliver picked-up packages for long-term contracts (capped at Sunday 23:59) */
 export const LONG_TERM_DELIVERY_WINDOW_DAYS = 3;
@@ -200,6 +217,70 @@ export function createDefaultOwnedVans(
   return Array.from({ length: safeCount }, (_, idx) =>
     createOwnedVan(idx + 1, modelId, DEFAULT_VEHICLE_DURABILITY)
   );
+}
+
+/** Catalog of 2 courier scooter models sharing the 4-bay Base shelter */
+export const SCOOTER_MODELS: Readonly<Record<ScooterModelId, ScooterModelSpec>> = {
+  scooter_city: {
+    id: 'scooter_city',
+    name: 'Skuter Miejski',
+    capacity: 7,
+    speedPxPerSec: 152,
+    purchasePrice: 1450,
+    monthlyInsurance: 70,
+    repairGameMinutes: SCOOTER_CITY_REPAIR_GAME_MINUTES,
+    fuelConsumptionRate: 0.45,
+  },
+  scooter_cargo: {
+    id: 'scooter_cargo',
+    name: 'Skuter Cargo',
+    capacity: 8,
+    speedPxPerSec: 168,
+    purchasePrice: 2400,
+    monthlyInsurance: 85,
+    repairGameMinutes: SCOOTER_CARGO_REPAIR_GAME_MINUTES,
+    fuelConsumptionRate: 0.55,
+  },
+} as const;
+
+export const SCOOTER_MODEL_IDS_ORDER: readonly ScooterModelId[] = [
+  'scooter_city',
+  'scooter_cargo',
+] as const;
+
+export function isValidScooterModelId(value: unknown): value is ScooterModelId {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(SCOOTER_MODELS, value);
+}
+
+export function getScooterModelSpec(modelId: ScooterModelId): ScooterModelSpec {
+  return SCOOTER_MODELS[modelId] ?? SCOOTER_MODELS[DEFAULT_LEGACY_SCOOTER_MODEL_ID];
+}
+
+export function createOwnedScooter(
+  index: number,
+  modelId: ScooterModelId = DEFAULT_LEGACY_SCOOTER_MODEL_ID,
+  durability: number = DEFAULT_VEHICLE_DURABILITY
+): OwnedScooter {
+  const spec = getScooterModelSpec(modelId);
+  const safeIndex = Math.max(1, Math.floor(index));
+  return {
+    id: `scooter-${safeIndex}`,
+    index: safeIndex,
+    modelId: spec.id,
+    durability: clampVehicleDurability(durability),
+  };
+}
+
+export function getScooterResaleValue(modelId: ScooterModelId): number {
+  return Math.round(getScooterModelSpec(modelId).purchasePrice * VEHICLE_RESALE_RATE);
+}
+
+export function getVanResaleValue(modelId: VanModelId): number {
+  return Math.round(getVanModelSpec(modelId).purchasePrice * VEHICLE_RESALE_RATE);
+}
+
+export function getBicycleResaleValue(): number {
+  return Math.round(BICYCLE_PURCHASE_COST * VEHICLE_RESALE_RATE);
 }
 
 /** Path 1: Base warehouse expansion levels (1–4) — scales Base capacity, monthly upkeep & depot building size */

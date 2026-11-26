@@ -4,6 +4,7 @@ import type {
   CompanyCourier,
   OrderEconomyState,
   OrderOffer,
+  OwnedScooter,
   OwnedVan,
   ReputationLevel,
   VehicleRepairTask,
@@ -17,11 +18,15 @@ import {
   MINUTES_PER_DAY,
 } from './gameClock';
 import {
+  DEFAULT_LEGACY_SCOOTER_MODEL_ID,
   DEFAULT_LEGACY_VAN_MODEL_ID,
   DEFAULT_VEHICLE_DURABILITY,
+  MAX_TWO_WHEELERS,
   clampVehicleDurability,
   createDefaultOwnedVans,
+  createOwnedScooter,
   createOwnedVan,
+  isValidScooterModelId,
   isValidVanModelId,
 } from './orderEconomy/constantsAndHelpers';
 
@@ -59,10 +64,14 @@ export interface SavedGameState {
   warehouseLevel: WarehouseTier;
   /** Unlocked Base van parking spots (0–8) */
   parkingSpots: number;
-  /** Number of owned bicycles (1–3) */
+  /** Number of owned bicycles (0–4 within shared two-wheeler shelter limit) */
   bikesCount: number;
   /** Mechanical durability (0–100%) per owned bicycle (optional in legacy saves -> defaults to 100) */
   bikeDurabilities?: number[];
+  /** Owned delivery scooters sharing the 4-slot two-wheeler shelter (optional in legacy saves -> []) */
+  scooters?: OwnedScooter[];
+  /** Number of owned scooters (0–4, optional in legacy saves -> 0) */
+  scootersCount?: number;
   /** Owned delivery vans with individual model IDs & durability (optional in legacy saves) */
   vans?: OwnedVan[];
   /** Number of owned delivery vans (0–8) */
@@ -139,12 +148,33 @@ function clampReputationLevel(value: unknown): ReputationLevel {
 
 function normalizeActiveVehicle(value: unknown): ActiveVehicleSelection {
   if (isPlainObject(value)) {
-    const type = value.type === 'van' ? 'van' : 'bike';
+    const type =
+      value.type === 'van' ? 'van' : value.type === 'scooter' ? 'scooter' : 'bike';
     const rawIdx = Number(value.index);
     const index = Number.isFinite(rawIdx) && rawIdx >= 1 ? Math.floor(rawIdx) : 1;
     return { type, index };
   }
   return { type: 'bike', index: 1 };
+}
+
+function normalizeOwnedScooters(rawScooters: unknown): OwnedScooter[] {
+  if (!Array.isArray(rawScooters) || rawScooters.length === 0) {
+    return [];
+  }
+  const normalized: OwnedScooter[] = [];
+  for (let i = 0; i < rawScooters.length && normalized.length < MAX_TWO_WHEELERS; i++) {
+    const entry = rawScooters[i];
+    const modelId =
+      isPlainObject(entry) && isValidScooterModelId(entry.modelId)
+        ? entry.modelId
+        : DEFAULT_LEGACY_SCOOTER_MODEL_ID;
+    const durability =
+      isPlainObject(entry) && typeof entry.durability === 'number' && Number.isFinite(entry.durability)
+        ? clampVehicleDurability(entry.durability)
+        : DEFAULT_VEHICLE_DURABILITY;
+    normalized.push(createOwnedScooter(normalized.length + 1, modelId, durability));
+  }
+  return normalized;
 }
 
 function normalizeOwnedVans(
@@ -175,7 +205,7 @@ function normalizeOwnedVans(
 }
 
 function normalizeBikeDurabilities(rawDurabilities: unknown, bikesCount: number): number[] {
-  const safeCount = Math.max(1, Math.min(3, Math.floor(bikesCount)));
+  const safeCount = Math.max(0, Math.min(MAX_TWO_WHEELERS, Math.floor(bikesCount)));
   const rawArr = Array.isArray(rawDurabilities) ? rawDurabilities : [];
   return Array.from({ length: safeCount }, (_, idx) => {
     const val = rawArr[idx];
@@ -188,6 +218,7 @@ function normalizeBikeDurabilities(rawDurabilities: unknown, bikesCount: number)
 function normalizePendingVehicleRepairs(
   rawRepairs: unknown,
   bikesCount: number,
+  scootersCount: number,
   vansCount: number,
   fallbackGameDay: number
 ): VehicleRepairTask[] {
@@ -199,6 +230,7 @@ function normalizePendingVehicleRepairs(
     if (!isPlainObject(item) || !isPlainObject(item.vehicle)) continue;
     const vehicle = normalizeActiveVehicle(item.vehicle);
     if (vehicle.type === 'bike' && (vehicle.index < 1 || vehicle.index > bikesCount)) continue;
+    if (vehicle.type === 'scooter' && (vehicle.index < 1 || vehicle.index > scootersCount)) continue;
     if (vehicle.type === 'van' && (vehicle.index < 1 || vehicle.index > vansCount)) continue;
 
     const id = `repair:${vehicle.type}:${vehicle.index}`;
@@ -515,7 +547,23 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
   const safeReputation = clampReputationLevel(cloned.reputationLevel);
   const safeWarehouseLevel = clampWarehouseTier(cloned.warehouseLevel);
   const safeParkingSpots = Math.max(0, Math.min(8, Math.floor(Number(cloned.parkingSpots) || 0)));
-  const safeBikesCount = Math.max(1, Math.min(3, Math.floor(Number(cloned.bikesCount) || 1)));
+  const rawScootersSource =
+    Array.isArray(cloned.scooters) && cloned.scooters.length > 0
+      ? cloned.scooters
+      : isPlainObject(cloned.economyState) && Array.isArray(cloned.economyState.scooters)
+        ? cloned.economyState.scooters
+        : undefined;
+  const safeScooters = normalizeOwnedScooters(rawScootersSource);
+  const safeScootersCount = safeScooters.length;
+  const maxAllowedBikes = Math.max(0, MAX_TWO_WHEELERS - safeScootersCount);
+  const parsedRawBikes =
+    typeof cloned.bikesCount === 'number' && Number.isFinite(cloned.bikesCount)
+      ? Math.floor(cloned.bikesCount)
+      : isPlainObject(cloned.economyState) &&
+          typeof cloned.economyState.bikesCount === 'number' &&
+          Number.isFinite(cloned.economyState.bikesCount)
+        ? Math.floor(cloned.economyState.bikesCount)
+        : 1;
   const rawFallbackVansCount = Math.max(
     0,
     Math.min(
@@ -538,6 +586,10 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
         : undefined;
   const safeVans = normalizeOwnedVans(rawVansSource, rawFallbackVansCount, safeParkingSpots);
   const safeVansCount = safeVans.length;
+  let safeBikesCount = Math.max(0, Math.min(maxAllowedBikes, parsedRawBikes));
+  if (safeBikesCount === 0 && safeScootersCount === 0 && safeVansCount === 0) {
+    safeBikesCount = 1;
+  }
   const rawBikeDurabilitiesSource = Array.isArray(cloned.bikeDurabilities)
     ? cloned.bikeDurabilities
     : isPlainObject(cloned.economyState) && Array.isArray(cloned.economyState.bikeDurabilities)
@@ -552,10 +604,23 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
   const safePendingRepairs = normalizePendingVehicleRepairs(
     rawRepairsSource,
     safeBikesCount,
+    safeScootersCount,
     safeVansCount,
     safeGameDay
   );
-  const safeActiveVehicle = normalizeActiveVehicle(cloned.activeVehicle);
+  let safeActiveVehicle = normalizeActiveVehicle(cloned.activeVehicle);
+  if (
+    (safeActiveVehicle.type === 'bike' && safeActiveVehicle.index > safeBikesCount) ||
+    (safeActiveVehicle.type === 'scooter' && safeActiveVehicle.index > safeScootersCount) ||
+    (safeActiveVehicle.type === 'van' && safeActiveVehicle.index > safeVansCount)
+  ) {
+    safeActiveVehicle =
+      safeBikesCount > 0
+        ? { type: 'bike', index: 1 }
+        : safeScootersCount > 0
+          ? { type: 'scooter', index: 1 }
+          : { type: 'van', index: 1 };
+  }
   const safeCouriers = normalizeCouriersForBaseStart(cloned.couriers);
 
   const rawInventory = isPlainObject(cloned.warehouseInventory)
@@ -597,6 +662,8 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
       bikesCount: safeBikesCount,
       bicyclesCount: safeBikesCount,
       bikeDurabilities: [...safeBikeDurabilities],
+      scooters: safeScooters.map((s) => ({ ...s })),
+      scootersCount: safeScootersCount,
       vans: safeVans.map((v) => ({ ...v })),
       vansCount: safeVansCount,
       deliveryVansCount: safeVansCount,
@@ -628,6 +695,8 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     parkingSpots: safeParkingSpots,
     bikesCount: safeBikesCount,
     bikeDurabilities: safeBikeDurabilities,
+    scooters: safeScooters,
+    scootersCount: safeScootersCount,
     vans: safeVans,
     vansCount: safeVansCount,
     activeVehicle: safeActiveVehicle,
@@ -703,9 +772,21 @@ export function createSavedGameState(
     weeklyPlan[wd] = tasks.map((task) => ({ ...task }));
   }
 
+  const savedScooters: OwnedScooter[] = Array.isArray(economyState.scooters)
+    ? economyState.scooters.slice(0, MAX_TWO_WHEELERS).map((s, idx) => ({
+        ...s,
+        index: idx + 1,
+        id: `scooter-${idx + 1}`,
+        durability:
+          typeof s.durability === 'number' && Number.isFinite(s.durability)
+            ? clampVehicleDurability(s.durability)
+            : DEFAULT_VEHICLE_DURABILITY,
+      }))
+    : [];
+  const rawBikes = economyState.bikesCount ?? economyState.bicyclesCount ?? 1;
   const safeBikesCount = Math.max(
-    1,
-    Math.min(3, economyState.bikesCount ?? economyState.bicyclesCount ?? 1)
+    0,
+    Math.min(MAX_TWO_WHEELERS - savedScooters.length, Math.floor(rawBikes))
   );
   const savedBikeDurabilities = normalizeBikeDurabilities(
     economyState.bikeDurabilities,
@@ -727,6 +808,7 @@ export function createSavedGameState(
   const savedPendingRepairs = normalizePendingVehicleRepairs(
     economyState.pendingVehicleRepairs,
     safeBikesCount,
+    savedScooters.length,
     savedVans.length,
     gameDay
   );
@@ -742,6 +824,8 @@ export function createSavedGameState(
     parkingSpots: economyState.parkingSpots,
     bikesCount: safeBikesCount,
     bikeDurabilities: savedBikeDurabilities,
+    scooters: savedScooters,
+    scootersCount: savedScooters.length,
     vans: savedVans,
     vansCount: savedVans.length,
     activeVehicle: { ...economyState.activeVehicle },
@@ -759,7 +843,11 @@ export function createSavedGameState(
       : [],
     economyState: deepCloneJson({
       ...economyState,
+      bikesCount: safeBikesCount,
+      bicyclesCount: safeBikesCount,
       bikeDurabilities: savedBikeDurabilities,
+      scooters: savedScooters,
+      scootersCount: savedScooters.length,
       vans: savedVans,
       vansCount: savedVans.length,
       deliveryVansCount: savedVans.length,

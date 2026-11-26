@@ -1,12 +1,39 @@
 import type { Point } from '../types/roadGraph';
-import type { VanCondition, VanTier } from '../types/orders';
+import type { ScooterModelId, VanCondition, VanTier } from '../types/orders';
 import type { BaseBikeRackSpec, BaseLoadingZoneSpec } from './cityMap';
 import { isoToCanvas } from './cityMap';
 
 /** Compact, minimalist bicycle & rider scale (~20% smaller than 0.67 for crisp city readability) */
 export const DEFAULT_BICYCLE_SCALE = 0.54;
+/** Orthographic isometric scale for courier scooters (compact 2-wheeler silhouette slightly fuller than bicycles) */
+export const DEFAULT_SCOOTER_SCALE = 0.62;
 /** Orthographic isometric scale for delivery vans (fits cleanly in P1–P8 stalls) */
 export const DEFAULT_VAN_SCALE = 1.0;
+
+export interface ScooterRenderOptions {
+  x: number;
+  y: number;
+  /** World-canvas heading angle in radians (Math.atan2(dy, dx)) */
+  angle: number;
+  /** True when courier rider wearing a helmet sits on the scooter; false when parked empty */
+  withRider: boolean;
+  /** Wheel rotation angle in radians */
+  wheelPhase: number;
+  /** Scooter catalog model: 'scooter_city' (compact top box) or 'scooter_cargo' (larger insulated cargo box) */
+  modelId?: ScooterModelId;
+  /** True while halted at destination handing parcels */
+  isDelivering?: boolean;
+  /** Optional 1-based courier slot index (#1–#6) shown in the floating label */
+  courierSlotIndex?: number;
+  /** Current number of packages onboard */
+  cargoCount?: number;
+  /** Maximum scooter cargo capacity (7 or 8) */
+  cargoCapacity?: number;
+  /** Inverse zoom scale factor for crisp floating cargo badge */
+  invScale?: number;
+  /** Scale multiplier (defaults to DEFAULT_SCOOTER_SCALE) */
+  scale?: number;
+}
 
 export interface DeliveryVanRenderOptions {
   x: number;
@@ -1045,25 +1072,377 @@ export function drawIsometricDeliveryVan(
 }
 
 /**
- * Draws the exterior BAZA bike rack against the SW garage wall, plus any parked empty bicycles
- * (`boolean` for single starter bike or 1-based parked bike indices `1..3`).
+ * Renders a crisp orthographic isometric delivery scooter (step-through floorboard, front
+ * fairing with headlight, wide seat, courier cargo top-box, and optional helmeted rider).
+ */
+export function drawIsometricScooter(
+  ctx: CanvasRenderingContext2D,
+  opts: ScooterRenderOptions
+) {
+  const {
+    x,
+    y,
+    angle,
+    withRider,
+    wheelPhase,
+    modelId = 'scooter_city',
+    isDelivering = false,
+    courierSlotIndex,
+    cargoCount,
+    cargoCapacity = modelId === 'scooter_cargo' ? 8 : 7,
+    invScale = 1,
+    scale = DEFAULT_SCOOTER_SCALE,
+  } = opts;
+
+  const isCargo = modelId === 'scooter_cargo';
+  const { fwdX, fwdY, sideX, sideY } = buildIsoBasis(angle);
+  const s = scale;
+
+  const pt = (fwd: number, side: number, up: number): Vec2 => ({
+    x: x + (fwd * fwdX + side * sideX) * s,
+    y: y + (fwd * fwdY + side * sideY - up) * s,
+  });
+
+  const fillPoly = (pts: Vec2[], fill: string, stroke?: string, lineWidth = 0.8) => {
+    if (pts.length === 0) return;
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = lineWidth * s;
+      ctx.stroke();
+    }
+  };
+
+  const line = (a: Vec2, b: Vec2) => {
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  };
+
+  const roadVibe = withRider && !isDelivering ? Math.abs(Math.sin(wheelPhase * 1.1)) * 0.3 : 0;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1. Subtle orange handoff ring when stopped at delivery/pickup point
+  if (isDelivering) {
+    ctx.strokeStyle = 'rgba(249, 115, 22, 0.88)';
+    ctx.fillStyle = 'rgba(249, 115, 22, 0.16)';
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 11.2 * s + 2.5, 5.8 * s + 1.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // 2. Grounded shadow ellipse
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const p = pt(Math.cos(a) * 10.6, Math.sin(a) * 4.2, 0);
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // 3. Smaller thicker scooter wheels
+  const drawScooterWheel = (centerFwd: number) => {
+    const r = 3.0;
+    const centerUp = r;
+    const steps = 12;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const theta = (i / steps) * Math.PI * 2;
+      const p = pt(centerFwd + Math.cos(theta) * r, 0, centerUp + Math.sin(theta) * r);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.1 * s;
+    ctx.stroke();
+
+    const hub = pt(centerFwd, 0, centerUp);
+    ctx.beginPath();
+    ctx.arc(hub.x, hub.y, 1.3 * s, 0, Math.PI * 2);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fill();
+  };
+
+  const rearAxle = pt(-6.6, 0, 3.0);
+  const frontAxle = pt(6.6, 0, 3.0);
+  if (rearAxle.y <= frontAxle.y) {
+    drawScooterWheel(-6.6);
+    drawScooterWheel(6.6);
+  } else {
+    drawScooterWheel(6.6);
+    drawScooterWheel(-6.6);
+  }
+
+  // Body palette: City Scooter = sky-blue + white shield, Cargo Scooter = amber-orange + dark slate trim
+  const bodyPrimary = isCargo ? '#ea580c' : '#0284c7';
+  const bodyAccent = isCargo ? '#f97316' : '#38bdf8';
+  const fairingFront = isCargo ? '#f8fafc' : '#e0f2fe';
+
+  // 4. Step-through floorboard (przekrok) + rear body nacelle + front fairing legshield
+  const floorPts = [
+    pt(-2.5, -2.0, 2.7 + roadVibe),
+    pt(3.8, -2.0, 2.7 + roadVibe),
+    pt(3.8, 2.0, 2.7 + roadVibe),
+    pt(-2.5, 2.0, 2.7 + roadVibe),
+  ];
+  fillPoly(floorPts, '#1e293b', '#0f172a', 0.8);
+
+  // Rear body cowling box
+  const leftSideCenter = pt(-4.5, -2.3, 6.0);
+  const rightSideCenter = pt(-4.5, 2.3, 6.0);
+  const nearSign = leftSideCenter.y >= rightSideCenter.y ? -1 : 1;
+
+  fillPoly(
+    [
+      pt(-8.2, nearSign * 2.2, 4.2 + roadVibe),
+      pt(-2.0, nearSign * 2.2, 4.2 + roadVibe),
+      pt(-2.0, nearSign * 2.0, 8.6 + roadVibe),
+      pt(-7.8, nearSign * 2.0, 8.6 + roadVibe),
+    ],
+    bodyPrimary,
+    '#0f172a',
+    0.85
+  );
+  fillPoly(
+    [
+      pt(-7.8, -2.0, 8.6 + roadVibe),
+      pt(-2.0, -2.0, 8.6 + roadVibe),
+      pt(-2.0, 2.0, 8.6 + roadVibe),
+      pt(-7.8, 2.0, 8.6 + roadVibe),
+    ],
+    bodyAccent,
+    '#0f172a',
+    0.8
+  );
+
+  // Front legshield / fairing column
+  fillPoly(
+    [
+      pt(4.0, nearSign * 2.1, 3.8 + roadVibe),
+      pt(7.8, nearSign * 1.4, 4.5 + roadVibe),
+      pt(6.2, nearSign * 1.4, 11.4 + roadVibe),
+      pt(3.4, nearSign * 1.9, 10.8 + roadVibe),
+    ],
+    bodyPrimary,
+    '#0f172a',
+    0.85
+  );
+  // Front apron panel
+  fillPoly(
+    [
+      pt(7.8, -1.4, 4.5 + roadVibe),
+      pt(7.8, 1.4, 4.5 + roadVibe),
+      pt(6.2, 1.4, 11.4 + roadVibe),
+      pt(6.2, -1.4, 11.4 + roadVibe),
+    ],
+    fairingFront,
+    '#0f172a',
+    0.8
+  );
+
+  // Compact glowing headlight
+  const headlight = pt(7.2, 0, 9.5 + roadVibe);
+  ctx.fillStyle = '#fde047';
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 0.7 * s;
+  ctx.beginPath();
+  ctx.arc(headlight.x, headlight.y, 1.15 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Wide upholstered scooter saddle
+  fillPoly(
+    [
+      pt(-5.2, -1.8, 9.0 + roadVibe),
+      pt(-0.6, -1.7, 9.0 + roadVibe),
+      pt(-0.6, 1.7, 9.0 + roadVibe),
+      pt(-5.2, 1.8, 9.0 + roadVibe),
+    ],
+    '#0f172a',
+    '#334155',
+    0.8
+  );
+
+  // Steering stem & wide scooter handlebars
+  const stemBase = pt(5.0, 0, 10.6 + roadVibe);
+  const stemTop = pt(4.6, 0, 12.2 + roadVibe);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2.0 * s;
+  line(stemBase, stemTop);
+
+  const barL = pt(4.4, -3.4, 12.2 + roadVibe);
+  const barR = pt(4.4, 3.4, 12.2 + roadVibe);
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 2.2 * s;
+  line(barL, barR);
+
+  // Small windscreen on scooter_cargo or clean cowling highlight on scooter_city
+  if (isCargo) {
+    fillPoly(
+      [
+        pt(5.3, -1.6, 11.8 + roadVibe),
+        pt(5.3, 1.6, 11.8 + roadVibe),
+        pt(4.6, 1.4, 14.4 + roadVibe),
+        pt(4.6, -1.4, 14.4 + roadVibe),
+      ],
+      'rgba(186, 230, 253, 0.65)',
+      '#334155',
+      0.7
+    );
+  }
+
+  // 5. Rear Courier Top-Box (compact cube on scooter_city, large insulated cargo box on scooter_cargo)
+  const boxBack = isCargo ? -11.4 : -9.8;
+  const boxFront = isCargo ? -5.2 : -5.4;
+  const boxHalf = isCargo ? 3.2 : 2.3;
+  const boxBot = 8.9 + roadVibe;
+  const boxTop = (isCargo ? 16.0 : 13.6) + roadVibe;
+
+  const b1 = pt(boxBack, -boxHalf, boxBot);
+  const b2 = pt(boxFront, -boxHalf, boxBot);
+  const b3 = pt(boxFront, boxHalf, boxBot);
+  const b4 = pt(boxBack, boxHalf, boxBot);
+  const t1 = pt(boxBack, -boxHalf, boxTop);
+  const t2 = pt(boxFront, -boxHalf, boxTop);
+  const t3 = pt(boxFront, boxHalf, boxTop);
+  const t4 = pt(boxBack, boxHalf, boxTop);
+
+  const boxFaces: Array<{ avgY: number; pts: Vec2[]; fill: string }> = [
+    { avgY: (b1.y + b4.y) / 2, pts: [b1, b4, t4, t1], fill: isCargo ? '#c2410c' : '#ea580c' },
+    { avgY: (b2.y + b3.y) / 2, pts: [b2, b3, t3, t2], fill: isCargo ? '#ea580c' : '#f97316' },
+    { avgY: (b1.y + b2.y) / 2, pts: [b1, b2, t2, t1], fill: '#f97316' },
+    { avgY: (b4.y + b3.y) / 2, pts: [b4, b3, t3, t4], fill: '#f97316' },
+  ].sort((a, b) => a.avgY - b.avgY);
+
+  for (const face of boxFaces) {
+    fillPoly(face.pts, face.fill, '#7c2d12', 0.85);
+  }
+  fillPoly([t1, t2, t3, t4], isCargo ? '#fb923c' : '#fdba74', '#7c2d12', 0.85);
+
+  if (isCargo) {
+    // Bold reflective orange/white brand band on larger cargo box roof
+    fillPoly(
+      [
+        pt(boxBack + 1.0, -boxHalf + 0.6, boxTop + 0.1),
+        pt(boxFront - 1.0, -boxHalf + 0.6, boxTop + 0.1),
+        pt(boxFront - 1.0, boxHalf - 0.6, boxTop + 0.1),
+        pt(boxBack + 1.0, boxHalf - 0.6, boxTop + 0.1),
+      ],
+      '#f8fafc'
+    );
+  }
+
+  // 6. Upright scooter rider with helmet & tucked boots on the step-through floorboard
+  if (withRider) {
+    const hipL = pt(-2.2, -1.6, 9.6 + roadVibe);
+    const hipR = pt(-2.2, 1.6, 9.6 + roadVibe);
+    const shoulderL = pt(-0.6, -2.5, 16.5 + roadVibe);
+    const shoulderR = pt(-0.6, 2.5, 16.5 + roadVibe);
+
+    // Legs resting neatly down on the step-through floorboard
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2.4 * s;
+    line(hipL, pt(1.2, -1.5, 4.0 + roadVibe));
+    line(hipR, pt(1.2, 1.5, 4.0 + roadVibe));
+
+    // Arms reaching forward to handlebars
+    const leftIsFar = shoulderL.y < shoulderR.y;
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2.1 * s;
+    line(leftIsFar ? shoulderL : shoulderR, leftIsFar ? barL : barR);
+
+    // Rider courier jacket torso
+    fillPoly([hipL, hipR, shoulderR, shoulderL], '#1e293b', '#0f172a', 1.0);
+
+    // Orange chest vest accent stripe
+    fillPoly(
+      [
+        pt(-1.6, -1.3, 12.2 + roadVibe),
+        pt(-1.6, 1.3, 12.2 + roadVibe),
+        pt(-0.8, 1.6, 15.6 + roadVibe),
+        pt(-0.8, -1.6, 15.6 + roadVibe),
+      ],
+      '#f97316'
+    );
+
+    // Near arm reaching handlebar
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2.1 * s;
+    line(leftIsFar ? shoulderR : shoulderL, leftIsFar ? barR : barL);
+
+    // Full-face / open-face courier helmet
+    const head = pt(0.2, 0, 19.3 + roadVibe);
+    ctx.fillStyle = isCargo ? '#f8fafc' : '#38bdf8';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.0 * s;
+    ctx.beginPath();
+    ctx.arc(head.x, head.y, 2.35 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Tinted visor strip facing forward
+    const visor = pt(1.3, 0, 19.2 + roadVibe);
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(visor.x, visor.y, 1.1 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 7. Crisp floating courier badge (`#N • cargo/cap`)
+  if (typeof cargoCount === 'number') {
+    const anchorZ = Math.max(withRider ? 22.8 : 16.0, boxTop + 3.0);
+    const anchor = pt(-2.2, 0, anchorZ);
+    drawCourierFloatingBadge(ctx, anchor, cargoCount, cargoCapacity, invScale, courierSlotIndex);
+  }
+
+  ctx.restore();
+}
+
+export interface ParkedScooterRenderEntry {
+  index: number;
+  modelId: ScooterModelId;
+}
+
+/**
+ * Draws the upgraded exterior 4-bay covered two-wheeler shelter against the Base SW wall,
+ * rendering parked bicycles and scooters neatly beneath the translucent canopy roof.
  */
 export function drawBikeRackWithOptionalBike(
   ctx: CanvasRenderingContext2D,
   rack: BaseBikeRackSpec,
-  parkedBikes: boolean | readonly number[]
+  parkedBikes: boolean | readonly number[],
+  parkedScooters: readonly ParkedScooterRenderEntry[] = []
 ) {
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // 1. Subtle concrete/slate mounting strip flush against the BAZA garage wall
+  // 1. Concrete shelter pad flush against the BAZA garage wall
   const p0 = isoToCanvas(rack.uMin, rack.vMin);
   const p1 = isoToCanvas(rack.uMax, rack.vMin);
   const p2 = isoToCanvas(rack.uMax, rack.vMax);
   const p3 = isoToCanvas(rack.uMin, rack.vMax);
 
-  ctx.fillStyle = 'rgba(71, 85, 105, 0.32)';
+  ctx.fillStyle = 'rgba(51, 65, 85, 0.42)';
   ctx.beginPath();
   ctx.moveTo(p0.x, p0.y);
   ctx.lineTo(p1.x, p1.y);
@@ -1072,92 +1451,233 @@ export function drawBikeRackWithOptionalBike(
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
-  ctx.lineWidth = 1.0;
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
+  ctx.lineWidth = 1.05;
   ctx.stroke();
 
-  // Horizontal steel mounting rail connecting all inverted-U hoops
-  const railA = isoToCanvas(rack.uMin + 1.8, rack.vMax - 1.8);
-  const railB = isoToCanvas(rack.uMax - 1.8, rack.vMax - 1.8);
+  // Front safety threshold stripe along yard entrance edge (vMin + 0.6)
+  const thA = isoToCanvas(rack.uMin + 0.8, rack.vMin + 0.6);
+  const thB = isoToCanvas(rack.uMax - 0.8, rack.vMin + 0.6);
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.58)';
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(thA.x, thA.y);
+  ctx.lineTo(thB.x, thB.y);
+  ctx.stroke();
+
+  // Painted parking bay dividers across 4 bays
+  const bayWidth = (rack.uMax - rack.uMin) / Math.max(1, rack.hoopsU.length);
+  ctx.strokeStyle = 'rgba(226, 232, 240, 0.36)';
+  ctx.lineWidth = 0.85;
+  for (let i = 1; i < rack.hoopsU.length; i++) {
+    const divU = rack.uMin + bayWidth * i;
+    const d0 = isoToCanvas(divU, rack.vMin + 1.0);
+    const d1 = isoToCanvas(divU, rack.vMax - 1.2);
+    ctx.beginPath();
+    ctx.moveTo(d0.x, d0.y);
+    ctx.lineTo(d1.x, d1.y);
+    ctx.stroke();
+  }
+
+  // Subtle roof shadow cast across the pad
+  const shadowOffsetX = 2.6;
+  const shadowOffsetY = 1.4;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
+  ctx.beginPath();
+  ctx.moveTo(p0.x + shadowOffsetX, p0.y + shadowOffsetY);
+  ctx.lineTo(p1.x + shadowOffsetX, p1.y + shadowOffsetY);
+  ctx.lineTo(p2.x + shadowOffsetX, p2.y + shadowOffsetY);
+  ctx.lineTo(p3.x + shadowOffsetX, p3.y + shadowOffsetY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Horizontal steel mounting rail + compact low wheel-stop bollards at rear of each bay
+  const railA = isoToCanvas(rack.uMin + 1.8, rack.vMax - 1.6);
+  const railB = isoToCanvas(rack.uMax - 1.8, rack.vMax - 1.6);
   ctx.strokeStyle = '#334155';
-  ctx.lineWidth = 1.75;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(railA.x, railA.y);
   ctx.lineTo(railB.x, railB.y);
   ctx.stroke();
 
-  ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  ctx.moveTo(railA.x, railA.y - 0.35);
-  ctx.lineTo(railB.x, railB.y - 0.35);
-  ctx.stroke();
-
-  // Clean isometric inverted-U steel hoop proportioned for the compact 0.54-scale bicycle
-  const drawHoop = (u: number) => {
-    const baseNear = isoToCanvas(u, rack.vMax - 4.0);
-    const baseFar = isoToCanvas(u, rack.vMax - 1.1);
-    const hoopH = 3.8;
-
-    ctx.strokeStyle = 'rgba(15, 23, 42, 0.22)';
-    ctx.lineWidth = 1.15;
-    ctx.beginPath();
-    ctx.moveTo(baseNear.x + 1.0, baseNear.y + 0.35);
-    ctx.lineTo(baseFar.x + 1.6, baseFar.y + 0.35);
-    ctx.stroke();
+  const drawWheelStop = (u: number) => {
+    const baseNear = isoToCanvas(u, rack.vMax - 3.6);
+    const baseFar = isoToCanvas(u, rack.vMax - 1.2);
+    const stopH = 3.2;
 
     ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 1.75;
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(baseFar.x, baseFar.y);
-    ctx.lineTo(baseFar.x, baseFar.y - hoopH);
-    ctx.lineTo(baseNear.x, baseNear.y - hoopH);
+    ctx.lineTo(baseFar.x, baseFar.y - stopH);
+    ctx.lineTo(baseNear.x, baseNear.y - stopH);
     ctx.lineTo(baseNear.x, baseNear.y);
     ctx.stroke();
 
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 0.85;
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 0.75;
     ctx.beginPath();
     ctx.moveTo(baseFar.x, baseFar.y - 0.35);
-    ctx.lineTo(baseFar.x, baseFar.y - hoopH);
-    ctx.lineTo(baseNear.x, baseNear.y - hoopH);
+    ctx.lineTo(baseFar.x, baseFar.y - stopH);
+    ctx.lineTo(baseNear.x, baseNear.y - stopH);
     ctx.lineTo(baseNear.x, baseNear.y - 0.35);
     ctx.stroke();
   };
 
+  // Back corner posts under the canopy roof (drawn before parked two-wheelers for correct Z order)
+  const postBackH = 14.5;
+  const postFrontH = 12.2;
+  const postInsetU = 1.1;
+  const postInsetV = 0.9;
+  const bPostL = isoToCanvas(rack.uMin + postInsetU, rack.vMax - postInsetV);
+  const bPostR = isoToCanvas(rack.uMax - postInsetU, rack.vMax - postInsetV);
+  const fPostL = isoToCanvas(rack.uMin + postInsetU, rack.vMin + postInsetV);
+  const fPostR = isoToCanvas(rack.uMax - postInsetU, rack.vMin + postInsetV);
+
+  const drawPost = (base: Vec2, h: number) => {
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.moveTo(base.x, base.y);
+    ctx.lineTo(base.x, base.y - h);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 0.95;
+    ctx.beginPath();
+    ctx.moveTo(base.x - 0.25, base.y);
+    ctx.lineTo(base.x - 0.25, base.y - h);
+    ctx.stroke();
+  };
+
+  drawPost(bPostL, postBackH);
+  drawPost(bPostR, postBackH);
+
+  // Assign parked bicycles & scooters cleanly into bays 0..3 without overlapping
   const bikeIndices =
     typeof parkedBikes === 'boolean' ? (parkedBikes ? [1] : []) : parkedBikes;
 
-  // Map 1-based bike index -> deterministic hoop index on the 4-hoop Base bike rack
-  // Bike #1 keeps original hoop index 1 (rack.parkedU); Bike #2 uses hoop 2; Bike #3 uses hoop 0
-  const occupiedHoopIndices = new Set<number>();
+  const baySlotVehicle = new Map<
+    number,
+    | { kind: 'bike'; seed: number }
+    | { kind: 'scooter'; modelId: ScooterModelId; seed: number }
+  >();
+  const preferredBayOrder = [1, 2, 0, 3];
+  const claimFreeBay = (preferred?: number): number | null => {
+    if (
+      preferred !== undefined &&
+      preferred >= 0 &&
+      preferred < rack.hoopsU.length &&
+      !baySlotVehicle.has(preferred)
+    ) {
+      return preferred;
+    }
+    for (const candidate of preferredBayOrder) {
+      if (candidate < rack.hoopsU.length && !baySlotVehicle.has(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  };
+
   for (const bikeIdx of bikeIndices) {
-    if (bikeIdx === 1 && rack.hoopsU.length > 1) occupiedHoopIndices.add(1);
-    else if (bikeIdx === 2 && rack.hoopsU.length > 2) occupiedHoopIndices.add(2);
-    else if (bikeIdx === 3 && rack.hoopsU.length > 0) occupiedHoopIndices.add(0);
-    else if (rack.hoopsU.length > 0) {
-      occupiedHoopIndices.add(Math.min(bikeIdx - 1, rack.hoopsU.length - 1));
+    const preferred = bikeIdx === 1 ? 1 : bikeIdx === 2 ? 2 : bikeIdx === 3 ? 0 : 3;
+    const bay = claimFreeBay(preferred);
+    if (bay !== null) {
+      baySlotVehicle.set(bay, { kind: 'bike', seed: 0.35 + bikeIdx * 0.5 });
+    }
+  }
+  for (const scooter of parkedScooters) {
+    const bay = claimFreeBay();
+    if (bay !== null) {
+      baySlotVehicle.set(bay, {
+        kind: 'scooter',
+        modelId: scooter.modelId,
+        seed: 0.25 + scooter.index * 0.45,
+      });
     }
   }
 
   for (let i = 0; i < rack.hoopsU.length; i++) {
     const u = rack.hoopsU[i];
-    drawHoop(u);
-    if (occupiedHoopIndices.has(i)) {
-      const pt =
-        i === 1 && Math.abs(u - rack.parkedU) < 0.5
-          ? { x: rack.parkedX, y: rack.parkedY }
-          : isoToCanvas(u, rack.parkedV);
+    drawWheelStop(u);
+    const parkedItem = baySlotVehicle.get(i);
+    if (!parkedItem) continue;
+
+    const pt =
+      i === 1 && Math.abs(u - rack.parkedU) < 0.5
+        ? { x: rack.parkedX, y: rack.parkedY }
+        : isoToCanvas(u, rack.parkedV);
+
+    if (parkedItem.kind === 'bike') {
       drawIsometricBicycle(ctx, {
         x: pt.x,
         y: pt.y,
         angle: rack.parkedAngle,
         withRider: false,
-        wheelPhase: 0.35 + i * 0.5,
+        wheelPhase: parkedItem.seed,
         scale: DEFAULT_BICYCLE_SCALE,
+      });
+    } else {
+      drawIsometricScooter(ctx, {
+        x: pt.x,
+        y: pt.y,
+        angle: rack.parkedAngle,
+        withRider: false,
+        wheelPhase: parkedItem.seed,
+        modelId: parkedItem.modelId,
+        scale: DEFAULT_SCOOTER_SCALE,
       });
     }
   }
+
+  // Front support posts + sloped translucent canopy roof above parked vehicles
+  drawPost(fPostL, postFrontH);
+  drawPost(fPostR, postFrontH);
+
+  const roof0 = { x: p0.x, y: p0.y - postFrontH };
+  const roof1 = { x: p1.x, y: p1.y - postFrontH };
+  const roof2 = { x: p2.x, y: p2.y - postBackH };
+  const roof3 = { x: p3.x, y: p3.y - postBackH };
+
+  ctx.fillStyle = 'rgba(56, 189, 248, 0.20)';
+  ctx.beginPath();
+  ctx.moveTo(roof0.x, roof0.y);
+  ctx.lineTo(roof1.x, roof1.y);
+  ctx.lineTo(roof2.x, roof2.y);
+  ctx.lineTo(roof3.x, roof3.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Internal roof purlins/ribs aligned with bays
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.lineWidth = 0.85;
+  for (let i = 1; i < rack.hoopsU.length; i++) {
+    const tFrac = i / rack.hoopsU.length;
+    ctx.beginPath();
+    ctx.moveTo(roof0.x + (roof1.x - roof0.x) * tFrac, roof0.y + (roof1.y - roof0.y) * tFrac);
+    ctx.lineTo(roof3.x + (roof2.x - roof3.x) * tFrac, roof3.y + (roof2.y - roof3.y) * tFrac);
+    ctx.stroke();
+  }
+
+  // Canopy perimeter steel frame + subtle orange courier fascia strip along the front edge
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.45;
+  ctx.beginPath();
+  ctx.moveTo(roof0.x, roof0.y);
+  ctx.lineTo(roof1.x, roof1.y);
+  ctx.lineTo(roof2.x, roof2.y);
+  ctx.lineTo(roof3.x, roof3.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.strokeStyle = '#f97316';
+  ctx.lineWidth = 1.15;
+  ctx.beginPath();
+  ctx.moveTo(roof0.x, roof0.y + 0.6);
+  ctx.lineTo(roof1.x, roof1.y + 0.6);
+  ctx.stroke();
 
   ctx.restore();
 }

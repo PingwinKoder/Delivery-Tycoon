@@ -235,7 +235,35 @@ export interface CompanyEmployee {
   hiredAtGameDay: number;
 }
 
-export type ActiveVehicleType = 'bike' | 'van';
+export type ActiveVehicleType = 'bike' | 'scooter' | 'van';
+
+export type ScooterModelId = 'scooter_city' | 'scooter_cargo';
+
+export interface ScooterModelSpec {
+  id: ScooterModelId;
+  name: string;
+  /** Maximum packages this scooter model can carry in a single trip */
+  capacity: number;
+  /** Cruising speed in world px/s */
+  speedPxPerSec: number;
+  /** One-time purchase price in USD */
+  purchasePrice: number;
+  /** Monthly insurance & maintenance cost in USD */
+  monthlyInsurance: number;
+  /** Mechanic garage service duration in in-game minutes */
+  repairGameMinutes: number;
+  /** Relative fuel consumption rate (prepared for fuel stage) */
+  fuelConsumptionRate: number;
+}
+
+export interface OwnedScooter {
+  id: string;
+  /** 1-based scooter fleet index matching ActiveVehicleSelection.index */
+  index: number;
+  modelId: ScooterModelId;
+  /** Current mechanical durability (0–100%) */
+  durability: number;
+}
 
 export type VanCondition = 'used' | 'new';
 
@@ -277,7 +305,7 @@ export interface OwnedVan {
 
 export interface ActiveVehicleSelection {
   type: ActiveVehicleType;
-  /** 1-based fleet index (e.g. Rower #1, Bus #1, Bus #2) */
+  /** 1-based fleet index (e.g. Rower #1, Skuter #1, Bus #1) */
   index: number;
 }
 
@@ -326,11 +354,13 @@ export interface MonthlyCostBreakdown {
   baseUpkeepAndTaxCost: number;
   /** Total monthly salaries for all hired employees ($0 for owner) */
   salariesCost: number;
-  /** Total monthly insurance for additional bicycles ($50 each for 2nd and 3rd bike) */
+  /** Total monthly insurance for additional bicycles ($50 each from the 2nd bike onward) */
   courierInsuranceCost: number;
-  /** Total monthly insurance for owned delivery vans ($130 each) */
+  /** Total monthly insurance for owned scooters ($70 / $85 each) */
+  scooterInsuranceCost: number;
+  /** Total monthly insurance for owned delivery vans ($90–$155 each) */
   vanInsuranceCost: number;
-  /** Combined monthly insurance cost (courierInsuranceCost + vanInsuranceCost) */
+  /** Combined monthly insurance cost (courierInsuranceCost + scooterInsuranceCost + vanInsuranceCost) */
   insuranceCost: number;
   /** Total monthly operating costs (baseUpkeepAndTaxCost + salariesCost + insuranceCost) */
   totalFixedCosts: number;
@@ -349,11 +379,13 @@ export interface MonthlySettlementRecord {
   baseUpkeepAndTaxCost: number;
   /** Total monthly employee salaries billed on this settlement */
   salariesCost: number;
-  /** Monthly courier insurance cost ($90 per bike courier including owner) */
+  /** Monthly bicycle insurance cost */
   courierInsuranceCost: number;
-  /** Monthly van driver & vehicle insurance cost ($180 per van driver) */
+  /** Monthly scooter insurance cost */
+  scooterInsuranceCost?: number;
+  /** Monthly van driver & vehicle insurance cost */
   vanInsuranceCost: number;
-  /** Combined monthly insurance cost (courierInsuranceCost + vanInsuranceCost) */
+  /** Combined monthly insurance cost (courierInsuranceCost + scooterInsuranceCost + vanInsuranceCost) */
   insuranceCost: number;
   /** Total monthly fixed/operating costs (base upkeep + salaries + insurance) */
   totalFixedCosts: number;
@@ -461,12 +493,16 @@ export interface OrderEconomyState {
   couriers: CompanyCourier[];
   /** Active hired company staff mirror kept in sync with `couriers` */
   employees: CompanyEmployee[];
-  /** Number of owned courier bicycles including the owner's starter bike (starts at 1, max MAX_BICYCLES = 3) */
+  /** Number of owned courier bicycles including the owner's starter bike (shared max 4 two-wheelers with scooters) */
   bikesCount: number;
   /** Alias for bikesCount kept strictly in sync */
   bicyclesCount: number;
-  /** Mechanical durability (0–100%) per owned bicycle (index 0 = Rower #1 .. index 2 = Rower #3) */
+  /** Mechanical durability (0–100%) per owned bicycle (index 0 = Rower #1 ..) */
   bikeDurabilities: number[];
+  /** Owned delivery scooters sharing the 4-slot two-wheeler shelter with bicycles */
+  scooters: OwnedScooter[];
+  /** Number of owned scooters (always equal to scooters.length) */
+  scootersCount: number;
   /** Owned delivery vans with individual models, capacities & durability (limit = parkingSpots <= 8) */
   vans: OwnedVan[];
   /** Number of owned delivery vans (always equal to vans.length, max = parkingSpots <= 8) */

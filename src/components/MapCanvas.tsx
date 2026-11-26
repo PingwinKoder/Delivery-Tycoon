@@ -24,12 +24,14 @@ import {
   updateViewportGroundCache,
 } from '../utils/cityRenderer';
 import {
+  type ParkedScooterRenderEntry,
   drawBaseLoadingZone,
   drawBikeRackWithOptionalBike,
   drawCourierDestinationPin,
   drawCourierRoute,
   drawIsometricBicycle,
   drawIsometricDeliveryVan,
+  drawIsometricScooter,
 } from '../utils/courierRenderer';
 import {
   type ArrowInputVector,
@@ -70,6 +72,7 @@ import {
   getClaimedTaskCountsForFleet,
   getCourierCapacityForSelection,
   getCourierCargoCount,
+  getCourierSpeedForSelection,
   getCourierSpeedForVehicle,
   getInFlightPickupCountsByOrderForFleet,
   getReservedWarehouseSpaceForFleet,
@@ -88,6 +91,8 @@ import type {
 } from '../types/orders';
 import { type GameSpeed, getGameClockDisplay } from '../utils/gameClock';
 import {
+  getOwnedScooterByIndex,
+  getOwnedScooters,
   getOwnedVanByIndex,
   getOwnedVans,
   getRemainingPickupPackagesForOrderToday,
@@ -709,7 +714,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
         const eco = propsRef.current.economyStateRef?.current;
         const manualBikeSpeed =
-          getCourierSpeedForVehicle('bike') *
+          (eco
+            ? getCourierSpeedForSelection(eco, curVehicle)
+            : getCourierSpeedForVehicle(curVehicle.type)) *
           (eco ? getVehicleDurabilitySpeedMultiplier(getVehicleDurability(eco, curVehicle)) : 1);
         const manualCourier = createCourierFromPath(
           fullOutbound,
@@ -720,6 +727,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           curVehicle,
           1
         );
+        if (curVehicle.type === 'scooter' && eco) {
+          manualCourier.scooterModelId = getOwnedScooterByIndex(eco, curVehicle.index)?.modelId;
+        }
         couriersFleetRef.current[1] = {
           slotIndex: 1,
           inRoute: manualCourier.active,
@@ -1159,7 +1169,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const durabilityMult = getVehicleDurabilitySpeedMultiplier(
         getVehicleDurability(ecoState, dispatchVehicle)
       );
-      const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type) * durabilityMult;
+      const scooterSpec =
+        dispatchVehicle.type === 'scooter'
+          ? getOwnedScooterByIndex(ecoState, dispatchVehicle.index)
+          : undefined;
+      const scooterModelId = scooterSpec?.modelId;
+      const vehicleSpeed =
+        getCourierSpeedForSelection(ecoState, dispatchVehicle) * durabilityMult;
       const vehicleCapacity = getCourierCapacityForSelection(ecoState, dispatchVehicle);
       const claimedTaskCounts = getClaimedTaskCountsForFleet(couriersFleetRef.current, slotIndex);
       const inFlightPickupCountsByOrder = getInFlightPickupCountsByOrderForFleet(
@@ -1201,9 +1217,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           vehicleSpeed,
           curParkingNav,
           slotIndex,
-          vehicleCapacity
+          vehicleCapacity,
+          scooterModelId
         );
         if (repairMission.active) {
+          if (scooterModelId) repairMission.scooterModelId = scooterModelId;
           couriersFleetRef.current[slotIndex] = {
             slotIndex,
             inRoute: true,
@@ -1244,6 +1262,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         );
 
         if (mission.active) {
+          if (scooterModelId) mission.scooterModelId = scooterModelId;
           couriersFleetRef.current[slotIndex] = {
             slotIndex,
             inRoute: true,
@@ -1281,6 +1300,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         vehicleCapacity
       );
       if (pickupMission.active) {
+        if (scooterModelId) pickupMission.scooterModelId = scooterModelId;
         couriersFleetRef.current[slotIndex] = {
           slotIndex,
           inRoute: true,
@@ -1299,9 +1319,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     const reusableViewBounds = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
     let cachedIdleDepot: BaseDepotSpec | null = null;
     let cachedIdleBikesCount = -1;
+    let cachedIdleOwnedScooters: ReturnType<typeof getOwnedScooters> | undefined = undefined;
     let cachedIdleVansCount = -1;
     let cachedIdleOwnedVans: ReturnType<typeof getOwnedVans> | undefined = undefined;
     let cachedIdleParkedBikes: number[] = [];
+    let cachedIdleParkedScooters: ParkedScooterRenderEntry[] = [];
     let cachedIdleDepthEntities: DepthSortedEntity[] = [];
 
     const drawScene = (now: number) => {
@@ -1547,6 +1569,19 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           const entry = fleet[slotIndex];
           if (!entry || !entry.courier.active) continue;
 
+          // Keep in-flight courier vehicle index synced if an earlier sibling vehicle was sold
+          const rosterMatch = ecoBeforeStep?.couriers?.find((c) => c.slotIndex === slotIndex);
+          if (
+            rosterMatch?.assignedVehicle &&
+            rosterMatch.assignedVehicle.type === entry.courier.vehicleType &&
+            rosterMatch.assignedVehicle.index !== entry.courier.vehicleIndex
+          ) {
+            entry.courier = {
+              ...entry.courier,
+              vehicleIndex: rosterMatch.assignedVehicle.index,
+            };
+          }
+
           const activeMissionVehicle: ActiveVehicleSelection = {
             type: entry.courier.vehicleType,
             index: entry.courier.vehicleIndex,
@@ -1556,7 +1591,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           // Keep speed responsive if durability drops below 25% mid-route (restored vehicles return at full speed)
           const isReturningFromRepair =
             entry.courier.missionKind === 'repair' && entry.courier.phase === 'returning';
-          const expectedBaseSpeed = getCourierSpeedForVehicle(activeMissionVehicle.type);
+          const expectedBaseSpeed = ecoBeforeStep
+            ? getCourierSpeedForSelection(ecoBeforeStep, activeMissionVehicle)
+            : getCourierSpeedForVehicle(activeMissionVehicle.type, entry.courier.scooterModelId);
           const expectedSpeed =
             isReturningFromRepair || !ecoBeforeStep
               ? expectedBaseSpeed
@@ -1667,7 +1704,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                       const directTaskId =
                         postPickupDecision.task?.taskId ?? ev.orderId;
                       const directSpeed =
-                        getCourierSpeedForVehicle(activeMissionVehicle.type) *
+                        getCourierSpeedForSelection(latestEco, activeMissionVehicle) *
                         getVehicleDurabilitySpeedMultiplier(
                           getVehicleDurability(latestEco, activeMissionVehicle)
                         );
@@ -1687,6 +1724,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                       if (directMission.active) {
                         entry.courier = {
                           ...directMission,
+                          scooterModelId: entry.courier.scooterModelId,
                           wheelPhase: entry.courier.wheelPhase,
                         };
                         entry.inRoute = true;
@@ -1725,7 +1763,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               entry.courier = {
                 ...entry.courier,
                 assignedTaskId: null,
-                speed: getCourierSpeedForVehicle(ev.vehicle.type),
+                speed: getCourierSpeedForVehicle(ev.vehicle.type, entry.courier.scooterModelId),
               };
             } else if (ev.type === 'base_unloaded') {
               if (ev.cargo.length > 0) {
@@ -1756,7 +1794,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                 // All free tasks done or workday ended -> park vehicle at Base bike rack or assigned stall P1–P8
                 const latestEcoForPark = propsRef.current.economyStateRef?.current;
                 const parkSpeed =
-                  getCourierSpeedForVehicle(activeMissionVehicle.type) *
+                  (latestEcoForPark
+                    ? getCourierSpeedForSelection(latestEcoForPark, activeMissionVehicle)
+                    : getCourierSpeedForVehicle(
+                        activeMissionVehicle.type,
+                        entry.courier.scooterModelId
+                      )) *
                   (latestEcoForPark
                     ? getVehicleDurabilitySpeedMultiplier(
                       getVehicleDurability(latestEcoForPark, activeMissionVehicle)
@@ -1774,6 +1817,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                   activeMissionCapacity
                 );
                 if (parkMission.active) {
+                  parkMission.scooterModelId = entry.courier.scooterModelId;
                   entry.courier = parkMission;
                   entry.inRoute = true;
                   entry.assignedTaskId = null;
@@ -1981,6 +2025,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const curVansCount = propsRef.current.vansCount;
       const rack = curBaseDepot.bikeRack;
       const currentEco = propsRef.current.economyStateRef?.current;
+      const ownedScootersList = currentEco ? getOwnedScooters(currentEco) : undefined;
       const ownedVansList = currentEco ? getOwnedVans(currentEco) : undefined;
 
       let anyCourierInRoute = false;
@@ -1992,33 +2037,41 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
       }
 
-      const clampedBikes = Math.max(0, Math.min(3, Math.floor(curBikesCount)));
+      const clampedBikes = Math.max(0, Math.min(4, Math.floor(curBikesCount)));
       let parkedBikeIndices: number[];
+      let parkedScooters: ParkedScooterRenderEntry[];
       let activeOutVanIndices: Set<number> | null = null;
 
       if (!anyCourierInRoute) {
         if (
           cachedIdleDepot !== curBaseDepot ||
           cachedIdleBikesCount !== clampedBikes ||
+          cachedIdleOwnedScooters !== ownedScootersList ||
           cachedIdleVansCount !== curVansCount ||
           cachedIdleOwnedVans !== ownedVansList
         ) {
           cachedIdleDepot = curBaseDepot;
           cachedIdleBikesCount = clampedBikes;
+          cachedIdleOwnedScooters = ownedScootersList;
           cachedIdleVansCount = curVansCount;
           cachedIdleOwnedVans = ownedVansList;
           const bikes: number[] = [];
           for (let i = 1; i <= clampedBikes; i++) {
             bikes.push(i);
           }
+          const scooters: ParkedScooterRenderEntry[] = (ownedScootersList ?? []).map((s) => ({
+            index: s.index,
+            modelId: s.modelId,
+          }));
           cachedIdleParkedBikes = bikes;
+          cachedIdleParkedScooters = scooters;
           const idleBikeRackEntity: DepthSortedEntity = {
             id: rack.id,
             uMin: rack.uMin,
             uMax: rack.uMax,
             vMin: rack.vMin,
             vMax: rack.vMax,
-            draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, bikes),
+            draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, bikes, scooters),
           };
           const idleParkedVans = createBaseParkedVanEntities(
             curBaseDepot,
@@ -2029,6 +2082,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           cachedIdleDepthEntities = [idleBikeRackEntity, ...idleParkedVans];
         }
         parkedBikeIndices = cachedIdleParkedBikes;
+        parkedScooters = cachedIdleParkedScooters;
       } else {
         const activeOut = getActiveOutVehiclesForFleet(fleet);
         activeOutVanIndices = activeOut.vanIndices;
@@ -2038,6 +2092,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             parkedBikeIndices.push(i);
           }
         }
+        parkedScooters = (ownedScootersList ?? [])
+          .filter((s) => !activeOut.scooterIndices.has(s.index))
+          .map((s) => ({ index: s.index, modelId: s.modelId }));
       }
 
       const drawFleetCourier = (
@@ -2056,6 +2113,23 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             isDelivering: c.phase === 'delivering',
             condition: ownedVan?.condition ?? 'used',
             tier: ownedVan?.tier ?? 'standard',
+            courierSlotIndex: entry.slotIndex,
+            cargoCount,
+            cargoCapacity: c.cargoCapacity,
+            invScale,
+          });
+        } else if (c.vehicleType === 'scooter') {
+          const ownedScooter = currentEco
+            ? getOwnedScooterByIndex(currentEco, c.vehicleIndex)
+            : undefined;
+          drawIsometricScooter(drawCtx, {
+            x: c.x,
+            y: c.y,
+            angle: c.angle,
+            withRider: c.riderMounted,
+            wheelPhase: c.wheelPhase,
+            modelId: c.scooterModelId ?? ownedScooter?.modelId ?? 'scooter_city',
+            isDelivering: c.phase === 'delivering',
             courierSlotIndex: entry.slotIndex,
             cargoCount,
             cargoCapacity: c.cargoCapacity,
@@ -2084,7 +2158,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         if (curBaseNode) {
           drawBaseMarker(curBaseNode);
         }
-        drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices);
+        drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices, parkedScooters);
         const parkedVanSlots = getBaseParkedVanSlots(
           curBaseDepot.parking,
           curVansCount,
@@ -2123,7 +2197,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             uMax: rack.uMax,
             vMin: rack.vMin,
             vMax: rack.vMax,
-            draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices),
+            draw: (drawCtx) =>
+              drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices, parkedScooters),
           };
 
           const parkedVanEntities = createBaseParkedVanEntities(

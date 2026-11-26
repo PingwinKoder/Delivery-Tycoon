@@ -2,28 +2,36 @@ import type { VanCondition, VanTier } from '../../types/orders';
 import type { DepthSortedEntity } from '../buildings';
 import {
   DEFAULT_BICYCLE_SCALE,
+  DEFAULT_SCOOTER_SCALE,
   DEFAULT_VAN_SCALE,
   type BicycleRenderOptions,
   type DeliveryVanRenderOptions,
+  type ParkedScooterRenderEntry,
+  type ScooterRenderOptions,
   drawBaseLoadingZone,
   drawBikeRackWithOptionalBike,
   drawCourierDestinationPin,
   drawCourierRoute,
   drawIsometricBicycle,
   drawIsometricDeliveryVan,
+  drawIsometricScooter,
 } from '../courierRenderer';
 
 export {
   DEFAULT_BICYCLE_SCALE,
+  DEFAULT_SCOOTER_SCALE,
   DEFAULT_VAN_SCALE,
   type BicycleRenderOptions,
   type DeliveryVanRenderOptions,
+  type ParkedScooterRenderEntry,
+  type ScooterRenderOptions,
   drawBaseLoadingZone,
   drawBikeRackWithOptionalBike,
   drawCourierDestinationPin,
   drawCourierRoute,
   drawIsometricBicycle,
   drawIsometricDeliveryVan,
+  drawIsometricScooter,
 };
 
 export interface ParkedVanSlotEntityInput {

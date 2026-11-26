@@ -259,6 +259,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         })
       );
     }
+    if (monthlyCosts.scooterInsuranceCost > 0) {
+      parts.push(
+        t(language, 'orders.costScooterInsurance', {
+          amount: formatCurrencyUsd(monthlyCosts.scooterInsuranceCost, false),
+        })
+      );
+    }
     if (monthlyCosts.vanInsuranceCost > 0) {
       parts.push(
         t(language, 'orders.costVanInsurance', {
@@ -717,10 +724,15 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               index: task.repairVehicle.index,
                               durability: durabilityPct,
                             })
-                            : t(language, 'orders.repairBikeTitle', {
-                              index: task.repairVehicle.index,
-                              durability: durabilityPct,
-                            });
+                            : task.repairVehicle.type === 'scooter'
+                              ? t(language, 'orders.repairScooterTitle', {
+                                index: task.repairVehicle.index,
+                                durability: durabilityPct,
+                              })
+                              : t(language, 'orders.repairBikeTitle', {
+                                index: task.repairVehicle.index,
+                                durability: durabilityPct,
+                              });
                         const mechanicLocation = t(language, 'orders.repairMechanicLocation');
 
                         return (

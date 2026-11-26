@@ -4,6 +4,7 @@ import {
   Bike,
   Clock,
   FolderOpen,
+  LogOut,
   Package,
   Play,
   Plus,
@@ -35,7 +36,7 @@ export interface StartScreenModalProps {
   onOpenSettings: () => void;
 }
 
-type StartScreenView = 'menu' | 'load';
+type StartScreenView = 'menu' | 'load' | 'exited';
 
 function formatSavedTimestamp(isoString: string, lang: SupportedLanguage): string {
   const parsed = new Date(isoString);
@@ -133,6 +134,27 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
   const handleConfirmDelete = (slotId: SaveSlotId) => {
     setConfirmDeleteSlotId(null);
     onDeleteSlot(slotId);
+  };
+
+  const handleExitGame = () => {
+    setConfirmDeleteSlotId(null);
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+    try {
+      const cap = (
+        window as { Capacitor?: { Plugins?: { App?: { exitApp?: () => void } } } }
+      ).Capacitor;
+      cap?.Plugins?.App?.exitApp?.();
+    } catch {
+      // Ignore outside native wrapper
+    }
+    try {
+      window.close();
+    } catch {
+      // Standard browser tabs ignore window.close(); show friendly exit notice below
+    }
+    setView('exited');
   };
 
   return (
@@ -235,7 +257,42 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
               <Settings className="w-4 h-4 [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 text-orange-400 shrink-0" aria-hidden="true" />
               <span>{t(language, 'start.settings')}</span>
             </button>
+
+            <button
+              type="button"
+              disabled={!isVisible}
+              onClick={handleExitGame}
+              className="w-full py-2 [@media(max-height:540px)]:py-1.5 px-4 rounded-lg bg-slate-950/90 hover:bg-rose-950/70 text-slate-300 hover:text-rose-200 border border-slate-700/90 hover:border-rose-500/45 text-xs [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400 shrink-0" aria-hidden="true" />
+              <span>{t(language, 'start.exitGame')}</span>
+            </button>
           </div>
+        </div>
+      ) : view === 'exited' ? (
+        <div className="w-full max-w-sm [@media(max-height:540px)]:max-w-xs rounded-xl bg-slate-900/95 border border-slate-700 shadow-md overflow-hidden text-slate-100 touch-auto p-5 [@media(max-height:540px)]:p-3.5 text-center space-y-3.5">
+          <div className="w-11 h-11 rounded-xl bg-orange-500/15 border border-orange-500/45 text-orange-400 flex items-center justify-center mx-auto">
+            <LogOut className="w-5 h-5" aria-hidden="true" />
+          </div>
+          <div className="space-y-1">
+            <h1
+              id="start-screen-heading"
+              className="text-lg font-extrabold text-slate-100"
+            >
+              {t(language, 'start.exitTitle')}
+            </h1>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              {t(language, 'start.exitBrowserHint')}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setView('menu')}
+            className="w-full py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400"
+          >
+            <ArrowLeft className="w-4 h-4 shrink-0" aria-hidden="true" />
+            <span>{t(language, 'start.exitReturnBtn')}</span>
+          </button>
         </div>
       ) : (
         <div className="w-[95vw] max-w-3xl max-h-[92vh] [@media(max-height:540px)]:max-h-[96vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700 shadow-md overflow-hidden text-slate-100 touch-auto overscroll-contain">

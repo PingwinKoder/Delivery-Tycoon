@@ -953,14 +953,14 @@ export function getBaseParkedVanSlots(
 }
 
 /**
- * Returns 1-based indices of company bicycles currently parked at the Base bike rack (1..3),
+ * Returns 1-based indices of company bicycles currently parked at the Base shelter (1..4),
  * omitting `activeOutBikeIndex` whenever that bicycle is currently away on a route.
  */
 export function getBaseParkedBikeIndices(
   bikesCount: number,
   activeOutBikeIndex: number | null = null
 ): number[] {
-  const count = Math.max(0, Math.min(Math.floor(bikesCount), 3));
+  const count = Math.max(0, Math.min(Math.floor(bikesCount), 4));
   const indices: number[] = [];
   for (let i = 1; i <= count; i++) {
     if (activeOutBikeIndex !== null && activeOutBikeIndex === i) {

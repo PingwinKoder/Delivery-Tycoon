@@ -522,10 +522,10 @@ export function recordPackageDelivery(
         reputationLevel: nextReputationLevel,
         activeOrders: nextActive,
         archivedOrders: [completedOrder, ...state.archivedOrders].slice(0, MAX_ARCHIVED_ORDERS),
-          weeklyPriorityOrder: pruneInactiveOrderIdsFromWeeklyPriority(
-            removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, new Set([completedOrder.id])),
-            nextActive
-          ),
+        weeklyPriorityOrder: pruneInactiveOrderIdsFromWeeklyPriority(
+          removeOrderIdsFromWeeklyPriority(state.weeklyPriorityOrder, new Set([completedOrder.id])),
+          nextActive
+        ),
       };
     }
 
@@ -802,6 +802,7 @@ export function processMonthlySettlement(
     baseUpkeepAndTaxCost: monthlyCosts.baseUpkeepAndTaxCost,
     salariesCost: monthlyCosts.salariesCost,
     courierInsuranceCost: monthlyCosts.courierInsuranceCost,
+    scooterInsuranceCost: monthlyCosts.scooterInsuranceCost,
     vanInsuranceCost: monthlyCosts.vanInsuranceCost,
     insuranceCost: monthlyCosts.insuranceCost,
     totalFixedCosts: monthlyCosts.totalFixedCosts,
