@@ -84,6 +84,7 @@ import {
 } from './utils/saveSystem';
 import {
   type GameSettings,
+  isMobileTouchDevice,
   loadGameSettings,
   requestMobileFullscreen,
   saveGameSettings,
@@ -316,6 +317,7 @@ export function App() {
   const [sessionEpoch, setSessionEpoch] = useState<number>(0);
 
   const [settings, setSettings] = useState<GameSettings>(() => loadGameSettings());
+  const [isMobileDevice, setIsMobileDevice] = useState<boolean>(() => isMobileTouchDevice());
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [settingsOpenedFrom, setSettingsOpenedFrom] = useState<SettingsOpenedFrom>('start');
   const [exitConfirmOpen, setExitConfirmOpen] = useState<boolean>(false);
@@ -389,15 +391,19 @@ export function App() {
     setStartDataReady(true);
   }, []);
 
+  // Keep mobile vs PC detection synced on resize / orientation change for FPS cap selection
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileDevice(isMobileTouchDevice());
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Automatically enforce fullscreen mode on mobile devices upon user touch/pointer interaction
   useEffect(() => {
-    const isMobileDevice = () =>
-      window.innerWidth < 1024 &&
-      window.matchMedia('(pointer: coarse)').matches &&
-      !window.matchMedia('(pointer: fine)').matches;
-
     const handleMobileInteraction = () => {
-      if (isMobileDevice()) {
+      if (isMobileTouchDevice()) {
         requestMobileFullscreen();
       }
     };
@@ -1153,6 +1159,7 @@ export function App() {
           exitConfirmOpen
         }
         sessionEpoch={sessionEpoch}
+        maxFps={isMobileDevice ? settings.mobileMaxFps : settings.pcMaxFps}
         onFpsChange={setFps}
         onMapReady={handleMapReady}
         onIntroFlyInComplete={handleIntroFlyInComplete}
@@ -1183,6 +1190,7 @@ export function App() {
         settingsOpen={settingsOpen}
         unreadOffersCount={unreadOffersCount}
         fps={fps}
+        showFpsCounter={settings.showFpsCounter}
         onToggleGrid={handleToggleGrid}
         onToggleFootprintOnly={handleToggleFootprintOnly}
         onToggleStreetNames={handleToggleStreetNames}

@@ -35,6 +35,7 @@ import {
   countUnreadOffers,
   formatCurrencyUsd,
   getScheduledTasksForWeekday,
+  getUpcomingLongTermPickupQuota,
   roundCurrency,
 } from '../utils/orderEconomy';
 import type { SupportedLanguage } from '../utils/settingsSystem';
@@ -269,11 +270,17 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   }, [language, monthlyCosts, economyState.warehouseLevel, economyState.warehouseTier]);
 
   const weeklyColumns = useMemo(() => {
-    const weekMondayGameDay = clock.gameDay - clock.dayIndex;
-    return Array.from({ length: DAYS_PER_WEEK }, (_, weekdayIndex) => {
-      const date = getCalendarDateFromGameDay(weekMondayGameDay + weekdayIndex);
-      const isToday = weekdayIndex === clock.dayIndex;
-      const rawTasks = getScheduledTasksForWeekday(economyState, weekdayIndex, clock.gameDay);
+    return Array.from({ length: DAYS_PER_WEEK }, (_, dayOffset) => {
+      const targetGameDay = clock.gameDay + dayOffset;
+      const date = getCalendarDateFromGameDay(targetGameDay);
+      const weekdayIndex = date.dayIndex;
+      const isToday = dayOffset === 0;
+      const rawTasks = getScheduledTasksForWeekday(
+        economyState,
+        weekdayIndex,
+        clock.gameDay,
+        targetGameDay
+      );
       const tasks: WeeklyScheduleTask[] = isToday
         ? rawTasks.map((task) => {
             const assignedCourierId =
@@ -284,6 +291,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
           })
         : rawTasks;
       return {
+        targetGameDay,
         weekdayIndex,
         weekdayName: getWeekdayName(language, weekdayIndex, false),
         weekdayShort: getWeekdayName(language, weekdayIndex, true),
@@ -292,9 +300,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         tasks,
       };
     });
-  }, [economyState, clock.gameDay, clock.dayIndex, taskAssignmentsByTaskId, language]);
+  }, [economyState, clock.gameDay, taskAssignmentsByTaskId, language]);
 
-  const selectedDay = weeklyColumns[selectedWeekday] ?? weeklyColumns[clock.dayIndex] ?? weeklyColumns[0];
+  const selectedDay =
+    weeklyColumns.find((day) => day.weekdayIndex === selectedWeekday) ?? weeklyColumns[0];
 
   if (!isOpen) return null;
 
@@ -1152,7 +1161,12 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
   const translatedClient = translateOrderText(language, order.clientName);
   const translatedAddress = translateOrderText(language, order.pickupLocation.address);
 
-  const weeklyTarget = order.weekly.expectedPackagesThisWeek;
+  const currentGameDay = Math.floor(Math.max(0, gameMinutes) / MINUTES_PER_DAY) + 1;
+  const rawWeeklyTarget = order.weekly.expectedPackagesThisWeek;
+  const weeklyTarget =
+    order.kind === 'long_term' && rawWeeklyTarget <= 0
+      ? getUpcomingLongTermPickupQuota(order, currentGameDay)
+      : rawWeeklyTarget;
   const pickedUpThisWeek = order.weekly.pickedUpPackagesThisWeek;
   const deliveredThisWeek = order.weekly.deliveredPackagesThisWeek;
 

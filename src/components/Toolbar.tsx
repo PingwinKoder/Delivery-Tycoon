@@ -36,6 +36,7 @@ interface ToolbarProps {
   settingsOpen: boolean;
   unreadOffersCount: number;
   fps: number | null;
+  showFpsCounter?: boolean;
   onToggleGrid: () => void;
   onToggleFootprintOnly: () => void;
   onToggleStreetNames: () => void;
@@ -61,6 +62,7 @@ interface ToolbarProps {
     settingsOpen,
     unreadOffersCount,
     fps,
+    showFpsCounter = true,
     onToggleGrid,
     onToggleFootprintOnly,
     onToggleStreetNames,
@@ -399,29 +401,31 @@ interface ToolbarProps {
               </button>
             </div>
 
-            <div
-              aria-label={
-                fps !== null
-                  ? t(language, 'hud.fpsAria', { fps })
-                  : t(language, 'hud.fpsMeasuringAria')
-              }
-              className="pointer-events-none select-none px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold tabular-nums leading-tight flex items-center gap-1"
-            >
-              <span
-                className={
-                  fps === null
-                    ? 'text-slate-400'
-                    : fps >= 50
-                      ? 'text-emerald-400'
-                      : fps >= 30
-                        ? 'text-amber-400'
-                        : 'text-rose-400'
+            {showFpsCounter && (
+              <div
+                aria-label={
+                  fps !== null
+                    ? t(language, 'hud.fpsAria', { fps })
+                    : t(language, 'hud.fpsMeasuringAria')
                 }
+                className="pointer-events-none select-none px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md bg-slate-900/95 border border-slate-700/80 shadow-sm text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold tabular-nums leading-tight flex items-center gap-1"
               >
-                {fps ?? '--'}
-              </span>
-              <span className="text-slate-400 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-[11px]">FPS</span>
-            </div>
+                <span
+                  className={
+                    fps === null
+                      ? 'text-slate-400'
+                      : fps >= 50
+                        ? 'text-emerald-400'
+                        : fps >= 30
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                  }
+                >
+                  {fps ?? '--'}
+                </span>
+                <span className="text-slate-400 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-[11px]">FPS</span>
+              </div>
+            )}
           </div>
         </div>
       </header>

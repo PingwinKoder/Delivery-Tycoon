@@ -1,4 +1,10 @@
 export type SupportedLanguage = 'pl' | 'en';
+export type PcMaxFpsOption = 30 | 60 | 90 | 120 | 'unlimited';
+export type MobileMaxFpsOption = 30 | 45 | 60;
+export type MaxFpsLimit = PcMaxFpsOption | MobileMaxFpsOption;
+
+export const PC_MAX_FPS_OPTIONS: readonly PcMaxFpsOption[] = [30, 60, 90, 120, 'unlimited'];
+export const MOBILE_MAX_FPS_OPTIONS: readonly MobileMaxFpsOption[] = [30, 45, 60];
 
 export interface GameSettings {
   /** Game sound effects volume (0–100) */
@@ -7,6 +13,12 @@ export interface GameSettings {
   musicVolume: number;
   /** Active UI language */
   language: SupportedLanguage;
+  /** Upper FPS cap on PC / desktop */
+  pcMaxFps: PcMaxFpsOption;
+  /** Upper FPS cap on mobile phones */
+  mobileMaxFps: MobileMaxFpsOption;
+  /** Whether to show the top-right FPS counter badge in the HUD */
+  showFpsCounter: boolean;
 }
 
 export const SETTINGS_STORAGE_KEY = 'delivery_tycoon_settings_v1';
@@ -15,6 +27,9 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   sfxVolume: 80,
   musicVolume: 60,
   language: 'pl',
+  pcMaxFps: 60,
+  mobileMaxFps: 60,
+  showFpsCounter: true,
 };
 
 const VALID_LANGUAGES: readonly SupportedLanguage[] = ['pl', 'en'];
@@ -32,6 +47,28 @@ function normalizeLanguage(raw: unknown, fallback: SupportedLanguage): Supported
   return fallback;
 }
 
+function normalizePcMaxFps(raw: unknown, fallback: PcMaxFpsOption): PcMaxFpsOption {
+  if (raw === 'unlimited') return 'unlimited';
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (num === 30 || num === 60 || num === 90 || num === 120) {
+    return num;
+  }
+  return fallback;
+}
+
+function normalizeMobileMaxFps(raw: unknown, fallback: MobileMaxFpsOption): MobileMaxFpsOption {
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (num === 30 || num === 45 || num === 60) {
+    return num;
+  }
+  return fallback;
+}
+
+function normalizeShowFpsCounter(raw: unknown, fallback: boolean): boolean {
+  if (typeof raw === 'boolean') return raw;
+  return fallback;
+}
+
 export function normalizeGameSettings(raw: Partial<GameSettings> | null | undefined): GameSettings {
   if (!raw || typeof raw !== 'object') {
     return { ...DEFAULT_GAME_SETTINGS };
@@ -40,7 +77,26 @@ export function normalizeGameSettings(raw: Partial<GameSettings> | null | undefi
     sfxVolume: clampVolume(raw.sfxVolume, DEFAULT_GAME_SETTINGS.sfxVolume),
     musicVolume: clampVolume(raw.musicVolume, DEFAULT_GAME_SETTINGS.musicVolume),
     language: normalizeLanguage(raw.language, DEFAULT_GAME_SETTINGS.language),
+    pcMaxFps: normalizePcMaxFps(raw.pcMaxFps, DEFAULT_GAME_SETTINGS.pcMaxFps),
+    mobileMaxFps: normalizeMobileMaxFps(raw.mobileMaxFps, DEFAULT_GAME_SETTINGS.mobileMaxFps),
+    showFpsCounter: normalizeShowFpsCounter(
+      raw.showFpsCounter,
+      DEFAULT_GAME_SETTINGS.showFpsCounter
+    ),
   };
+}
+
+/**
+ * Returns true strictly for small touchscreen phones (narrow viewport, coarse pointer, no fine pointer).
+ * Desktop PCs and touchscreen laptops return false.
+ */
+export function isMobileTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.innerWidth < 1024 &&
+    window.matchMedia('(pointer: coarse)').matches &&
+    !window.matchMedia('(pointer: fine)').matches
+  );
 }
 
 export function loadGameSettings(): GameSettings {

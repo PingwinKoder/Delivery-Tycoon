@@ -35,9 +35,7 @@ import {
 import {
   BIKE_COURIER_CAPACITY,
   CONTRACT_TERMINATION_THRESHOLD,
-  EARLY_OFFERS_BATCH_SIZE,
   EARLY_OFFERS_DAY_LIMIT,
-  EARLY_OFFERS_INTERVAL_DAYS,
   INITIAL_ORDER_SATISFACTION,
   LATE_OFFERS_BATCH_MAX,
   LATE_OFFERS_BATCH_MIN,
@@ -96,6 +94,31 @@ function getLongTermPickupDayQuota(order: ActiveLongTermOrder, weekdayIndex: num
   const basePerDay = Math.floor(order.packagesPerWeek / order.pickupDaysPerWeek);
   const remainder = order.packagesPerWeek % order.pickupDaysPerWeek;
   return basePerDay + (idxInPickups < remainder ? 1 : 0);
+}
+
+/**
+ * Returns the package count scheduled for the nearest upcoming pickup date (including next week
+ * if no pickup days remain in the current Mon–Sun week) for an active long-term contract.
+ */
+export function getUpcomingLongTermPickupQuota(
+  order: ActiveLongTermOrder,
+  currentGameDay: number
+): number {
+  if (order.status !== 'active' || order.pickupWeekdays.length === 0) return 0;
+  const safeDay = Math.max(1, Math.floor(currentGameDay));
+  const currentDate = getCalendarDateFromGameDay(safeDay);
+
+  for (let offset = 0; offset < DAYS_PER_WEEK; offset++) {
+    const candidateDay = safeDay + offset;
+    if (candidateDay < order.acceptedAtGameDay) continue;
+    if (candidateDay >= order.endGameDay) break;
+    const candidateWeekday = (currentDate.dayIndex + offset) % DAYS_PER_WEEK;
+    if (order.pickupWeekdays.includes(candidateWeekday)) {
+      return getLongTermPickupDayQuota(order, candidateWeekday);
+    }
+  }
+
+  return 0;
 }
 
 function extractOrderIdFromTaskKey(taskKey: string): string {
@@ -997,31 +1020,43 @@ function processDailyOfferLifecycle(
       : state;
 
   // 2. Hybrid offer inflow schedule:
-  //    - Days 1–14: deterministic fixed-seed generator, 2 new offers every 3 days
+  //    - Days 1–14: repeating 3-day cycle -> Day 1 (1,4,7,10,13): 1 offer, Day 2 (2,5,8,11,14): 1 offer, Day 3 (3,6,9,12): 0 offers
   //    - Day 15+: system-clock-seeded random generator, 2–4 new offers every 2 days (max 7 pending offers)
   const isEarlyPeriod = date.gameDay <= EARLY_OFFERS_DAY_LIMIT;
-  const useRandomRng = !isEarlyPeriod;
-  const intervalDays = isEarlyPeriod ? EARLY_OFFERS_INTERVAL_DAYS : LATE_OFFERS_INTERVAL_DAYS;
 
-  if (date.gameDay - nextState.lastOfferGenerationGameDay >= intervalDays) {
-    let desiredCount = EARLY_OFFERS_BATCH_SIZE;
-
-    if (useRandomRng) {
-      const countStep = rngInt(
-        nextState.randomRngState,
-        LATE_OFFERS_BATCH_MIN,
-        LATE_OFFERS_BATCH_MAX
+  if (isEarlyPeriod) {
+    const cycleDayIndex = (date.gameDay - 1) % 3;
+    if (cycleDayIndex !== 2 && date.gameDay > nextState.lastOfferGenerationGameDay) {
+      nextState = generateOffersBatch(
+        nextState,
+        1,
+        dayStartMinutes,
+        buildings,
+        false
       );
-      desiredCount = countStep.value;
-      nextState = { ...nextState, randomRngState: countStep.nextState };
+      nextState = {
+        ...nextState,
+        lastOfferGenerationGameDay: date.gameDay,
+      };
     }
+    return nextState;
+  }
+
+  if (date.gameDay - nextState.lastOfferGenerationGameDay >= LATE_OFFERS_INTERVAL_DAYS) {
+    const countStep = rngInt(
+      nextState.randomRngState,
+      LATE_OFFERS_BATCH_MIN,
+      LATE_OFFERS_BATCH_MAX
+    );
+    const desiredCount = countStep.value;
+    nextState = { ...nextState, randomRngState: countStep.nextState };
 
     nextState = generateOffersBatch(
       nextState,
       desiredCount,
       dayStartMinutes,
       buildings,
-      useRandomRng
+      true
     );
     nextState = {
       ...nextState,
@@ -1139,17 +1174,21 @@ export function advanceOrderEconomy(
 
 /**
  * Computes the ordered list of merged scheduled order tasks (1 tile per order per weekday)
- * for a given weekday (0 = Pon .. 6 = Nd) within the current calendar week,
+ * for a given weekday (0 = Pon .. 6 = Nd) in the rolling 7-day window starting from `currentGameDay`
+ * (`Dziś` .. `Dziś + 6`), or for an explicit `targetGameDayOverride`,
  * respecting the player's saved `weeklyPriorityOrder`.
  */
 export function getScheduledTasksForWeekday(
   state: OrderEconomyState,
   weekdayIndex: number,
-  currentGameDay: number
+  currentGameDay: number,
+  targetGameDayOverride?: number
 ): WeeklyScheduleTask[] {
   const currentDate = getCalendarDateFromGameDay(currentGameDay);
   const weekMondayGameDay = currentGameDay - currentDate.dayIndex;
-  const targetGameDay = weekMondayGameDay + weekdayIndex;
+  const dayOffset =
+    (((weekdayIndex - currentDate.dayIndex) % DAYS_PER_WEEK) + DAYS_PER_WEEK) % DAYS_PER_WEEK;
+  const targetGameDay = targetGameDayOverride ?? currentGameDay + dayOffset;
   const isToday = targetGameDay === currentGameDay;
 
   const unsorted: Array<{

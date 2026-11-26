@@ -30,24 +30,55 @@ import {
   getCourierSpeedForVehicle,
 } from './typesAndConstants';
 
+export const MAX_COURIERS_PER_ORDER = 2;
+
+export interface ExtendedCourierTaskSelectionOptions extends CourierTaskSelectionOptions {
+  /** Number of other active couriers currently assigned to each task/order ID */
+  claimedTaskCounts?: ReadonlyMap<string, number>;
+  /** Packages currently en route to be picked up (not yet loaded/recorded) by other couriers per orderId */
+  inFlightPickupCountsByOrder?: ReadonlyMap<string, number>;
+}
+
+function getClaimedCountForKeys(
+  keys: readonly string[],
+  claimedTaskCounts?: ReadonlyMap<string, number>,
+  claimedTaskIds?: ReadonlySet<string>
+): number {
+  if (claimedTaskCounts) {
+    let maxCount = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const count = claimedTaskCounts.get(keys[i]) ?? 0;
+      if (count > maxCount) maxCount = count;
+    }
+    return maxCount;
+  }
+  if (claimedTaskIds) {
+    for (let i = 0; i < keys.length; i++) {
+      if (claimedTaskIds.has(keys[i])) return 1;
+    }
+  }
+  return 0;
+}
+
 /**
  * Scans today's merged `Plan tygodnia` tasks strictly from top to bottom (`#1`, `#2`, ...)
- * and picks the first ready stage for an unclaimed order:
- * - If the merged task still has unpicked packages (`remainingToPickup > 0`) AND Base warehouse
+ * and picks the first ready stage for an order (up to 2 couriers simultaneously per order,
+ * respecting in-flight pickup reservations and free Base warehouse stock):
+ * - If the merged task still has unreserved unpicked packages (`effectiveRemainingToPickup > 0`) AND Base warehouse
  *   has free space for the next pickup batch -> dispatch `pickup` stage.
  * - If the warehouse is full (cannot fit the next pickup batch) -> skip unfinished pickup and
  *   dispatch a single `delivery` trip for the highest-priority merged task that already has
  *   packages waiting in the Base warehouse, freeing space before re-scanning from `#1`.
- * - If all packages of the merged task are already picked up (`remainingToPickup === 0`) and
+ * - If all remaining packages are already picked up or reserved (`effectiveRemainingToPickup === 0`) and
  *   packages are stored in Base warehouse -> dispatch `delivery` stage.
  *
- * Falls back to any unclaimed active order with stored warehouse packages if none are listed today.
+ * Falls back to any eligible active order with stored warehouse packages if none are listed today.
  */
 export function selectNextCourierTaskForDay(
   state: OrderEconomyState,
   currentMinutes: number,
   vehicleTypeOverride?: ActiveVehicleType,
-  options?: CourierTaskSelectionOptions
+  options?: ExtendedCourierTaskSelectionOptions
 ): SelectedCourierTask | null {
   const clock = getGameClockDisplay(currentMinutes);
   const todayTasks = getScheduledTasksForWeekday(state, clock.dayIndex, clock.gameDay);
@@ -56,6 +87,8 @@ export function selectNextCourierTaskForDay(
   const reservedSpace = Math.max(0, options?.reservedWarehouseSpace ?? 0);
   const freeWarehouseSpace = Math.max(0, getFreeWarehouseCapacity(state) - reservedSpace);
   const claimedTaskIds = options?.claimedTaskIds;
+  const claimedTaskCounts = options?.claimedTaskCounts;
+  const inFlightPickupCountsByOrder = options?.inFlightPickupCountsByOrder;
   const activeType: ActiveVehicleType =
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
   const vehicleCapacity =
@@ -73,9 +106,15 @@ export function selectNextCourierTaskForDay(
     : null;
 
   // A vehicle queued for mechanic service cannot be used for ordinary parcel pickups/deliveries;
-  // dispatch its repair trip as soon as its repair task is unclaimed.
+  // dispatch its repair trip as soon as its repair task is unclaimed (max 1 courier per repair).
   if (pendingRepairForThisVehicle) {
-    if (claimedTaskIds?.has(pendingRepairForThisVehicle.id)) {
+    if (
+      getClaimedCountForKeys(
+        [pendingRepairForThisVehicle.id],
+        claimedTaskCounts,
+        claimedTaskIds
+      ) >= 1
+    ) {
       return null;
     }
     const matchingTask = todayTasks.find(
@@ -92,9 +131,17 @@ export function selectNextCourierTaskForDay(
   }
 
   for (const task of todayTasks) {
-    if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
     // Healthy vehicles skip repair tasks belonging to other vehicles
     if (task.taskType === 'repair') continue;
+    if (
+      getClaimedCountForKeys(
+        [task.taskId, task.orderId],
+        claimedTaskCounts,
+        claimedTaskIds
+      ) >= MAX_COURIERS_PER_ORDER
+    ) {
+      continue;
+    }
 
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
@@ -105,17 +152,23 @@ export function selectNextCourierTaskForDay(
       clock.dayIndex,
       clock.gameDay
     );
+    const inFlightPickup = Math.max(0, inFlightPickupCountsByOrder?.get(order.id) ?? 0);
+    const effectiveRemainingToPickup = Math.max(0, remainingToPickup - inFlightPickup);
     const storedCount = getStoredPackagesForOrder(state, order.id);
 
-    if (remainingToPickup > 0) {
-      const requiredSpace = Math.min(vehicleCapacity, remainingToPickup, warehouseCapacity);
+    if (effectiveRemainingToPickup > 0) {
+      const requiredSpace = Math.min(vehicleCapacity, effectiveRemainingToPickup, warehouseCapacity);
       const canFitPickup =
         freeWarehouseSpace > 0 &&
         freeWarehouseSpace >= requiredSpace &&
-        hasEnoughWarehouseSpaceForPickup(state, remainingToPickup, vehicleCapacity);
+        hasEnoughWarehouseSpaceForPickup(state, effectiveRemainingToPickup, vehicleCapacity);
 
       if (canFitPickup) {
-        const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeWarehouseSpace);
+        const pickupCount = Math.min(
+          vehicleCapacity,
+          effectiveRemainingToPickup,
+          freeWarehouseSpace
+        );
         if (pickupCount > 0) {
           return { kind: 'pickup', order, pickupCount, task };
         }
@@ -134,11 +187,16 @@ export function selectNextCourierTaskForDay(
     }
   }
 
-  // Fallback: deliver any stored packages belonging to an unclaimed active order
+  // Fallback: deliver any stored packages belonging to an eligible active order
   if (state.warehousePackages > 0) {
     for (const order of state.activeOrders) {
       if (order.status !== 'active') continue;
-      if (claimedTaskIds?.has(order.id)) continue;
+      if (
+        getClaimedCountForKeys([order.id], claimedTaskCounts, claimedTaskIds) >=
+        MAX_COURIERS_PER_ORDER
+      ) {
+        continue;
+      }
       const storedCount = getStoredPackagesForOrder(state, order.id);
       if (storedCount > 0) {
         return { kind: 'delivery', order, availableCount: storedCount };
@@ -153,7 +211,7 @@ export function selectNextCourierTaskForDay(
  * Evaluates the courier's next highest-priority ready task immediately after picking up
  * the FINAL remaining package of `completedPickupOrderId` at the sender's address:
  * - Scenario A: the same merged order task still has highest priority for this courier
- *   (and is not claimed by another courier) -> deliver carried packages directly from sender
+ *   (and has fewer than 2 other couriers) -> deliver carried packages directly from sender
  * - Scenario B: a higher-priority merged order task is ready for pickup -> return to Base, unload, then pick up
  * - Scenario C: a higher-priority merged order task is ready for delivery -> return to Base, unload, load new order, deliver
  */
@@ -163,7 +221,7 @@ export function selectNextTaskAfterFinalPickup(
   completedPickupOrderId: string,
   carriedCount: number,
   vehicleTypeOverride?: ActiveVehicleType,
-  options?: CourierTaskSelectionOptions
+  options?: ExtendedCourierTaskSelectionOptions
 ): PostFinalPickupDecision {
   if (carriedCount <= 0) {
     return { scenario: 'return_to_base_idle' };
@@ -179,6 +237,8 @@ export function selectNextTaskAfterFinalPickup(
     getFreeWarehouseCapacity(state) - reservedSpace - carriedCount
   );
   const claimedTaskIds = options?.claimedTaskIds;
+  const claimedTaskCounts = options?.claimedTaskCounts;
+  const inFlightPickupCountsByOrder = options?.inFlightPickupCountsByOrder;
   const activeType: ActiveVehicleType =
     vehicleTypeOverride ?? state.activeVehicle?.type ?? 'bike';
   const vehicleCapacity =
@@ -216,8 +276,16 @@ export function selectNextTaskAfterFinalPickup(
   }
 
   for (const task of todayTasks) {
-    if (claimedTaskIds?.has(task.taskId) || claimedTaskIds?.has(task.orderId)) continue;
     if (task.taskType === 'repair') continue;
+    if (
+      getClaimedCountForKeys(
+        [task.taskId, task.orderId],
+        claimedTaskCounts,
+        claimedTaskIds
+      ) >= MAX_COURIERS_PER_ORDER
+    ) {
+      continue;
+    }
     const order = activeById.get(task.orderId);
     if (!order || order.status !== 'active') continue;
 
@@ -238,12 +306,18 @@ export function selectNextTaskAfterFinalPickup(
       clock.dayIndex,
       clock.gameDay
     );
+    const inFlightPickup = Math.max(0, inFlightPickupCountsByOrder?.get(order.id) ?? 0);
+    const effectiveRemainingToPickup = Math.max(0, remainingToPickup - inFlightPickup);
     const storedCount = getStoredPackagesForOrder(state, order.id);
 
-    if (remainingToPickup > 0) {
-      const nextBatchSize = Math.min(vehicleCapacity, remainingToPickup, warehouseCapacity);
+    if (effectiveRemainingToPickup > 0) {
+      const nextBatchSize = Math.min(vehicleCapacity, effectiveRemainingToPickup, warehouseCapacity);
       if (freeSpaceAfterUnload >= nextBatchSize) {
-        const pickupCount = Math.min(vehicleCapacity, remainingToPickup, freeSpaceAfterUnload);
+        const pickupCount = Math.min(
+          vehicleCapacity,
+          effectiveRemainingToPickup,
+          freeSpaceAfterUnload
+        );
         if (pickupCount > 0) {
           return {
             scenario: 'return_to_base_for_next_task',
@@ -272,7 +346,8 @@ export function selectNextTaskAfterFinalPickup(
   if (
     completedOrder &&
     completedOrder.status === 'active' &&
-    !claimedTaskIds?.has(completedPickupOrderId)
+    getClaimedCountForKeys([completedPickupOrderId], claimedTaskCounts, claimedTaskIds) <
+      MAX_COURIERS_PER_ORDER
   ) {
     return {
       scenario: 'direct_delivery_same_order',
@@ -366,6 +441,51 @@ export function getClaimedTaskIdsForFleet(
     }
   }
   return claimed;
+}
+
+/**
+ * Counts how many other active couriers are currently assigned to each task/order ID.
+ */
+export function getClaimedTaskCountsForFleet(
+  fleet: Readonly<MultiCourierFleetState>,
+  excludeSlotIndex?: number
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    if (slotIndex === excludeSlotIndex) continue;
+    const entry = fleet[slotIndex];
+    if (entry && entry.inRoute && entry.assignedTaskId) {
+      counts.set(entry.assignedTaskId, (counts.get(entry.assignedTaskId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Counts packages per orderId that are already assigned to other couriers en route to pick up
+ * (before `pickup_loaded` has fired and decremented `remainingToPickup` in economy state).
+ */
+export function getInFlightPickupCountsByOrderForFleet(
+  fleet: Readonly<MultiCourierFleetState>,
+  excludeSlotIndex?: number
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const slotIndex of COURIER_SLOT_INDICES) {
+    if (slotIndex === excludeSlotIndex) continue;
+    const entry = fleet[slotIndex];
+    if (!entry || !entry.inRoute || !entry.courier.active) continue;
+    const c = entry.courier;
+    if (c.missionKind !== 'pickup') continue;
+    // Once packages are loaded into cargo, recordPackagePickup has already updated economy state
+    if (getCourierCargoCount(c.cargo) > 0) continue;
+    for (let i = 0; i < c.stops.length; i++) {
+      const stop = c.stops[i];
+      if (stop.kind === 'pickup' && stop.orderId && (stop.plannedPickupCount ?? 0) > 0) {
+        counts.set(stop.orderId, (counts.get(stop.orderId) ?? 0) + (stop.plannedPickupCount ?? 0));
+      }
+    }
+  }
+  return counts;
 }
 
 export function getReservedWarehouseSpaceForFleet(

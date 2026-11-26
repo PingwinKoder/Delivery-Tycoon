@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
+  Gauge,
   Globe,
   LogOut,
   Maximize2,
@@ -12,7 +14,12 @@ import {
   X,
 } from 'lucide-react';
 import { SUPPORTED_LANGUAGES, t } from '../i18n/translations';
-import type { GameSettings } from '../utils/settingsSystem';
+import {
+  type GameSettings,
+  MOBILE_MAX_FPS_OPTIONS,
+  PC_MAX_FPS_OPTIONS,
+  isMobileTouchDevice,
+} from '../utils/settingsSystem';
 
 export type SettingsOpenedFrom = 'start' | 'game';
 type SettingsTab = 'audio' | 'graphics';
@@ -28,11 +35,7 @@ export interface SettingsModalProps {
 
 function isDesktopEnvironment(): boolean {
   if (typeof window === 'undefined') return false;
-  const isMobile =
-    window.innerWidth < 1024 &&
-    window.matchMedia('(pointer: coarse)').matches &&
-    !window.matchMedia('(pointer: fine)').matches;
-  return !isMobile;
+  return !isMobileTouchDevice();
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -49,14 +52,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false
   );
 
-  // Reset to Audio tab whenever modal opens and refresh desktop detection
+  // Refresh desktop detection and fullscreen status whenever modal opens
   useEffect(() => {
     if (!isOpen) return;
-    const desktop = isDesktopEnvironment();
-    setIsDesktop(desktop);
-    if (!desktop) {
-      setActiveTab('audio');
-    }
+    setIsDesktop(isDesktopEnvironment());
     setIsFullscreen(Boolean(document.fullscreenElement));
   }, [isOpen]);
 
@@ -65,11 +64,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!isOpen) return;
 
     const handleResize = () => {
-      const desktop = isDesktopEnvironment();
-      setIsDesktop(desktop);
-      if (!desktop) {
-        setActiveTab('audio');
-      }
+      setIsDesktop(isDesktopEnvironment());
     };
 
     window.addEventListener('resize', handleResize);
@@ -107,7 +102,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const lang = settings.language;
-  const effectiveTab: SettingsTab = isDesktop ? activeTab : 'audio';
+  const effectiveTab: SettingsTab = activeTab;
 
   const handleSetWindowed = () => {
     if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
@@ -165,7 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Top Tabs: Audio always; Graphics exclusively on PC */}
+        {/* Top Tabs: Audio & Graphics available on both PC and mobile */}
         <div
           role="tablist"
           aria-label={t(lang, 'settings.title')}
@@ -185,21 +180,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span>{t(lang, 'settings.tabAudio')}</span>
           </button>
 
-          {isDesktop && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={effectiveTab === 'graphics'}
-              onClick={() => setActiveTab('graphics')}
-              className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${effectiveTab === 'graphics'
-                  ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                  : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                }`}
-            >
-              <Monitor className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
-              <span>{t(lang, 'settings.tabGraphics')}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={effectiveTab === 'graphics'}
+            onClick={() => setActiveTab('graphics')}
+            className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${effectiveTab === 'graphics'
+                ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
+          >
+            <Monitor className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
+            <span>{t(lang, 'settings.tabGraphics')}</span>
+          </button>
         </div>
 
         {/* Body */}
@@ -303,45 +296,147 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </>
           ) : (
-            /* Graphics Tab (PC only): Windowed vs Fullscreen toggle */
-            <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
-              <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
-                <Monitor className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
-                <span>{t(lang, 'settings.displayMode')}</span>
+            /* Graphics Tab: Display Mode (PC only), Max FPS cap, and FPS Counter visibility */
+            <>
+              {isDesktop && (
+                <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                  <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
+                    <Monitor className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
+                    <span>{t(lang, 'settings.displayMode')}</span>
+                  </div>
+
+                  <div
+                    role="group"
+                    aria-label={t(lang, 'settings.displayMode')}
+                    className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={!isFullscreen}
+                      onClick={handleSetWindowed}
+                      className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!isFullscreen
+                          ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                          : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                        }`}
+                    >
+                      <Minimize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
+                      <span>{t(lang, 'settings.windowed')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-pressed={isFullscreen}
+                      onClick={handleSetFullscreen}
+                      className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isFullscreen
+                          ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                          : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                        }`}
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
+                      <span>{t(lang, 'settings.fullscreen')}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Max FPS Limit */}
+              <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
+                  <Gauge className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
+                  <span>{t(lang, 'settings.maxFps')}</span>
+                </div>
+
+                {isDesktop ? (
+                  <div
+                    role="group"
+                    aria-label={t(lang, 'settings.maxFps')}
+                    className="grid grid-cols-5 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2"
+                  >
+                    {PC_MAX_FPS_OPTIONS.map((option) => {
+                      const isSelected = settings.pcMaxFps === option;
+                      const label =
+                        option === 'unlimited' ? t(lang, 'settings.fpsUnlimited') : `${option}`;
+                      return (
+                        <button
+                          key={String(option)}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => onUpdateSettings({ pcMaxFps: option })}
+                          className={`py-1.5 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation truncate focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
+                              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                            }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div
+                    role="group"
+                    aria-label={t(lang, 'settings.maxFps')}
+                    className="grid grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                  >
+                    {MOBILE_MAX_FPS_OPTIONS.map((option) => {
+                      const isSelected = settings.mobileMaxFps === option;
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => onUpdateSettings({ mobileMaxFps: option })}
+                          className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
+                              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                            }`}
+                        >
+                          {option} FPS
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div
-                role="group"
-                aria-label={t(lang, 'settings.displayMode')}
-                className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
-              >
-                <button
-                  type="button"
-                  aria-pressed={!isFullscreen}
-                  onClick={handleSetWindowed}
-                  className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!isFullscreen
-                      ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                      : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    }`}
-                >
-                  <Minimize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
-                  <span>{t(lang, 'settings.windowed')}</span>
-                </button>
+              {/* Show FPS Counter Toggle */}
+              <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
+                  <Activity className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
+                  <span>{t(lang, 'settings.showFpsCounter')}</span>
+                </div>
 
-                <button
-                  type="button"
-                  aria-pressed={isFullscreen}
-                  onClick={handleSetFullscreen}
-                  className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isFullscreen
-                      ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                      : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
-                    }`}
+                <div
+                  role="group"
+                  aria-label={t(lang, 'settings.showFpsCounter')}
+                  className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
                 >
-                  <Maximize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
-                  <span>{t(lang, 'settings.fullscreen')}</span>
-                </button>
+                  <button
+                    type="button"
+                    aria-pressed={settings.showFpsCounter}
+                    onClick={() => onUpdateSettings({ showFpsCounter: true })}
+                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showFpsCounter
+                        ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                        : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                  >
+                    {t(lang, 'settings.toggleOn')}
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={!settings.showFpsCounter}
+                    onClick={() => onUpdateSettings({ showFpsCounter: false })}
+                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showFpsCounter
+                        ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                        : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                  >
+                    {t(lang, 'settings.toggleOff')}
+                  </button>
+                </div>
               </div>
-            </div>
+            </>
           )}
 
           {/* Exit to Main Menu button (visible only during active gameplay) */}

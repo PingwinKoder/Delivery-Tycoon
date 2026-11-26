@@ -67,10 +67,11 @@ import {
   createPickupMissionCourier,
   createRepairMissionCourier,
   getActiveOutVehiclesForFleet,
-  getClaimedTaskIdsForFleet,
+  getClaimedTaskCountsForFleet,
   getCourierCapacityForSelection,
   getCourierCargoCount,
   getCourierSpeedForVehicle,
+  getInFlightPickupCountsByOrderForFleet,
   getReservedWarehouseSpaceForFleet,
   interruptCourierForEndOfWorkday,
   isVehicleCurrentlyInRoute,
@@ -106,6 +107,7 @@ import {
   resolveVanStopForBuilding,
 } from '../utils/parkingNavigation';
 import { applyRightHandLaneOffsets } from '../utils/trafficLanes';
+import type { MaxFpsLimit } from '../utils/settingsSystem';
 
 export interface MapCanvasController {
   centerOnBase: () => void;
@@ -138,6 +140,8 @@ interface MapCanvasProps {
   overviewMode?: boolean;
   /** Incrementing session counter that forces full fleet reinitialization parked at Base */
   sessionEpoch?: number;
+  /** Upper FPS cap configured in Graphics settings ('unlimited' disables throttling) */
+  maxFps?: MaxFpsLimit;
   onFpsChange?: (fps: number) => void;
   onMapReady?: () => void;
   onIntroFlyInComplete?: () => void;
@@ -169,8 +173,12 @@ interface MapCanvasProps {
 
 const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 const FPS_SAMPLE_WINDOW_MS = 500;
-/** Throttle threshold active only for high-refresh (>75 Hz) displays so 60 Hz panels sync 1:1 with vsync */
-const FRAME_INTERVAL_MS = 13.2;
+/** Computes the upper-limit frame interval in ms (0 = unlimited; 13.2ms for 60 FPS so 60 Hz syncs 1:1 with vsync) */
+function getMinFrameIntervalMs(maxFps: MaxFpsLimit): number {
+  if (maxFps === 'unlimited') return 0;
+  if (maxFps === 60) return 13.2;
+  return Math.max(0, 1000 / maxFps - 1.8);
+}
 const MAX_MOBILE_CANVAS_DPR = 1.5;
 const MAX_DESKTOP_CANVAS_DPR = 2;
 const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
@@ -301,6 +309,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   interactionBlocked = false,
   overviewMode = false,
   sessionEpoch = 0,
+  maxFps = 60,
   onFpsChange,
   onMapReady,
   onIntroFlyInComplete,
@@ -380,6 +389,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     economyStateRef,
     interactionBlocked,
     overviewMode,
+    maxFps,
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
@@ -410,6 +420,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     economyStateRef,
     interactionBlocked,
     overviewMode,
+    maxFps,
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
@@ -1150,20 +1161,25 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       );
       const vehicleSpeed = getCourierSpeedForVehicle(dispatchVehicle.type) * durabilityMult;
       const vehicleCapacity = getCourierCapacityForSelection(ecoState, dispatchVehicle);
-      const claimedTaskIds = getClaimedTaskIdsForFleet(couriersFleetRef.current, slotIndex);
+      const claimedTaskCounts = getClaimedTaskCountsForFleet(couriersFleetRef.current, slotIndex);
+      const inFlightPickupCountsByOrder = getInFlightPickupCountsByOrderForFleet(
+        couriersFleetRef.current,
+        slotIndex
+      );
       const reservedWarehouseSpace = getReservedWarehouseSpaceForFleet(
         couriersFleetRef.current,
         slotIndex
       );
 
-      // Strictly scan today's Plan tygodnia from top (#1, #2, ...), skipping tasks already claimed
-      // by other active couriers and respecting free warehouse capacity, stock, & pending repairs
+      // Strictly scan today's Plan tygodnia from top (#1, #2, ...), allowing up to 2 couriers
+      // per order when unreserved pickup or free warehouse packages remain
       const selectedTask = selectNextCourierTaskForDay(
         ecoState,
         currentGameMinutes,
         dispatchVehicle.type,
         {
-          claimedTaskIds,
+          claimedTaskCounts,
+          inFlightPickupCountsByOrder,
           reservedWarehouseSpace,
           vehicleCapacity,
           vehicle: dispatchVehicle,
@@ -1289,9 +1305,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     let cachedIdleDepthEntities: DepthSortedEntity[] = [];
 
     const drawScene = (now: number) => {
-      // Only throttle high-refresh (>75 Hz) panels; 60 Hz panels (~16.6ms) sync 1:1 with vsync
+      // Treat configured maxFps strictly as an upper limit (0 = unlimited; slower hardware renders at full speed)
+      const minFrameIntervalMs = getMinFrameIntervalMs(propsRef.current.maxFps);
       const sinceTickMs = now - lastFrameTick;
-      if (hasRenderedFirstFrame && sinceTickMs < FRAME_INTERVAL_MS) {
+      if (hasRenderedFirstFrame && minFrameIntervalMs > 0 && sinceTickMs < minFrameIntervalMs) {
         rafId = requestAnimationFrame(drawScene);
         return;
       }
@@ -1625,7 +1642,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                     actualLoaded,
                     activeMissionVehicle.type,
                     {
-                      claimedTaskIds: getClaimedTaskIdsForFleet(fleet, slotIndex),
+                      claimedTaskCounts: getClaimedTaskCountsForFleet(fleet, slotIndex),
+                      inFlightPickupCountsByOrder: getInFlightPickupCountsByOrderForFleet(
+                        fleet,
+                        slotIndex
+                      ),
                       reservedWarehouseSpace: getReservedWarehouseSpaceForFleet(fleet, slotIndex),
                       vehicleCapacity: activeMissionCapacity,
                       vehicle: activeMissionVehicle,
