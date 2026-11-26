@@ -382,6 +382,25 @@ export interface MonthlyCostBreakdown {
   totalFixedCosts: number;
 }
 
+export interface CurrentMonthLedger {
+  /** Payouts received for completed short-term orders during the current month */
+  shortTermRevenue: number;
+  /** Accrued earnings from long-term contract deliveries during the current month */
+  longTermAccruedRevenue: number;
+  /** Total refueling costs paid during the current month */
+  fuelExpenses: number;
+  /** Total mechanic repair costs paid during the current month */
+  repairExpenses: number;
+  /** Total financial penalties paid for undelivered packages during the current month */
+  penaltyExpenses: number;
+  /** Number of orders completed during the current month */
+  completedOrdersCount: number;
+  /** Sum of company satisfaction snapshots recorded during the current month */
+  satisfactionSamplesSum: number;
+  /** Count of company satisfaction snapshots recorded during the current month */
+  satisfactionSamplesCount: number;
+}
+
 export interface MonthlySettlementRecord {
   id: string;
   /** Calendar year of the 1st-of-month settlement date */
@@ -407,7 +426,23 @@ export interface MonthlySettlementRecord {
   totalFixedCosts: number;
   /** Accumulated payout for packages delivered in the previous month under long-term contracts */
   longTermContractPayout: number;
-  /** Net balance change: longTermContractPayout - totalFixedCosts */
+  /** Short-term order payouts earned during the settled month */
+  shortTermRevenue?: number;
+  /** Fuel expenses paid during the settled month */
+  fuelExpenses?: number;
+  /** Mechanic repair expenses paid during the settled month */
+  repairExpenses?: number;
+  /** Undelivered package penalties paid during the settled month */
+  penaltyExpenses?: number;
+  /** Total revenue for the settled month (shortTermRevenue + longTermContractPayout) */
+  totalRevenue?: number;
+  /** Total expenses for the settled month (totalFixedCosts + fuel + repairs + penalties) */
+  totalExpenses?: number;
+  /** Orders completed during the settled month */
+  completedOrdersCount?: number;
+  /** Average company satisfaction % during the settled month */
+  averageSatisfaction?: number;
+  /** Net monthly result: totalRevenue - totalExpenses */
   netChange: number;
   /** Company balance immediately after applying this settlement */
   balanceAfter: number;
@@ -485,10 +520,14 @@ export interface OrderEconomyState {
   annualSatisfactionSum: number;
   /** Count of orders concluded (completed or terminated) in the current calendar year */
   annualSatisfactionCount: number;
-  /** Average satisfaction % for the current calendar year (starts at 0%, resets every 1 Styczeń) */
+  /** Smooth continuous company satisfaction % (0–100, starts at 80) */
+  companySatisfaction: number;
+  /** Kept synchronized with companySatisfaction for reputation tier checks */
   annualSatisfactionAvg: number;
   /** Calendar year tracked by the annual satisfaction stats */
   annualStatsYear: number;
+  /** Live financial & operational ledger for the current calendar month (reset on 1st of month) */
+  currentMonthLedger: CurrentMonthLedger;
   /** Current company reputation tier (1–4) */
   reputationLevel: ReputationLevel;
   /** Base warehouse expansion level (1–4; determines capacity, Base upkeep & building size) */

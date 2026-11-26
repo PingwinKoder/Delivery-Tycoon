@@ -5,12 +5,15 @@ import {
   Eye,
   EyeOff,
   Files,
+  Frown,
   Layers,
+  Meh,
   Moon,
   Pause,
   Settings,
   Signpost,
   SkipForward,
+  Smile,
 } from 'lucide-react';
 import { getMonthName, getWeekdayName, t } from '../i18n/translations';
 import {
@@ -28,6 +31,7 @@ interface ToolbarProps {
   footprintOnly: boolean;
   showStreetNames: boolean;
   balance: number;
+  companySatisfaction: number;
   gameMinutes: number;
   gameSpeed: GameSpeed;
   isNightMode: boolean;
@@ -54,6 +58,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   footprintOnly,
   showStreetNames,
   balance,
+  companySatisfaction,
   gameMinutes,
   gameSpeed,
   isNightMode,
@@ -131,6 +136,33 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
             >
               {formattedBalance}
             </div>
+
+            <div className="w-px h-4 min-[560px]:h-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-[22px] [@media(max-height:540px)]:h-4 bg-slate-700/80 shrink-0" aria-hidden="true" />
+
+            {/* Client Satisfaction Smiley + % Badge */}
+            {(() => {
+              const satPct = Math.round(Math.max(0, Math.min(100, companySatisfaction)));
+              const satColorClass =
+                satPct >= 80
+                  ? 'text-emerald-400'
+                  : satPct >= 60
+                    ? 'text-amber-400'
+                    : 'text-rose-400';
+              const SatIcon = satPct >= 80 ? Smile : satPct >= 60 ? Meh : Frown;
+              return (
+                <div
+                  aria-label={t(language, 'hud.satisfactionAria', { percent: satPct })}
+                  title={t(language, 'hud.satisfactionAria', { percent: satPct })}
+                  className={`flex items-center gap-0.5 sm:gap-1 text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[14.5px] [@media(max-height:540px)]:text-xs font-bold tabular-nums whitespace-nowrap shrink-0 ${satColorClass}`}
+                >
+                  <SatIcon
+                    className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{satPct}%</span>
+                </div>
+              );
+            })()}
 
             <div className="w-px h-4 min-[560px]:h-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-[22px] [@media(max-height:540px)]:h-4 bg-slate-700/80 shrink-0" aria-hidden="true" />
 

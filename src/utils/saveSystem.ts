@@ -2,6 +2,7 @@ import type {
   ActiveOrder,
   ActiveVehicleSelection,
   CompanyCourier,
+  CurrentMonthLedger,
   OrderEconomyState,
   OrderOffer,
   OwnedScooter,
@@ -21,11 +22,14 @@ import {
   DEFAULT_LEGACY_SCOOTER_MODEL_ID,
   DEFAULT_LEGACY_VAN_MODEL_ID,
   DEFAULT_VEHICLE_DURABILITY,
+  INITIAL_COMPANY_SATISFACTION,
+  MAX_MONTHLY_SETTLEMENTS_HISTORY,
   MAX_TWO_WHEELERS,
   clampFuelLiters,
   clampFuelPrice,
   clampVehicleDurability,
   createDefaultOwnedVans,
+  createEmptyCurrentMonthLedger,
   createOwnedScooter,
   createOwnedVan,
   getScooterModelSpec,
@@ -61,8 +65,12 @@ export interface SavedGameState {
   cash: number;
   /** Total completed orders across the career */
   completedOrdersCount: number;
-  /** Annual average client satisfaction % */
+  /** Annual average client satisfaction % (synced with companySatisfaction) */
   annualSatisfactionAvg: number;
+  /** Smooth continuous company satisfaction % (0–100, optional in legacy saves -> fallback 80) */
+  companySatisfaction?: number;
+  /** Live financial ledger for the current calendar month (optional in legacy saves) */
+  currentMonthLedger?: CurrentMonthLedger;
   /** Current company reputation level (1–4) */
   reputationLevel: ReputationLevel;
   /** Base warehouse expansion tier (1–4) */
@@ -562,9 +570,44 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     Number.isFinite(cloned.completedOrdersCount) && cloned.completedOrdersCount >= 0
       ? Math.floor(cloned.completedOrdersCount)
       : 0;
-  const safeSatisfaction = Number.isFinite(cloned.annualSatisfactionAvg)
+  const rawLegacySat = Number.isFinite(cloned.annualSatisfactionAvg)
     ? Math.max(0, Math.min(100, cloned.annualSatisfactionAvg))
     : 0;
+  const rawCompanySat =
+    typeof cloned.companySatisfaction === 'number' && Number.isFinite(cloned.companySatisfaction)
+      ? Math.max(0, Math.min(100, cloned.companySatisfaction))
+      : isPlainObject(cloned.economyState) &&
+          typeof cloned.economyState.companySatisfaction === 'number' &&
+          Number.isFinite(cloned.economyState.companySatisfaction)
+        ? Math.max(0, Math.min(100, cloned.economyState.companySatisfaction))
+        : rawLegacySat > 0
+          ? rawLegacySat
+          : INITIAL_COMPANY_SATISFACTION;
+  const safeSatisfaction = Math.round(rawCompanySat * 10) / 10;
+  const rawLedgerSource = isPlainObject(cloned.currentMonthLedger)
+    ? cloned.currentMonthLedger
+    : isPlainObject(cloned.economyState) && isPlainObject(cloned.economyState.currentMonthLedger)
+      ? cloned.economyState.currentMonthLedger
+      : null;
+  const safeCurrentMonthLedger: CurrentMonthLedger = rawLedgerSource
+    ? {
+        shortTermRevenue: Math.max(0, Number(rawLedgerSource.shortTermRevenue) || 0),
+        longTermAccruedRevenue: Math.max(0, Number(rawLedgerSource.longTermAccruedRevenue) || 0),
+        fuelExpenses: Math.max(0, Number(rawLedgerSource.fuelExpenses) || 0),
+        repairExpenses: Math.max(0, Number(rawLedgerSource.repairExpenses) || 0),
+        penaltyExpenses: Math.max(0, Number(rawLedgerSource.penaltyExpenses) || 0),
+        completedOrdersCount: Math.max(0, Math.floor(Number(rawLedgerSource.completedOrdersCount) || 0)),
+        satisfactionSamplesSum:
+          typeof rawLedgerSource.satisfactionSamplesSum === 'number' &&
+          Number.isFinite(rawLedgerSource.satisfactionSamplesSum)
+            ? rawLedgerSource.satisfactionSamplesSum
+            : safeSatisfaction,
+        satisfactionSamplesCount: Math.max(
+          1,
+          Math.floor(Number(rawLedgerSource.satisfactionSamplesCount) || 1)
+        ),
+      }
+    : createEmptyCurrentMonthLedger(safeSatisfaction);
   const safeReputation = clampReputationLevel(cloned.reputationLevel);
   const safeWarehouseLevel = clampWarehouseTier(cloned.warehouseLevel);
   const safeParkingSpots = Math.max(0, Math.min(8, Math.floor(Number(cloned.parkingSpots) || 0)));
@@ -708,7 +751,12 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
       ...normalizedEconomyState,
       balance: safeCash,
       completedOrdersCount: safeCompleted,
+      companySatisfaction: safeSatisfaction,
       annualSatisfactionAvg: safeSatisfaction,
+      currentMonthLedger: { ...safeCurrentMonthLedger },
+      monthlySettlements: Array.isArray(normalizedEconomyState.monthlySettlements)
+        ? normalizedEconomyState.monthlySettlements.slice(0, MAX_MONTHLY_SETTLEMENTS_HISTORY)
+        : [],
       reputationLevel: safeReputation,
       warehouseLevel: safeWarehouseLevel,
       warehouseTier: safeWarehouseLevel,
@@ -747,6 +795,8 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     cash: safeCash,
     completedOrdersCount: safeCompleted,
     annualSatisfactionAvg: safeSatisfaction,
+    companySatisfaction: safeSatisfaction,
+    currentMonthLedger: safeCurrentMonthLedger,
     reputationLevel: safeReputation,
     warehouseLevel: safeWarehouseLevel,
     parkingSpots: safeParkingSpots,
@@ -905,12 +955,25 @@ export function createSavedGameState(
       ? Math.floor(economyState.nextFuelPriceChangeGameDay)
       : gameDay + 4;
 
+  const savedCompanySatisfaction =
+    typeof economyState.companySatisfaction === 'number' &&
+    Number.isFinite(economyState.companySatisfaction)
+      ? Math.max(0, Math.min(100, economyState.companySatisfaction))
+      : economyState.annualSatisfactionAvg > 0
+        ? economyState.annualSatisfactionAvg
+        : INITIAL_COMPANY_SATISFACTION;
+  const savedLedger: CurrentMonthLedger = economyState.currentMonthLedger
+    ? { ...economyState.currentMonthLedger }
+    : createEmptyCurrentMonthLedger(savedCompanySatisfaction);
+
   return {
     gameMinutes: safeMinutes,
     gameDay,
     cash: economyState.balance,
     completedOrdersCount: economyState.completedOrdersCount,
-    annualSatisfactionAvg: economyState.annualSatisfactionAvg,
+    annualSatisfactionAvg: savedCompanySatisfaction,
+    companySatisfaction: savedCompanySatisfaction,
+    currentMonthLedger: savedLedger,
     reputationLevel: economyState.reputationLevel,
     warehouseLevel: economyState.warehouseLevel ?? economyState.warehouseTier,
     parkingSpots: economyState.parkingSpots,

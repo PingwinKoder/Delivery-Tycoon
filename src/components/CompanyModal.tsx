@@ -13,6 +13,7 @@ import {
   UserMinus,
   UserPlus,
   Users,
+  Wallet,
   Warehouse,
   Wrench,
   X,
@@ -39,6 +40,7 @@ import {
   COURIER_INSURANCE_COST,
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
+  INITIAL_COMPANY_SATISFACTION,
   LOW_DURABILITY_SPEED_THRESHOLD,
   MAX_EMPLOYEES,
   MAX_PARKING_SPOTS,
@@ -58,6 +60,7 @@ import {
   calculateVehicleRepairCost,
   canCourierDriveVehicle,
   countHiredCouriers,
+  createEmptyCurrentMonthLedger,
   findCourierAssignedToVehicle,
   formatCurrencyUsd,
   getEmployeeLicenseCost,
@@ -81,7 +84,7 @@ import {
   vehiclesEqual,
 } from '../utils/orderEconomy';
 
-type CompanyTabId = 'base' | 'fleet' | 'employees';
+type CompanyTabId = 'base' | 'fleet' | 'employees' | 'finances';
 
 function formatMissingFunds(cost: number, balance: number, lang: SupportedLanguage): string {
   const missing = Math.round(Math.max(0, cost - balance) * 100) / 100;
@@ -950,6 +953,22 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               <Users className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'company.tabEmployees')}</span>
             </button>
+
+            <button
+              id="company-tab-finances"
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'finances'}
+              aria-controls="company-panel-finances"
+              onClick={() => setActiveTab('finances')}
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'finances'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm'
+                  : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
+                }`}
+            >
+              <Wallet className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
+              <span>{t(language, 'company.tabFinances')}</span>
+            </button>
           </div>
         </div>
 
@@ -1331,7 +1350,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 {t(language, 'company.vanInsuranceShort')}
                               </span>
                               <span className="text-rose-300 font-semibold">
-                                +{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                                {formatCurrencyUsd(spec.monthlyInsurance, false)}
                                 {perMonth}
                               </span>
                             </div>
@@ -1439,7 +1458,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-slate-400">{t(language, 'company.bikeInsuranceLabel')}</span>
                           <span className="text-rose-300 font-semibold">
-                            +{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                            {formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
                             {perMonth}
                           </span>
                         </div>
@@ -1532,7 +1551,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-slate-400">{t(language, 'company.vanInsuranceShort')}</span>
                               <span className="text-rose-300 font-semibold">
-                                +{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                                {formatCurrencyUsd(spec.monthlyInsurance, false)}
                                 {perMonth}
                               </span>
                             </div>
@@ -1580,7 +1599,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </h3>
                   <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums text-rose-300 font-semibold">
                     {t(language, 'company.currentInsuranceLabel')}{' '}
-                    +{formatCurrencyUsd(monthlyCosts.insuranceCost, false)}
+                    {formatCurrencyUsd(monthlyCosts.insuranceCost, false)}
                     {perMonth}
                   </span>
                 </div>
@@ -1667,7 +1686,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
                             </span>
                             <span className="text-rose-300 hidden sm:inline">
-                              -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                              {formatCurrencyUsd(spec.monthlyInsurance, false)}
                               {perMonth}
                             </span>
                             <span
@@ -1938,7 +1957,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
                             </span>
                             <span className="text-rose-300 hidden sm:inline">
-                              -{formatCurrencyUsd(spec.monthlyInsurance, false)}
+                              {formatCurrencyUsd(spec.monthlyInsurance, false)}
                               {perMonth}
                             </span>
                             <span
@@ -2183,7 +2202,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             </span>
                             {bikeIndex > 1 && (
                               <span className="text-rose-300 hidden sm:inline">
-                                -{formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                                {formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
                                 {perMonth}
                               </span>
                             )}
@@ -2659,6 +2678,305 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* TAB 4: FINANCES */}
+          {activeTab === 'finances' && (() => {
+            const companySat =
+              economyState.companySatisfaction ??
+              economyState.annualSatisfactionAvg ??
+              INITIAL_COMPANY_SATISFACTION;
+            const ledger =
+              economyState.currentMonthLedger ?? createEmptyCurrentMonthLedger(companySat);
+            const shortTermRev = ledger.shortTermRevenue;
+            const longTermRev = Math.max(
+              ledger.longTermAccruedRevenue,
+              economyState.pendingMonthlyLongTermPayout
+            );
+            const totalLiveRevenue = shortTermRev + longTermRev;
+            const totalOperatingExpenses =
+              ledger.fuelExpenses + ledger.repairExpenses + ledger.penaltyExpenses;
+            const projectedTotalExpenses = totalOperatingExpenses + monthlyCosts.totalFixedCosts;
+            const projectedMonthBalance = totalLiveRevenue - projectedTotalExpenses;
+            const operatingMarginPct =
+              totalLiveRevenue > 0
+                ? Math.round(((totalLiveRevenue - projectedTotalExpenses) / totalLiveRevenue) * 100)
+                : 0;
+            const runwayMonths =
+              monthlyCosts.totalFixedCosts > 0 && economyState.balance > 0
+                ? economyState.balance / monthlyCosts.totalFixedCosts
+                : 0;
+            const diagnosis =
+              projectedMonthBalance >= monthlyCosts.totalFixedCosts * 0.25 && totalLiveRevenue > 0
+                ? {
+                    text: t(language, 'company.financesDiagHealthy'),
+                    tone: 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300',
+                  }
+                : projectedMonthBalance >= 0
+                  ? {
+                      text: t(language, 'company.financesDiagTight'),
+                      tone: 'bg-amber-500/15 border-amber-400/40 text-amber-300',
+                    }
+                  : {
+                      text: t(language, 'company.financesDiagHighFixed'),
+                      tone: 'bg-rose-500/15 border-rose-400/40 text-rose-300',
+                    };
+            const closedMonths = (economyState.monthlySettlements ?? []).slice(0, 12);
+
+            return (
+              <div
+                id="company-panel-finances"
+                role="tabpanel"
+                aria-labelledby="company-tab-finances"
+                className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3.5"
+              >
+                {/* Section 1: Current Month Live */}
+                <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
+                      {t(language, 'company.financesCurrentTitle')}
+                    </h3>
+                    <div
+                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md border font-mono-nums text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold ${projectedMonthBalance >= 0
+                          ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                          : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+                        }`}
+                    >
+                      <span className="font-sans font-semibold mr-1.5">
+                        {t(language, 'company.financesLiveBalance')}
+                      </span>
+                      {projectedMonthBalance >= 0 ? '+' : '-'}
+                      {formatCurrencyUsd(Math.abs(projectedMonthBalance), false)}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                    <div className="rounded-lg bg-slate-900/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-3 space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
+                      <div className="flex items-center justify-between font-sans font-bold text-emerald-300 pb-1 border-b border-slate-800">
+                        <span>{t(language, 'company.financesRevenueTitle')}</span>
+                        <span className="font-mono-nums">
+                          {formatCurrencyUsd(totalLiveRevenue, false)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400 font-sans">
+                          {t(language, 'company.financesShortTermRev')}
+                        </span>
+                        <span className="text-emerald-300 font-semibold">
+                          {formatCurrencyUsd(shortTermRev, false)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400 font-sans">
+                          {t(language, 'company.financesLongTermRev')}
+                        </span>
+                        <span className="text-emerald-300 font-semibold">
+                          {formatCurrencyUsd(longTermRev, false)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-900/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-3 space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
+                      <div className="flex items-center justify-between font-sans font-bold text-rose-300 pb-1 border-b border-slate-800">
+                        <span>{t(language, 'company.financesOperatingTitle')}</span>
+                        <span className="font-mono-nums">
+                          {formatCurrencyUsd(totalOperatingExpenses, false)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400 font-sans">
+                          {t(language, 'company.financesFuel')}
+                        </span>
+                        <span className="text-rose-300 font-semibold">
+                          {formatCurrencyUsd(ledger.fuelExpenses, true)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400 font-sans">
+                          {t(language, 'company.financesRepairs')}
+                        </span>
+                        <span className="text-rose-300 font-semibold">
+                          {formatCurrencyUsd(ledger.repairExpenses, false)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-400 font-sans">
+                          {t(language, 'company.financesPenalties')}
+                        </span>
+                        <span className="text-rose-300 font-semibold">
+                          {formatCurrencyUsd(ledger.penaltyExpenses, false)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Section 2 & 3: Fixed Costs Forecast + Direction & Safety */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3.5">
+                  <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
+                    <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-sans font-bold text-slate-100 pb-1 border-b border-slate-800">
+                      {t(language, 'company.financesFixedTitle')}
+                    </h3>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400 font-sans">
+                        {t(language, 'company.financesBaseUpkeep')}
+                      </span>
+                      <span className="text-rose-300 font-semibold">
+                        {formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}
+                        {perMonth}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400 font-sans">
+                        {t(language, 'company.financesSalaries')}
+                      </span>
+                      <span className="text-rose-300 font-semibold">
+                        {formatCurrencyUsd(monthlyCosts.salariesCost, false)}
+                        {perMonth}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400 font-sans">
+                        {t(language, 'company.financesInsurance')}
+                      </span>
+                      <span className="text-rose-300 font-semibold">
+                        {formatCurrencyUsd(monthlyCosts.insuranceCost, false)}
+                        {perMonth}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800 font-bold">
+                      <span className="text-slate-200 font-sans">
+                        {t(language, 'company.financesTotalFixed')}
+                      </span>
+                      <span className="text-rose-400">
+                        {formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
+                        {perMonth}
+                      </span>
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs">
+                    <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100 pb-1 border-b border-slate-800">
+                      {t(language, 'company.financesHealthTitle')}
+                    </h3>
+                    <div className="flex items-center justify-between gap-2 font-mono-nums">
+                      <span className="text-slate-400 font-sans">
+                        {t(language, 'company.financesMarginLabel')}
+                      </span>
+                      <span
+                        className={`font-bold ${operatingMarginPct >= 20
+                            ? 'text-emerald-300'
+                            : operatingMarginPct >= 0
+                              ? 'text-amber-300'
+                              : 'text-rose-300'
+                          }`}
+                      >
+                        {operatingMarginPct}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 font-mono-nums">
+                      <span className="text-slate-400 font-sans">
+                        {t(language, 'company.financesRunwayLabel')}
+                      </span>
+                      <span
+                        className={`font-bold ${runwayMonths >= 3
+                            ? 'text-emerald-300'
+                            : runwayMonths >= 1
+                              ? 'text-amber-300'
+                              : 'text-rose-300'
+                          }`}
+                      >
+                        {runwayMonths > 0
+                          ? t(language, 'company.financesRunwayMonths', {
+                              months: runwayMonths.toFixed(1),
+                            })
+                          : t(language, 'company.financesRunwayZero')}
+                      </span>
+                    </div>
+                    <div className={`rounded-md border px-2 py-1.5 font-semibold leading-snug ${diagnosis.tone}`}>
+                      {diagnosis.text}
+                    </div>
+                  </section>
+                </div>
+
+                {/* Section 4: Closed Months History (max 12) */}
+                <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2">
+                  <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100">
+                    {t(language, 'company.financesHistoryTitle')}
+                  </h3>
+                  {closedMonths.length === 0 ? (
+                    <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
+                      {t(language, 'company.financesHistoryEmpty')}
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
+                        <thead>
+                          <tr className="border-b border-slate-800 text-slate-400 font-sans">
+                            <th className="py-1 pr-2 font-semibold">{t(language, 'company.financesColMonth')}</th>
+                            <th className="py-1 px-2 font-semibold text-right">{t(language, 'company.financesColRevenue')}</th>
+                            <th className="py-1 px-2 font-semibold text-right">{t(language, 'company.financesColExpenses')}</th>
+                            <th className="py-1 px-2 font-semibold text-right">{t(language, 'company.financesColNet')}</th>
+                            <th className="py-1 px-2 font-semibold text-right">{t(language, 'company.financesColOrders')}</th>
+                            <th className="py-1 pl-2 font-semibold text-right">{t(language, 'company.financesColSat')}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/70">
+                          {closedMonths.map((rec) => {
+                            const rev =
+                              typeof rec.totalRevenue === 'number'
+                                ? rec.totalRevenue
+                                : (rec.shortTermRevenue ?? 0) + rec.longTermContractPayout;
+                            const exp =
+                              typeof rec.totalExpenses === 'number'
+                                ? rec.totalExpenses
+                                : rec.totalFixedCosts +
+                                  (rec.fuelExpenses ?? 0) +
+                                  (rec.repairExpenses ?? 0) +
+                                  (rec.penaltyExpenses ?? 0);
+                            const net = rev - exp;
+                            const sat = Math.round(rec.averageSatisfaction ?? 80);
+                            return (
+                              <tr key={rec.id} className="hover:bg-slate-900/50">
+                                <td className="py-1.5 pr-2 font-sans font-semibold text-slate-200 whitespace-nowrap">
+                                  {rec.settledPeriodLabel}
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-emerald-300 whitespace-nowrap">
+                                  {formatCurrencyUsd(rev, false)}
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-rose-300 whitespace-nowrap">
+                                  {formatCurrencyUsd(exp, false)}
+                                </td>
+                                <td
+                                  className={`py-1.5 px-2 text-right font-bold whitespace-nowrap ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'
+                                    }`}
+                                >
+                                  {net >= 0 ? '+' : '-'}
+                                  {formatCurrencyUsd(Math.abs(net), false)}
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-200 whitespace-nowrap">
+                                  {rec.completedOrdersCount ?? 0}
+                                </td>
+                                <td
+                                  className={`py-1.5 pl-2 text-right font-bold whitespace-nowrap ${sat >= 80
+                                      ? 'text-emerald-300'
+                                      : sat >= 60
+                                        ? 'text-amber-300'
+                                        : 'text-rose-300'
+                                    }`}
+                                >
+                                  {sat}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

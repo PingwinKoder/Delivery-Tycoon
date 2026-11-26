@@ -39,6 +39,7 @@ import {
   EARLY_OFFERS_DAY_LIMIT,
   FUEL_PRICE_CHANGE_MAX_DAYS,
   FUEL_PRICE_CHANGE_MIN_DAYS,
+  INITIAL_COMPANY_SATISFACTION,
   INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY,
   INITIAL_ORDER_SATISFACTION,
   LATE_OFFERS_BATCH_MAX,
@@ -46,19 +47,21 @@ import {
   LATE_OFFERS_INTERVAL_DAYS,
   LATE_PICKUP_SATISFACTION_PENALTY,
   LONG_TERM_DELIVERY_WINDOW_DAYS,
+  MAX_MONTHLY_SETTLEMENTS_HISTORY,
   SUNDAY_SETTLEMENT_MINUTE_OF_DAY,
   SUNDAY_WEEKDAY_INDEX,
   UNDELIVERED_PACKAGE_PENALTY_MULTIPLIER,
   UNDELIVERED_WEEK_SATISFACTION_PENALTY,
   WEEKLY_ON_TIME_SATISFACTION_BONUS,
+  applyCompanySatisfactionDelta,
   calculateReputationLevel,
   clampFuelPrice,
   clampSatisfaction,
-  computeAnnualSatisfactionAvg,
+  createEmptyCurrentMonthLedger,
   getSeasonalTargetFuelPrice,
   isNightHoursForTime,
   nextRng,
-  recordOrderSatisfactionSample,
+  recordMonthlySatisfactionSample,
   rngInt,
   roundCurrency,
 } from './constantsAndHelpers';
@@ -515,17 +518,38 @@ export function recordPackageDelivery(
         ...state.activeOrders.slice(idx + 1),
       ];
       const nextCompletedCount = state.completedOrdersCount + 1;
-      const satisfactionStats = recordOrderSatisfactionSample(state, completedOrder.satisfaction);
+      const daysRemaining = order.endGameDay - currentDate.gameDay;
+      const satisfactionGain = daysRemaining >= 1 ? 2.0 : 1.0;
+      const baseCompanySat =
+        typeof state.companySatisfaction === 'number' && Number.isFinite(state.companySatisfaction)
+          ? state.companySatisfaction
+          : INITIAL_COMPANY_SATISFACTION;
+      const nextCompanySatisfaction = applyCompanySatisfactionDelta(
+        baseCompanySat,
+        satisfactionGain
+      );
       const nextReputationLevel = calculateReputationLevel(
         nextCompletedCount,
-        satisfactionStats.annualSatisfactionAvg
+        nextCompanySatisfaction
+      );
+      const baseLedger =
+        state.currentMonthLedger ?? createEmptyCurrentMonthLedger(baseCompanySat);
+      const nextLedger = recordMonthlySatisfactionSample(
+        {
+          ...baseLedger,
+          shortTermRevenue: roundCurrency(baseLedger.shortTermRevenue + order.totalExpectedPayout),
+          completedOrdersCount: baseLedger.completedOrdersCount + 1,
+        },
+        nextCompanySatisfaction
       );
 
       return {
         ...state,
         balance: roundCurrency(state.balance + order.totalExpectedPayout),
         completedOrdersCount: nextCompletedCount,
-        ...satisfactionStats,
+        companySatisfaction: nextCompanySatisfaction,
+        annualSatisfactionAvg: nextCompanySatisfaction,
+        currentMonthLedger: nextLedger,
         reputationLevel: nextReputationLevel,
         activeOrders: nextActive,
         archivedOrders: [completedOrder, ...state.archivedOrders].slice(0, MAX_ARCHIVED_ORDERS),
@@ -578,9 +602,17 @@ export function recordPackageDelivery(
   const nextActive = [...state.activeOrders];
   nextActive[idx] = updatedLongOrder;
 
+  const baseLedger =
+    state.currentMonthLedger ??
+    createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
+
   return {
     ...state,
     pendingMonthlyLongTermPayout: roundCurrency(state.pendingMonthlyLongTermPayout + earnedNow),
+    currentMonthLedger: {
+      ...baseLedger,
+      longTermAccruedRevenue: roundCurrency(baseLedger.longTermAccruedRevenue + earnedNow),
+    },
     activeOrders: nextActive,
   };
 }
@@ -605,8 +637,13 @@ export function settleWeeklySatisfaction(
   if (state.activeOrders.length === 0) return state;
 
   let nextBalance = state.balance;
-  let annualSatisfactionSum = state.annualSatisfactionSum;
-  let annualSatisfactionCount = state.annualSatisfactionCount;
+  let companySatisfaction =
+    typeof state.companySatisfaction === 'number' && Number.isFinite(state.companySatisfaction)
+      ? state.companySatisfaction
+      : INITIAL_COMPANY_SATISFACTION;
+  let nextLedger =
+    state.currentMonthLedger ?? createEmptyCurrentMonthLedger(companySatisfaction);
+  let satisfactionTouched = false;
   const useRandomRng = sundayGameDay >= EARLY_OFFERS_DAY_LIMIT;
   let rngState = useRandomRng ? state.randomRngState : state.rngState;
 
@@ -632,16 +669,32 @@ export function settleWeeklySatisfaction(
 
     if (latePickups === 0 && undeliveredPackages === 0) {
       delta = WEEKLY_ON_TIME_SATISFACTION_BONUS;
+      if (order.kind === 'long_term' && order.weekly.deliveredPackagesThisWeek > 0) {
+        const companyGain = 1.5 + Math.min(1.0, order.weekly.deliveredPackagesThisWeek / 40);
+        companySatisfaction = applyCompanySatisfactionDelta(companySatisfaction, companyGain);
+        satisfactionTouched = true;
+      }
     } else {
       if (latePickups > 0) {
         delta -= latePickups * LATE_PICKUP_SATISFACTION_PENALTY;
+        companySatisfaction = applyCompanySatisfactionDelta(companySatisfaction, -5 * latePickups);
+        satisfactionTouched = true;
       }
       if (undeliveredPackages > 0) {
         delta -= UNDELIVERED_WEEK_SATISFACTION_PENALTY;
+        const undeliveredRatio =
+          undeliveredPackages / Math.max(1, order.weekly.expectedPackagesThisWeek);
+        const companyPenalty = -(8 + Math.min(4, Math.round(undeliveredRatio * 4)));
+        companySatisfaction = applyCompanySatisfactionDelta(companySatisfaction, companyPenalty);
+        satisfactionTouched = true;
         penaltyAmount = roundCurrency(
           undeliveredPackages * order.ratePerPackage * UNDELIVERED_PACKAGE_PENALTY_MULTIPLIER
         );
         nextBalance = roundCurrency(nextBalance - penaltyAmount);
+        nextLedger = {
+          ...nextLedger,
+          penaltyExpenses: roundCurrency(nextLedger.penaltyExpenses + penaltyAmount),
+        };
       }
     }
 
@@ -663,8 +716,8 @@ export function settleWeeklySatisfaction(
     });
 
     if (terminated) {
-      annualSatisfactionSum += newSatisfaction;
-      annualSatisfactionCount += 1;
+      companySatisfaction = applyCompanySatisfactionDelta(companySatisfaction, -10);
+      satisfactionTouched = true;
       newlyArchived.push({
         ...order,
         status: 'terminated',
@@ -741,13 +794,12 @@ export function settleWeeklySatisfaction(
     }
   }
 
-  const annualSatisfactionAvg = computeAnnualSatisfactionAvg(
-    annualSatisfactionSum,
-    annualSatisfactionCount
-  );
+  if (satisfactionTouched) {
+    nextLedger = recordMonthlySatisfactionSample(nextLedger, companySatisfaction);
+  }
   const reputationLevel = calculateReputationLevel(
     state.completedOrdersCount,
-    annualSatisfactionAvg
+    companySatisfaction
   );
   const archivedIds = new Set(newlyArchived.map((o) => o.id));
   const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(
@@ -759,9 +811,9 @@ export function settleWeeklySatisfaction(
   return {
     ...state,
     balance: nextBalance,
-    annualSatisfactionSum,
-    annualSatisfactionCount,
-    annualSatisfactionAvg,
+    companySatisfaction,
+    annualSatisfactionAvg: companySatisfaction,
+    currentMonthLedger: nextLedger,
     reputationLevel,
     warehouseInventory: cleanedWarehouse.warehouseInventory,
     warehousePackages: cleanedWarehouse.warehousePackages,
@@ -797,8 +849,27 @@ export function processMonthlySettlement(
 
   const monthlyCosts = calculateMonthlyCompanyCosts(state);
   const longTermContractPayout = roundCurrency(state.pendingMonthlyLongTermPayout);
-  const netChange = roundCurrency(longTermContractPayout - monthlyCosts.totalFixedCosts);
-  const balanceAfter = roundCurrency(state.balance + netChange);
+  const settlementCashDelta = roundCurrency(longTermContractPayout - monthlyCosts.totalFixedCosts);
+  const balanceAfter = roundCurrency(state.balance + settlementCashDelta);
+
+  const companySat =
+    typeof state.companySatisfaction === 'number' && Number.isFinite(state.companySatisfaction)
+      ? state.companySatisfaction
+      : INITIAL_COMPANY_SATISFACTION;
+  const ledger = state.currentMonthLedger ?? createEmptyCurrentMonthLedger(companySat);
+  const shortTermRevenue = roundCurrency(ledger.shortTermRevenue);
+  const fuelExpenses = roundCurrency(ledger.fuelExpenses);
+  const repairExpenses = roundCurrency(ledger.repairExpenses);
+  const penaltyExpenses = roundCurrency(ledger.penaltyExpenses);
+  const totalRevenue = roundCurrency(shortTermRevenue + longTermContractPayout);
+  const totalExpenses = roundCurrency(
+    monthlyCosts.totalFixedCosts + fuelExpenses + repairExpenses + penaltyExpenses
+  );
+  const netChange = roundCurrency(totalRevenue - totalExpenses);
+  const averageSatisfaction =
+    ledger.satisfactionSamplesCount > 0
+      ? Math.round((ledger.satisfactionSamplesSum / ledger.satisfactionSamplesCount) * 10) / 10
+      : companySat;
 
   const record: MonthlySettlementRecord = {
     id: `settlement-${settlementDate.monthKey}`,
@@ -814,6 +885,14 @@ export function processMonthlySettlement(
     insuranceCost: monthlyCosts.insuranceCost,
     totalFixedCosts: monthlyCosts.totalFixedCosts,
     longTermContractPayout,
+    shortTermRevenue,
+    fuelExpenses,
+    repairExpenses,
+    penaltyExpenses,
+    totalRevenue,
+    totalExpenses,
+    completedOrdersCount: ledger.completedOrdersCount,
+    averageSatisfaction,
     netChange,
     balanceAfter,
   };
@@ -826,8 +905,12 @@ export function processMonthlySettlement(
     ...state,
     balance: balanceAfter,
     pendingMonthlyLongTermPayout: 0,
+    currentMonthLedger: createEmptyCurrentMonthLedger(companySat),
     activeOrders: resetActiveOrders,
-    monthlySettlements: [record, ...state.monthlySettlements],
+    monthlySettlements: [record, ...state.monthlySettlements].slice(
+      0,
+      MAX_MONTHLY_SETTLEMENTS_HISTORY
+    ),
     lastSettledMonthKey: settlementDate.monthKey,
   };
 }
@@ -929,8 +1012,12 @@ function concludeDueOrdersOnNewDay(
 
   let balance = state.balance;
   let completedOrdersCount = state.completedOrdersCount;
-  let annualSatisfactionSum = state.annualSatisfactionSum;
-  let annualSatisfactionCount = state.annualSatisfactionCount;
+  let companySatisfaction =
+    typeof state.companySatisfaction === 'number' && Number.isFinite(state.companySatisfaction)
+      ? state.companySatisfaction
+      : INITIAL_COMPANY_SATISFACTION;
+  let nextLedger =
+    state.currentMonthLedger ?? createEmptyCurrentMonthLedger(companySatisfaction);
 
   const stillActive: ActiveOrder[] = [];
   const newlyArchived: ActiveOrder[] = [];
@@ -944,8 +1031,11 @@ function concludeDueOrdersOnNewDay(
     if (order.kind === 'long_term') {
       // Long-term contract reached its end date without termination -> completed!
       completedOrdersCount += 1;
-      annualSatisfactionSum += order.satisfaction;
-      annualSatisfactionCount += 1;
+      companySatisfaction = applyCompanySatisfactionDelta(companySatisfaction, 2.0);
+      nextLedger = {
+        ...nextLedger,
+        completedOrdersCount: nextLedger.completedOrdersCount + 1,
+      };
       newlyArchived.push({
         ...order,
         status: 'completed',
@@ -962,12 +1052,19 @@ function concludeDueOrdersOnNewDay(
       const finalSatisfaction = clampSatisfaction(
         order.satisfaction - (remainingPackages > 0 ? UNDELIVERED_WEEK_SATISFACTION_PENALTY : 0)
       );
-      annualSatisfactionSum += finalSatisfaction;
-      annualSatisfactionCount += 1;
+      const isTerminated = finalSatisfaction < CONTRACT_TERMINATION_THRESHOLD;
+      companySatisfaction = applyCompanySatisfactionDelta(
+        companySatisfaction,
+        isTerminated ? -10 : -7
+      );
+      nextLedger = {
+        ...nextLedger,
+        penaltyExpenses: roundCurrency(nextLedger.penaltyExpenses + penalty),
+      };
 
       newlyArchived.push({
         ...order,
-        status: finalSatisfaction < CONTRACT_TERMINATION_THRESHOLD ? 'terminated' : 'expired',
+        status: isTerminated ? 'terminated' : 'expired',
         satisfaction: finalSatisfaction,
         totalPenaltiesPaid: roundCurrency(order.totalPenaltiesPaid + penalty),
         concludedAtGameDay: date.gameDay,
@@ -982,11 +1079,8 @@ function concludeDueOrdersOnNewDay(
 
   if (newlyArchived.length === 0) return state;
 
-  const annualSatisfactionAvg = computeAnnualSatisfactionAvg(
-    annualSatisfactionSum,
-    annualSatisfactionCount
-  );
-  const reputationLevel = calculateReputationLevel(completedOrdersCount, annualSatisfactionAvg);
+  nextLedger = recordMonthlySatisfactionSample(nextLedger, companySatisfaction);
+  const reputationLevel = calculateReputationLevel(completedOrdersCount, companySatisfaction);
 
   const archivedIds = new Set(newlyArchived.map((o) => o.id));
   const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(
@@ -999,9 +1093,9 @@ function concludeDueOrdersOnNewDay(
     ...state,
     balance,
     completedOrdersCount,
-    annualSatisfactionSum,
-    annualSatisfactionCount,
-    annualSatisfactionAvg,
+    companySatisfaction,
+    annualSatisfactionAvg: companySatisfaction,
+    currentMonthLedger: nextLedger,
     reputationLevel,
     warehouseInventory: cleanedWarehouse.warehouseInventory,
     warehousePackages: cleanedWarehouse.warehousePackages,
@@ -1137,16 +1231,11 @@ export function advanceOrderEconomy(
       // 1. Conclude any orders whose endGameDay was reached
       current = concludeDueOrdersOnNewDay(current, date, dayStartMinutes);
 
-      // 2. Every 1 Styczeń (new year): reset annual satisfaction stats to 0%
+      // 2. Every 1 Styczeń (new year): advance calendar stats year without resetting continuous companySatisfaction
       if (date.monthIndex === 0 && date.dayOfMonth === 1 && date.year > current.annualStatsYear) {
-        const nextReputationLevel = calculateReputationLevel(current.completedOrdersCount, 0);
         current = {
           ...current,
-          annualSatisfactionSum: 0,
-          annualSatisfactionCount: 0,
-          annualSatisfactionAvg: 0,
           annualStatsYear: date.year,
-          reputationLevel: nextReputationLevel,
         };
       }
 

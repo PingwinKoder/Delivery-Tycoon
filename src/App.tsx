@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { INITIAL_ROAD_GRAPH } from './data/initialRoadGraph';
 import { CompanyModal } from './components/CompanyModal';
 import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
+import { MonthlyReportModal } from './components/MonthlyReportModal';
 import { OrdersModal } from './components/OrdersModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { SettingsModal, type SettingsOpenedFrom } from './components/SettingsModal';
@@ -19,6 +20,7 @@ import type {
   ActiveVehicleSelection,
   CompanyCourier,
   CourierQualification,
+  MonthlySettlementRecord,
   OrderEconomyState,
   ScooterModelId,
   VanModelId,
@@ -266,7 +268,13 @@ function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyS
     ...base,
     balance: saved.cash,
     completedOrdersCount: saved.completedOrdersCount,
-    annualSatisfactionAvg: saved.annualSatisfactionAvg,
+    companySatisfaction:
+      saved.companySatisfaction ?? base.companySatisfaction ?? saved.annualSatisfactionAvg,
+    annualSatisfactionAvg:
+      saved.companySatisfaction ?? saved.annualSatisfactionAvg,
+    currentMonthLedger: saved.currentMonthLedger
+      ? { ...saved.currentMonthLedger }
+      : base.currentMonthLedger,
     reputationLevel: saved.reputationLevel,
     warehouseLevel,
     warehouseTier: warehouseLevel,
@@ -351,6 +359,14 @@ export function App() {
   const [ordersOpen, setOrdersOpen] = useState<boolean>(false);
   const [companyOpen, setCompanyOpen] = useState<boolean>(false);
   const [skipTimeOpen, setSkipTimeOpen] = useState<boolean>(false);
+  const [monthlyReportRecord, setMonthlyReportRecord] =
+    useState<MonthlySettlementRecord | null>(null);
+  const lastSeenSettlementIdRef = useRef<string | null>(
+    economyState.monthlySettlements[0]?.id ?? null
+  );
+  const speedBeforeMonthlyReportRef = useRef<GameSpeed>(1);
+  const gameSpeedRef = useRef<GameSpeed>(gameSpeed);
+  gameSpeedRef.current = gameSpeed;
   const [fps, setFps] = useState<number | null>(null);
 
   const canvasControllerRef = useRef<MapCanvasController | null>(null);
@@ -576,6 +592,8 @@ export function App() {
 
       const freshEconomy = createNewCareerEconomyState();
       economyStateRef.current = freshEconomy;
+      lastSeenSettlementIdRef.current = freshEconomy.monthlySettlements[0]?.id ?? null;
+      setMonthlyReportRecord(null);
       setEconomyState(freshEconomy);
 
       exactGameMinutesRef.current = INITIAL_GAME_MINUTES;
@@ -628,6 +646,8 @@ export function App() {
       const minuteOfDay = restoredMinutes % MINUTES_PER_DAY;
 
       economyStateRef.current = restoredEconomy;
+      lastSeenSettlementIdRef.current = restoredEconomy.monthlySettlements[0]?.id ?? null;
+      setMonthlyReportRecord(null);
       setEconomyState(restoredEconomy);
 
       exactGameMinutesRef.current = restoredMinutes;
@@ -762,7 +782,8 @@ export function App() {
     inStartPanorama ||
     cameraTransition !== null ||
     settingsOpen ||
-    exitConfirmOpen;
+    exitConfirmOpen ||
+    monthlyReportRecord !== null;
 
   useEffect(() => {
     if (isPausedByOverlay || gameSpeed === 0) return;
@@ -796,9 +817,17 @@ export function App() {
 
         if (hasEconomyBoundaryBetween(lastEconomyCheckMinutesRef.current, nextWhole)) {
           lastEconomyCheckMinutesRef.current = nextWhole;
-          applyEconomyUpdate((prev) =>
+          const updatedEconomy = applyEconomyUpdate((prev) =>
             advanceOrderEconomy(prev, nextWhole, PROCEDURAL_BUILDINGS)
           );
+          const latestSettlement = updatedEconomy.monthlySettlements[0];
+          if (latestSettlement && latestSettlement.id !== lastSeenSettlementIdRef.current) {
+            lastSeenSettlementIdRef.current = latestSettlement.id;
+            speedBeforeMonthlyReportRef.current =
+              gameSpeedRef.current > 0 ? gameSpeedRef.current : 1;
+            setGameSpeed(0);
+            setMonthlyReportRecord(latestSettlement);
+          }
         }
       }
 
@@ -849,6 +878,11 @@ export function App() {
 
   const handleCloseCompany = useCallback(() => {
     setCompanyOpen(false);
+  }, []);
+
+  const handleCloseMonthlyReport = useCallback(() => {
+    setMonthlyReportRecord(null);
+    setGameSpeed(speedBeforeMonthlyReportRef.current > 0 ? speedBeforeMonthlyReportRef.current : 1);
   }, []);
 
   const handleOpenSkipTime = useCallback(() => {
@@ -988,11 +1022,19 @@ export function App() {
       lastEconomyCheckMinutesRef.current = safeTarget;
       setGameMinutes(safeTarget);
 
-      applyEconomyUpdate((prev) => {
+      const updatedAfterJump = applyEconomyUpdate((prev) => {
         const withRecoveredCargo =
           recoveredCargo.length > 0 ? returnPackagesToWarehouse(prev, recoveredCargo) : prev;
         return advanceOrderEconomy(withRecoveredCargo, safeTarget, PROCEDURAL_BUILDINGS);
       });
+      const latestSettlement = updatedAfterJump.monthlySettlements[0];
+      if (latestSettlement && latestSettlement.id !== lastSeenSettlementIdRef.current) {
+        lastSeenSettlementIdRef.current = latestSettlement.id;
+        speedBeforeMonthlyReportRef.current =
+          gameSpeedRef.current > 0 ? gameSpeedRef.current : 1;
+        setGameSpeed(0);
+        setMonthlyReportRecord(latestSettlement);
+      }
       setSkipTimeOpen(false);
     },
     [applyEconomyUpdate, handleCourierStatusChange]
@@ -1207,7 +1249,8 @@ export function App() {
           skipTimeOpen ||
           companyOpen ||
           settingsOpen ||
-          exitConfirmOpen
+          exitConfirmOpen ||
+          monthlyReportRecord !== null
         }
         sessionEpoch={sessionEpoch}
         maxFps={isMobileDevice ? settings.mobileMaxFps : settings.pcMaxFps}
@@ -1234,6 +1277,7 @@ export function App() {
         footprintOnly={footprintOnly}
         showStreetNames={showStreetNames}
         balance={economyState.balance}
+        companySatisfaction={economyState.companySatisfaction ?? economyState.annualSatisfactionAvg ?? 80}
         gameMinutes={gameMinutes}
         gameSpeed={effectiveSimSpeed}
         isNightMode={isNightMode}
@@ -1292,6 +1336,14 @@ export function App() {
           onPromoteCourier={handlePromoteCourier}
           onFireCourier={handleFireCourier}
           onAssignCourierVehicle={handleAssignCourierVehicle}
+        />
+      )}
+
+      {monthlyReportRecord && (
+        <MonthlyReportModal
+          record={monthlyReportRecord}
+          language={settings.language}
+          onClose={handleCloseMonthlyReport}
         />
       )}
 

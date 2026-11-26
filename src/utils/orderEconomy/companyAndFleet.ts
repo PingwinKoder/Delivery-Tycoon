@@ -48,6 +48,7 @@ import {
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
   INITIAL_BICYCLES,
+  INITIAL_COMPANY_SATISFACTION,
   INITIAL_MAX_EMPLOYEES,
   INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY,
   INITIAL_OFFERS_COUNT,
@@ -79,6 +80,7 @@ import {
   clampVehicleDurability,
   createClockRandomSeed,
   createDefaultOwnedVans,
+  createEmptyCurrentMonthLedger,
   createEmptyWeeklyPriorityOrder,
   createOwnedScooter,
   createOwnedVan,
@@ -315,10 +317,12 @@ export function createInitialOrderEconomyState(
   const baseState: OrderEconomyState = {
     balance: INITIAL_BALANCE,
     completedOrdersCount: 0,
-    annualSatisfactionSum: 0,
-    annualSatisfactionCount: 0,
-    annualSatisfactionAvg: 0,
+    annualSatisfactionSum: INITIAL_COMPANY_SATISFACTION,
+    annualSatisfactionCount: 1,
+    companySatisfaction: INITIAL_COMPANY_SATISFACTION,
+    annualSatisfactionAvg: INITIAL_COMPANY_SATISFACTION,
     annualStatsYear: startDate.year,
+    currentMonthLedger: createEmptyCurrentMonthLedger(INITIAL_COMPANY_SATISFACTION),
     reputationLevel: 1,
     warehouseLevel: starterWarehouse.tier,
     warehouseTier: starterWarehouse.tier,
@@ -696,12 +700,19 @@ export function refuelVehicleInEconomy(
     const nextScooters = scooters.map((s, i) =>
       i === idx ? { ...s, fuelLiters: clampFuelLiters(targetLiters, cap) } : s
     );
+    const baseLedger =
+      state.currentMonthLedger ??
+      createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
     return {
       state: {
         ...state,
         balance: roundCurrency(state.balance - cost),
         scooters: nextScooters,
         scootersCount: nextScooters.length,
+        currentMonthLedger: {
+          ...baseLedger,
+          fuelExpenses: roundCurrency(baseLedger.fuelExpenses + cost),
+        },
       },
       refueled: true,
       litersAdded: litersNeeded,
@@ -729,6 +740,9 @@ export function refuelVehicleInEconomy(
   const nextVans = vans.map((v, i) =>
     i === idx ? { ...v, fuelLiters: clampFuelLiters(targetLiters, cap) } : v
   );
+  const baseLedger =
+    state.currentMonthLedger ??
+    createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
   return {
     state: {
       ...state,
@@ -736,6 +750,10 @@ export function refuelVehicleInEconomy(
       vans: nextVans,
       vansCount: nextVans.length,
       deliveryVansCount: nextVans.length,
+      currentMonthLedger: {
+        ...baseLedger,
+        fuelExpenses: roundCurrency(baseLedger.fuelExpenses + cost),
+      },
     },
     refueled: true,
     litersAdded: litersNeeded,
@@ -900,11 +918,18 @@ export function requestVehicleRepair(
     costPaid: cost,
   };
 
+  const baseLedger =
+    state.currentMonthLedger ??
+    createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
   return {
     state: {
       ...state,
       balance: roundCurrency(state.balance - cost),
       pendingVehicleRepairs: [...getPendingVehicleRepairs(state), newTask],
+      currentMonthLedger: {
+        ...baseLedger,
+        repairExpenses: roundCurrency(baseLedger.repairExpenses + cost),
+      },
     },
     queued: true,
     cost,

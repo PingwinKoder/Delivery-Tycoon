@@ -1,5 +1,6 @@
 import type {
   ActiveOrder,
+  CurrentMonthLedger,
   OrderEconomyState,
   OwnedScooter,
   OwnedVan,
@@ -106,6 +107,58 @@ export const BIKE_REPAIR_GAME_MINUTES = 30;
 export const SCOOTER_CITY_REPAIR_GAME_MINUTES = 40;
 export const SCOOTER_CARGO_REPAIR_GAME_MINUTES = 45;
 export const VAN_REPAIR_GAME_MINUTES = 60;
+/** Initial continuous company satisfaction percentage (0–100) */
+export const INITIAL_COMPANY_SATISFACTION = 80;
+/** Maximum number of closed monthly settlement records retained in history */
+export const MAX_MONTHLY_SETTLEMENTS_HISTORY = 12;
+
+export function createEmptyCurrentMonthLedger(
+  initialSatisfaction: number = INITIAL_COMPANY_SATISFACTION
+): CurrentMonthLedger {
+  const safeSat = Math.max(0, Math.min(100, Number.isFinite(initialSatisfaction) ? initialSatisfaction : INITIAL_COMPANY_SATISFACTION));
+  return {
+    shortTermRevenue: 0,
+    longTermAccruedRevenue: 0,
+    fuelExpenses: 0,
+    repairExpenses: 0,
+    penaltyExpenses: 0,
+    completedOrdersCount: 0,
+    satisfactionSamplesSum: safeSat,
+    satisfactionSamplesCount: 1,
+  };
+}
+
+/**
+ * Applies a satisfaction delta to the continuous `companySatisfaction` (0–100).
+ * Above 90%, positive gains experience diminishing returns (`delta * 0.45`) so maintaining
+ * 95–100% requires consistently strong performance.
+ */
+export function applyCompanySatisfactionDelta(
+  currentSatisfaction: number,
+  rawDelta: number
+): number {
+  const base = Number.isFinite(currentSatisfaction)
+    ? Math.max(0, Math.min(100, currentSatisfaction))
+    : INITIAL_COMPANY_SATISFACTION;
+  if (!Number.isFinite(rawDelta) || rawDelta === 0) return Math.round(base * 10) / 10;
+  const effectiveDelta = rawDelta > 0 && base >= 90 ? rawDelta * 0.45 : rawDelta;
+  const next = Math.max(0, Math.min(100, base + effectiveDelta));
+  return Math.round(next * 10) / 10;
+}
+
+export function recordMonthlySatisfactionSample(
+  ledger: CurrentMonthLedger | undefined,
+  satisfaction: number
+): CurrentMonthLedger {
+  const base = ledger ?? createEmptyCurrentMonthLedger(satisfaction);
+  const safeSat = Math.max(0, Math.min(100, Number.isFinite(satisfaction) ? satisfaction : INITIAL_COMPANY_SATISFACTION));
+  return {
+    ...base,
+    satisfactionSamplesSum: Math.round((base.satisfactionSamplesSum + safeSat) * 10) / 10,
+    satisfactionSamplesCount: base.satisfactionSamplesCount + 1,
+  };
+}
+
 /** Number of in-game days (including pickup day) to deliver picked-up packages for long-term contracts (capped at Sunday 23:59) */
 export const LONG_TERM_DELIVERY_WINDOW_DAYS = 3;
 

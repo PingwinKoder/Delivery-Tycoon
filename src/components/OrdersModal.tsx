@@ -176,24 +176,30 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
 
   const clock = useMemo(() => getGameClockDisplay(gameMinutes), [gameMinutes]);
-  const [selectedWeekday, setSelectedWeekday] = useState<number>(clock.dayIndex);
-  const latestDayIndexRef = useRef<number>(clock.dayIndex);
-  latestDayIndexRef.current = clock.dayIndex;
+  /** `null` = pinned to "Today" (leftmost tile); positive number = pinned to a specific future `targetGameDay` */
+  const [selectedScheduleGameDay, setSelectedScheduleGameDay] = useState<number | null>(null);
 
   const unreadOffersCount = useMemo(() => countUnreadOffers(economyState), [economyState]);
 
   // Default Weekly Plan selector to today whenever the modal opens
   useEffect(() => {
     if (isOpen) {
-      setSelectedWeekday(latestDayIndexRef.current);
+      setSelectedScheduleGameDay(null);
       setSortMenuOpen(false);
     }
   }, [isOpen]);
 
-  // Close sort menu when switching tabs or selected weekday
+  // If a previously selected future day has now become today (crossed 00:00), snap cleanly to pinned "Today" mode
+  useEffect(() => {
+    if (selectedScheduleGameDay !== null && selectedScheduleGameDay <= clock.gameDay) {
+      setSelectedScheduleGameDay(null);
+    }
+  }, [selectedScheduleGameDay, clock.gameDay]);
+
+  // Close sort menu when switching tabs or selected day
   useEffect(() => {
     setSortMenuOpen(false);
-  }, [activeTab, selectedWeekday]);
+  }, [activeTab, selectedScheduleGameDay]);
 
   // Close sort menu on outside pointer press
   useEffect(() => {
@@ -233,49 +239,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, sortMenuOpen, onClose]);
 
-  const nextMonthName = getMonthName(language, (clock.monthIndex + 1) % 12, false);
-  const accruedLongTerm = economyState.pendingMonthlyLongTermPayout;
-  const monthlyCosts = useMemo(() => calculateMonthlyCompanyCosts(economyState), [economyState]);
-  const monthlyNetForecast = roundCurrency(accruedLongTerm - monthlyCosts.totalFixedCosts);
-  const monthlyCostsBreakdownTitle = useMemo(() => {
-    const warehouseLevel = economyState.warehouseLevel ?? economyState.warehouseTier;
-    const parts: string[] = [
-      t(language, 'orders.costBaseUpkeep', {
-        level: warehouseLevel,
-        amount: formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false),
-      }),
-    ];
-    if (monthlyCosts.salariesCost > 0) {
-      parts.push(
-        t(language, 'orders.costSalaries', {
-          amount: formatCurrencyUsd(monthlyCosts.salariesCost, false),
-        })
-      );
-    }
-    if (monthlyCosts.courierInsuranceCost > 0) {
-      parts.push(
-        t(language, 'orders.costBikeInsurance', {
-          amount: formatCurrencyUsd(monthlyCosts.courierInsuranceCost, false),
-        })
-      );
-    }
-    if (monthlyCosts.scooterInsuranceCost > 0) {
-      parts.push(
-        t(language, 'orders.costScooterInsurance', {
-          amount: formatCurrencyUsd(monthlyCosts.scooterInsuranceCost, false),
-        })
-      );
-    }
-    if (monthlyCosts.vanInsuranceCost > 0) {
-      parts.push(
-        t(language, 'orders.costVanInsurance', {
-          amount: formatCurrencyUsd(monthlyCosts.vanInsuranceCost, false),
-        })
-      );
-    }
-    return parts.join(' | ');
-  }, [language, monthlyCosts, economyState.warehouseLevel, economyState.warehouseTier]);
-
   const weeklyColumns = useMemo(() => {
     return Array.from({ length: DAYS_PER_WEEK }, (_, dayOffset) => {
       const targetGameDay = clock.gameDay + dayOffset;
@@ -310,7 +273,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   }, [economyState, clock.gameDay, taskAssignmentsByTaskId, language]);
 
   const selectedDay =
-    weeklyColumns.find((day) => day.weekdayIndex === selectedWeekday) ?? weeklyColumns[0];
+    selectedScheduleGameDay === null || selectedScheduleGameDay <= clock.gameDay
+      ? weeklyColumns[0]
+      : weeklyColumns.find((day) => day.targetGameDay === selectedScheduleGameDay) ??
+        weeklyColumns[0];
 
   if (!isOpen) return null;
 
@@ -329,55 +295,19 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
         className="w-[94vw] max-w-4xl h-[min(84vh,680px)] max-h-[84vh] [@media(max-height:540px)]:h-[95vh] [@media(max-height:540px)]:max-h-[95vh] [@media(min-width:1024px)_and_(min-height:541px)]:w-[90vw] [@media(min-width:1024px)_and_(min-height:541px)]:max-w-[1160px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[min(90vh,860px)] [@media(min-width:1024px)_and_(min-height:541px)]:max-h-[90vh] flex flex-col rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-lg overflow-hidden text-slate-100 touch-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Compact Single-Line Company Status Bar */}
-        <div className="flex items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3 px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 bg-[#182030] border-b border-slate-700/80">
-          <div className="flex flex-wrap items-center gap-x-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-x-3 gap-y-0.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0 leading-tight">
-            <h2 id="orders-modal-heading" className="sr-only">
-              {t(language, 'orders.headingSr')}
+        {/* Clean Orders Modal Header */}
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 bg-[#182030] border-b border-slate-700/80">
+          <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+            <Files
+              className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0"
+              aria-hidden="true"
+            />
+            <h2
+              id="orders-modal-heading"
+              className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-extrabold text-slate-100 tracking-tight truncate"
+            >
+              {t(language, 'hud.orders')}
             </h2>
-
-            <span className="whitespace-nowrap">
-              <span className="text-slate-400">{t(language, 'orders.completed')} </span>
-              <span className="font-bold text-slate-100 font-mono-nums">
-                {economyState.completedOrdersCount}
-              </span>
-            </span>
-
-            <span className="text-slate-600" aria-hidden="true">|</span>
-
-            <span className="whitespace-nowrap">
-              <span className="text-slate-400">
-                {t(language, 'orders.satisfactionYear', { year: clock.year })}{' '}
-              </span>
-              <span className="font-bold text-amber-300 font-mono-nums">
-                {formatSatisfactionValue(economyState.annualSatisfactionAvg)}
-              </span>
-            </span>
-
-            <span className="text-slate-600" aria-hidden="true">|</span>
-
-            <span className="flex flex-wrap items-baseline gap-x-1">
-              <span className="text-slate-400 whitespace-nowrap">
-                {t(language, 'orders.settlementDate', { month: nextMonthName })}
-              </span>
-              <span className="font-mono-nums font-semibold text-emerald-400 whitespace-nowrap">
-                +{formatCurrencyUsd(accruedLongTerm, false)}
-              </span>
-              <span className="text-slate-500" aria-hidden="true">/</span>
-              <span
-                title={monthlyCostsBreakdownTitle}
-                className="font-mono-nums font-semibold text-rose-400 whitespace-nowrap"
-              >
-                -{formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
-              </span>
-              <span
-                className={`font-mono-nums font-bold whitespace-nowrap ${monthlyNetForecast >= 0 ? 'text-emerald-300' : 'text-rose-300'
-                  }`}
-              >
-                ({monthlyNetForecast >= 0 ? '+' : ''}
-                {formatCurrencyUsd(monthlyNetForecast, false)})
-              </span>
-            </span>
           </div>
 
           <button
@@ -540,13 +470,15 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                 aria-label={t(language, 'orders.weekdayGroupAria')}
               >
                 {weeklyColumns.map((day) => {
-                  const isSelected = day.weekdayIndex === selectedDay.weekdayIndex;
+                  const isSelected = day.targetGameDay === selectedDay.targetGameDay;
                   return (
                     <button
-                      key={day.weekdayIndex}
+                      key={day.targetGameDay}
                       type="button"
                       aria-pressed={isSelected}
-                      onClick={() => setSelectedWeekday(day.weekdayIndex)}
+                      onClick={() =>
+                        setSelectedScheduleGameDay(day.isToday ? null : day.targetGameDay)
+                      }
                       className={`min-w-0 rounded-lg border p-1 [@media(min-width:1024px)_and_(min-height:541px)]:p-2.5 text-left flex flex-col justify-between gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${isSelected
                         ? 'bg-amber-500/15 border-amber-400 shadow-sm'
                         : day.isToday
