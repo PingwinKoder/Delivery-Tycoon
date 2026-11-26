@@ -172,8 +172,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             aria-selected={effectiveTab === 'audio'}
             onClick={() => setActiveTab('audio')}
             className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${effectiveTab === 'audio'
-                ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
               }`}
           >
             <Volume2 className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
@@ -186,8 +186,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             aria-selected={effectiveTab === 'graphics'}
             onClick={() => setActiveTab('graphics')}
             className={`flex-1 py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold flex items-center justify-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${effectiveTab === 'graphics'
-                ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
               }`}
           >
             <Monitor className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
@@ -283,8 +283,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           aria-pressed={isSelected}
                           onClick={() => onUpdateSettings({ language: entry.code })}
                           className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
-                              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                            ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                            : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                             }`}
                         >
                           {entry.nativeLabel}
@@ -315,8 +315,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       aria-pressed={!isFullscreen}
                       onClick={handleSetWindowed}
                       className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!isFullscreen
-                          ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                          : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                        ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                        : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                         }`}
                     >
                       <Minimize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
@@ -328,8 +328,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       aria-pressed={isFullscreen}
                       onClick={handleSetFullscreen}
                       className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isFullscreen
-                          ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                          : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                        ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                        : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                         }`}
                     >
                       <Maximize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
@@ -363,8 +363,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           aria-pressed={isSelected}
                           onClick={() => onUpdateSettings({ pcMaxFps: option })}
                           className={`py-1.5 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation truncate focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
-                              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                            ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                            : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                             }`}
                         >
                           {label}
@@ -387,8 +387,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           aria-pressed={isSelected}
                           onClick={() => onUpdateSettings({ mobileMaxFps: option })}
                           className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
-                              ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                            ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                            : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                             }`}
                         >
                           {option} FPS
@@ -416,8 +416,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-pressed={settings.showFpsCounter}
                     onClick={() => onUpdateSettings({ showFpsCounter: true })}
                     className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showFpsCounter
-                        ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                        : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                      : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
                   >
                     {t(lang, 'settings.toggleOn')}
@@ -428,8 +428,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-pressed={!settings.showFpsCounter}
                     onClick={() => onUpdateSettings({ showFpsCounter: false })}
                     className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showFpsCounter
-                        ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
-                        : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                      : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
                   >
                     {t(lang, 'settings.toggleOff')}
