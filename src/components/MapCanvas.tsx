@@ -1983,303 +1983,303 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const currentEco = propsRef.current.economyStateRef?.current;
       const ownedVansList = currentEco ? getOwnedVans(currentEco) : undefined;
 
-          let anyCourierInRoute = false;
-          for (const slotIndex of COURIER_SLOT_INDICES) {
-            const entry = fleet[slotIndex];
-            if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
-              anyCourierInRoute = true;
-              break;
-            }
+      let anyCourierInRoute = false;
+      for (const slotIndex of COURIER_SLOT_INDICES) {
+        const entry = fleet[slotIndex];
+        if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
+          anyCourierInRoute = true;
+          break;
+        }
+      }
+
+      const clampedBikes = Math.max(0, Math.min(3, Math.floor(curBikesCount)));
+      let parkedBikeIndices: number[];
+      let activeOutVanIndices: Set<number> | null = null;
+
+      if (!anyCourierInRoute) {
+        if (
+          cachedIdleDepot !== curBaseDepot ||
+          cachedIdleBikesCount !== clampedBikes ||
+          cachedIdleVansCount !== curVansCount ||
+          cachedIdleOwnedVans !== ownedVansList
+        ) {
+          cachedIdleDepot = curBaseDepot;
+          cachedIdleBikesCount = clampedBikes;
+          cachedIdleVansCount = curVansCount;
+          cachedIdleOwnedVans = ownedVansList;
+          const bikes: number[] = [];
+          for (let i = 1; i <= clampedBikes; i++) {
+            bikes.push(i);
           }
-
-          const clampedBikes = Math.max(0, Math.min(3, Math.floor(curBikesCount)));
-          let parkedBikeIndices: number[];
-          let activeOutVanIndices: Set<number> | null = null;
-
-          if (!anyCourierInRoute) {
-            if (
-              cachedIdleDepot !== curBaseDepot ||
-              cachedIdleBikesCount !== clampedBikes ||
-              cachedIdleVansCount !== curVansCount ||
-              cachedIdleOwnedVans !== ownedVansList
-            ) {
-              cachedIdleDepot = curBaseDepot;
-              cachedIdleBikesCount = clampedBikes;
-              cachedIdleVansCount = curVansCount;
-              cachedIdleOwnedVans = ownedVansList;
-              const bikes: number[] = [];
-              for (let i = 1; i <= clampedBikes; i++) {
-                bikes.push(i);
-              }
-              cachedIdleParkedBikes = bikes;
-              const idleBikeRackEntity: DepthSortedEntity = {
-                id: rack.id,
-                uMin: rack.uMin,
-                uMax: rack.uMax,
-                vMin: rack.vMin,
-                vMax: rack.vMax,
-                draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, bikes),
-              };
-              const idleParkedVans = createBaseParkedVanEntities(
-                curBaseDepot,
-                curVansCount,
-                null,
-                ownedVansList
-              );
-              cachedIdleDepthEntities = [idleBikeRackEntity, ...idleParkedVans];
-            }
-            parkedBikeIndices = cachedIdleParkedBikes;
-          } else {
-            const activeOut = getActiveOutVehiclesForFleet(fleet);
-            activeOutVanIndices = activeOut.vanIndices;
-            parkedBikeIndices = [];
-            for (let i = 1; i <= clampedBikes; i++) {
-              if (!activeOut.bikeIndices.has(i)) {
-                parkedBikeIndices.push(i);
-              }
-            }
-          }
-
-          const drawFleetCourier = (
-            drawCtx: CanvasRenderingContext2D,
-            entry: FleetCourierSlotState
-          ) => {
-            const c = entry.courier;
-            const cargoCount = getCourierCargoCount(c.cargo);
-            if (c.vehicleType === 'van') {
-              const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, c.vehicleIndex) : undefined;
-              drawIsometricDeliveryVan(drawCtx, {
-                x: c.x,
-                y: c.y,
-                angle: c.angle,
-                wheelPhase: c.wheelPhase,
-                isDelivering: c.phase === 'delivering',
-                condition: ownedVan?.condition ?? 'used',
-                tier: ownedVan?.tier ?? 'standard',
-                courierSlotIndex: entry.slotIndex,
-                cargoCount,
-                cargoCapacity: c.cargoCapacity,
-                invScale,
-              });
-            } else {
-              drawIsometricBicycle(drawCtx, {
-                x: c.x,
-                y: c.y,
-                angle: c.angle,
-                withRider: c.riderMounted,
-                wheelPhase: c.wheelPhase,
-                isDelivering: c.phase === 'delivering',
-                courierSlotIndex: entry.slotIndex,
-                cargoCount,
-                cargoCapacity: c.cargoCapacity,
-                invScale,
-              });
-            }
+          cachedIdleParkedBikes = bikes;
+          const idleBikeRackEntity: DepthSortedEntity = {
+            id: rack.id,
+            uMin: rack.uMin,
+            uMax: rack.uMax,
+            vMin: rack.vMin,
+            vMax: rack.vMax,
+            draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, bikes),
           };
-
-          if (isFootprintOnly) {
-            // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
-            drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
-            drawDynamicRouteAndPin();
-            if (curBaseNode) {
-              drawBaseMarker(curBaseNode);
-            }
-            drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices);
-            const parkedVanSlots = getBaseParkedVanSlots(
-              curBaseDepot.parking,
-              curVansCount,
-              null
-        ).filter((slot) => !activeOutVanIndices || !activeOutVanIndices.has(slot.vanIndex));
-  for (const slot of parkedVanSlots) {
-    const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, slot.vanIndex) : undefined;
-    drawIsometricDeliveryVan(ctx, {
-      x: slot.spot.x,
-      y: slot.spot.y,
-      angle: slot.parkedAngle,
-      wheelPhase: 0,
-      condition: ownedVan?.condition ?? 'used',
-      tier: ownedVan?.tier ?? 'standard',
-    });
-  }
-  for (const slotIndex of COURIER_SLOT_INDICES) {
-    const entry = fleet[slotIndex];
-    if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
-      drawFleetCourier(ctx, entry);
-    }
-  }
-  if (streetNamesVisible) {
-    renderStreetNames(ctx, effectiveZoom, viewBounds);
-  }
-} else {
-  // Normal 3D Mode: Base loading zone & active routes on ground, then Z-sorted 3D building sprites interleaved with
-  // fences, BAZA bike rack, parked fleet vans on P1–P8, and ALL active courier vehicles so tall blocks naturally occlude them
-  let depthEntities: DepthSortedEntity[];
-  if(!anyCourierInRoute) {
-    depthEntities = cachedIdleDepthEntities;
-  } else {
-    const bikeRackEntity: DepthSortedEntity = {
-      id: rack.id,
-      uMin: rack.uMin,
-      uMax: rack.uMax,
-      vMin: rack.vMin,
-      vMax: rack.vMax,
-      draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices),
-    };
-
-    const parkedVanEntities = createBaseParkedVanEntities(
-      curBaseDepot,
-      curVansCount,
-      null,
-      ownedVansList
-    ).filter((entity) => {
-      const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
-      return !activeOutVanIndices || !activeOutVanIndices.has(vanIdx);
-    });
-    depthEntities =[bikeRackEntity, ...parkedVanEntities];
-
-        for (const slotIndex of COURIER_SLOT_INDICES) {
-          const entry = fleet[slotIndex];
-          if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
-          const c = entry.courier;
-          const isoPos = canvasToIso(c.x, c.y);
-          if (c.vehicleType === 'van') {
-            const fx = Math.cos(c.angle);
-            const fy = Math.sin(c.angle);
-            const du = fx * 0.5 + fy;
-            const dv = fx * 0.5 - fy;
-            const dLen = Math.hypot(du, dv) || 1;
-            const au = Math.abs(du / dLen);
-            const av = Math.abs(dv / dLen);
-            const halfU = 9.4 * au + 4.6 * av;
-            const halfV = 9.4 * av + 4.6 * au;
-            depthEntities.push({
-              id: `courier_slot_${slotIndex}_van_${c.vehicleIndex}`,
-              uMin: isoPos.u - halfU,
-              uMax: isoPos.u + halfU,
-              vMin: isoPos.v - halfV,
-              vMax: isoPos.v + halfV,
-              draw: (drawCtx) => drawFleetCourier(drawCtx, entry),
-            });
-          } else {
-            const halfFoot = 3.2;
-            depthEntities.push({
-              id: `courier_slot_${slotIndex}_bike_${c.vehicleIndex}`,
-              uMin: isoPos.u - halfFoot,
-              uMax: isoPos.u + halfFoot,
-              vMin: isoPos.v - halfFoot,
-              vMax: isoPos.v + halfFoot,
-              draw: (drawCtx) => drawFleetCourier(drawCtx, entry),
-            });
+          const idleParkedVans = createBaseParkedVanEntities(
+            curBaseDepot,
+            curVansCount,
+            null,
+            ownedVansList
+          );
+          cachedIdleDepthEntities = [idleBikeRackEntity, ...idleParkedVans];
+        }
+        parkedBikeIndices = cachedIdleParkedBikes;
+      } else {
+        const activeOut = getActiveOutVehiclesForFleet(fleet);
+        activeOutVanIndices = activeOut.vanIndices;
+        parkedBikeIndices = [];
+        for (let i = 1; i <= clampedBikes; i++) {
+          if (!activeOut.bikeIndices.has(i)) {
+            parkedBikeIndices.push(i);
           }
         }
       }
 
-      drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
-      if (anyCourierInRoute) {
+      const drawFleetCourier = (
+        drawCtx: CanvasRenderingContext2D,
+        entry: FleetCourierSlotState
+      ) => {
+        const c = entry.courier;
+        const cargoCount = getCourierCargoCount(c.cargo);
+        if (c.vehicleType === 'van') {
+          const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, c.vehicleIndex) : undefined;
+          drawIsometricDeliveryVan(drawCtx, {
+            x: c.x,
+            y: c.y,
+            angle: c.angle,
+            wheelPhase: c.wheelPhase,
+            isDelivering: c.phase === 'delivering',
+            condition: ownedVan?.condition ?? 'used',
+            tier: ownedVan?.tier ?? 'standard',
+            courierSlotIndex: entry.slotIndex,
+            cargoCount,
+            cargoCapacity: c.cargoCapacity,
+            invScale,
+          });
+        } else {
+          drawIsometricBicycle(drawCtx, {
+            x: c.x,
+            y: c.y,
+            angle: c.angle,
+            withRider: c.riderMounted,
+            wheelPhase: c.wheelPhase,
+            isDelivering: c.phase === 'delivering',
+            courierSlotIndex: entry.slotIndex,
+            cargoCount,
+            cargoCapacity: c.cargoCapacity,
+            invScale,
+          });
+        }
+      };
+
+      if (isFootprintOnly) {
+        // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
+        drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
         drawDynamicRouteAndPin();
+        if (curBaseNode) {
+          drawBaseMarker(curBaseNode);
+        }
+        drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices);
+        const parkedVanSlots = getBaseParkedVanSlots(
+          curBaseDepot.parking,
+          curVansCount,
+          null
+        ).filter((slot) => !activeOutVanIndices || !activeOutVanIndices.has(slot.vanIndex));
+        for (const slot of parkedVanSlots) {
+          const ownedVan = currentEco ? getOwnedVanByIndex(currentEco, slot.vanIndex) : undefined;
+          drawIsometricDeliveryVan(ctx, {
+            x: slot.spot.x,
+            y: slot.spot.y,
+            angle: slot.parkedAngle,
+            wheelPhase: 0,
+            condition: ownedVan?.condition ?? 'used',
+            tier: ownedVan?.tier ?? 'standard',
+          });
+        }
+        for (const slotIndex of COURIER_SLOT_INDICES) {
+          const entry = fleet[slotIndex];
+          if (entry && entry.inRoute && entry.courier.phase !== 'idle') {
+            drawFleetCourier(ctx, entry);
+          }
+        }
+        if (streetNamesVisible) {
+          renderStreetNames(ctx, effectiveZoom, viewBounds);
+        }
+      } else {
+        // Normal 3D Mode: Base loading zone & active routes on ground, then Z-sorted 3D building sprites interleaved with
+        // fences, BAZA bike rack, parked fleet vans on P1–P8, and ALL active courier vehicles so tall blocks naturally occlude them
+        let depthEntities: DepthSortedEntity[];
+        if (!anyCourierInRoute) {
+          depthEntities = cachedIdleDepthEntities;
+        } else {
+          const bikeRackEntity: DepthSortedEntity = {
+            id: rack.id,
+            uMin: rack.uMin,
+            uMax: rack.uMax,
+            vMin: rack.vMin,
+            vMax: rack.vMax,
+            draw: (drawCtx) => drawBikeRackWithOptionalBike(drawCtx, rack, parkedBikeIndices),
+          };
+
+          const parkedVanEntities = createBaseParkedVanEntities(
+            curBaseDepot,
+            curVansCount,
+            null,
+            ownedVansList
+          ).filter((entity) => {
+            const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
+            return !activeOutVanIndices || !activeOutVanIndices.has(vanIdx);
+          });
+          depthEntities = [bikeRackEntity, ...parkedVanEntities];
+
+          for (const slotIndex of COURIER_SLOT_INDICES) {
+            const entry = fleet[slotIndex];
+            if (!entry || !entry.inRoute || entry.courier.phase === 'idle') continue;
+            const c = entry.courier;
+            const isoPos = canvasToIso(c.x, c.y);
+            if (c.vehicleType === 'van') {
+              const fx = Math.cos(c.angle);
+              const fy = Math.sin(c.angle);
+              const du = fx * 0.5 + fy;
+              const dv = fx * 0.5 - fy;
+              const dLen = Math.hypot(du, dv) || 1;
+              const au = Math.abs(du / dLen);
+              const av = Math.abs(dv / dLen);
+              const halfU = 9.4 * au + 4.6 * av;
+              const halfV = 9.4 * av + 4.6 * au;
+              depthEntities.push({
+                id: `courier_slot_${slotIndex}_van_${c.vehicleIndex}`,
+                uMin: isoPos.u - halfU,
+                uMax: isoPos.u + halfU,
+                vMin: isoPos.v - halfV,
+                vMax: isoPos.v + halfV,
+                draw: (drawCtx) => drawFleetCourier(drawCtx, entry),
+              });
+            } else {
+              const halfFoot = 3.2;
+              depthEntities.push({
+                id: `courier_slot_${slotIndex}_bike_${c.vehicleIndex}`,
+                uMin: isoPos.u - halfFoot,
+                uMax: isoPos.u + halfFoot,
+                vMin: isoPos.v - halfFoot,
+                vMax: isoPos.v + halfFoot,
+                draw: (drawCtx) => drawFleetCourier(drawCtx, entry),
+              });
+            }
+          }
+        }
+
+        drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+        if (anyCourierInRoute) {
+          drawDynamicRouteAndPin();
+        }
+        renderBuildings3D(
+          ctx,
+          curBuildings,
+          null,
+          null,
+          effectiveZoom,
+          viewBounds,
+          depthEntities,
+          sceneSpriteAtlasRef.current?.buildings ?? null,
+          sceneSpriteAtlasRef.current?.fences ?? null
+        );
+        if (curBaseNode) {
+          drawBaseMarker(curBaseNode);
+        }
+        if (streetNamesVisible && !propsRef.current.overviewMode) {
+          renderStreetNames(ctx, effectiveZoom, viewBounds);
+        }
       }
-      renderBuildings3D(
-        ctx,
-        curBuildings,
-        null,
-        null,
-        effectiveZoom,
-        viewBounds,
-        depthEntities,
-        sceneSpriteAtlasRef.current?.buildings ?? null,
-        sceneSpriteAtlasRef.current?.fences ?? null
-      );
-      if (curBaseNode) {
-        drawBaseMarker(curBaseNode);
-      }
-      if (streetNamesVisible && !propsRef.current.overviewMode) {
-        renderStreetNames(ctx, effectiveZoom, viewBounds);
-      }
-    }
 
       ctx.restore();
 
-    // Render atmospheric fog directly inside <canvas> so no full-screen DOM layer is allocated mid-animation
-    if(fogProgress > 0.001) {
-      ctx.save();
-ctx.setTransform(1, 0, 0, 1, 0, 0);
-ctx.fillStyle = `rgba(15, 23, 42, ${fogProgress * 0.82})`;
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.restore();
+      // Render atmospheric fog directly inside <canvas> so no full-screen DOM layer is allocated mid-animation
+      if (fogProgress > 0.001) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = `rgba(15, 23, 42, ${fogProgress * 0.82})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
       }
 
-if (notifyIntroComplete) {
-  propsRef.current.onIntroFlyInComplete?.();
-}
-if (notifyOutroComplete) {
-  propsRef.current.onOutroFlyOutComplete?.();
-}
+      if (notifyIntroComplete) {
+        propsRef.current.onIntroFlyInComplete?.();
+      }
+      if (notifyOutroComplete) {
+        propsRef.current.onOutroFlyOutComplete?.();
+      }
 
-if (!hasNotifiedMapReady) {
-  hasNotifiedMapReady = true;
-  mapReadyRafId = requestAnimationFrame(() => {
-    mapReadyRafId = null;
-    propsRef.current.onMapReady?.();
-  });
-}
+      if (!hasNotifiedMapReady) {
+        hasNotifiedMapReady = true;
+        mapReadyRafId = requestAnimationFrame(() => {
+          mapReadyRafId = null;
+          propsRef.current.onMapReady?.();
+        });
+      }
 
-rafId = requestAnimationFrame(drawScene);
+      rafId = requestAnimationFrame(drawScene);
     };
 
-let hasNotifiedMapReady = false;
-let mapReadyRafId: number | null = null;
+    let hasNotifiedMapReady = false;
+    let mapReadyRafId: number | null = null;
 
-updateCanvasSize();
-ensureStaticCaches();
-const resizeObserver = new ResizeObserver(updateCanvasSize);
-resizeObserver.observe(container);
-window.addEventListener('resize', updateCanvasSize);
-rafId = requestAnimationFrame(drawScene);
+    updateCanvasSize();
+    ensureStaticCaches();
+    const resizeObserver = new ResizeObserver(updateCanvasSize);
+    resizeObserver.observe(container);
+    window.addEventListener('resize', updateCanvasSize);
+    rafId = requestAnimationFrame(drawScene);
 
-return () => {
-  if (rafId !== null) {
-    cancelAnimationFrame(rafId);
-  }
-  if (mapReadyRafId !== null) {
-    cancelAnimationFrame(mapReadyRafId);
-  }
-  resizeObserver.disconnect();
-  window.removeEventListener('resize', updateCanvasSize);
-  canvas.removeEventListener('mousedown', onMouseDown);
-  window.removeEventListener('mousemove', onMouseMove);
-  window.removeEventListener('mouseup', onMouseUp);
-  canvas.removeEventListener('mouseleave', onMouseLeave);
-  canvas.removeEventListener('wheel', onWheel);
-  canvas.removeEventListener('touchstart', onTouchStart);
-  canvas.removeEventListener('touchmove', onTouchMove);
-  canvas.removeEventListener('touchend', onTouchEnd);
-  canvas.removeEventListener('touchcancel', onTouchEnd);
-  window.removeEventListener('keydown', onKeyDown);
-  window.removeEventListener('keyup', onKeyUp);
-  window.removeEventListener('blur', onWindowBlur);
-  pressedArrowKeysRef.current.clear();
-  disposeViewportGroundCache(viewportGroundCacheRef.current);
-  viewportGroundCacheRef.current = null;
-  disposeStaticGroundBuffer(groundBufferRef.current);
-  groundBufferRef.current = null;
-  disposeSceneSpriteAtlas(sceneSpriteAtlasRef.current);
-  sceneSpriteAtlasRef.current = null;
-};
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      if (mapReadyRafId !== null) {
+        cancelAnimationFrame(mapReadyRafId);
+      }
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateCanvasSize);
+      canvas.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      canvas.removeEventListener('mouseleave', onMouseLeave);
+      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
+      pressedArrowKeysRef.current.clear();
+      disposeViewportGroundCache(viewportGroundCacheRef.current);
+      viewportGroundCacheRef.current = null;
+      disposeStaticGroundBuffer(groundBufferRef.current);
+      groundBufferRef.current = null;
+      disposeSceneSpriteAtlas(sceneSpriteAtlasRef.current);
+      sceneSpriteAtlasRef.current = null;
+    };
   }, []);
 
-return (
-  <div
-    ref={containerRef}
-    className="fixed inset-0 w-full h-full overflow-hidden bg-[#161b22]"
-  >
-    <canvas
-      ref={canvasRef}
-      data-testid="map-canvas"
-      aria-label="Interaktywna mapa miasta Delivery Tycoon"
-      className="block w-full h-full touch-none cursor-default"
-    />
-  </div>
-);
+  return (
+    <div
+      ref={containerRef}
+      className="fixed inset-0 w-full h-full overflow-hidden bg-[#161b22]"
+    >
+      <canvas
+        ref={canvasRef}
+        data-testid="map-canvas"
+        aria-label="Interaktywna mapa miasta Delivery Tycoon"
+        className="block w-full h-full touch-none cursor-default"
+      />
+    </div>
+  );
 });
 
 MapCanvas.displayName = 'MapCanvas';

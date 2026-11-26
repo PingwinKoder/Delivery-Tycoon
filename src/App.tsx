@@ -1101,18 +1101,18 @@ export function App() {
     !isPausedByOverlay && allCouriersAtBase && gameSpeed !== 0 && isNightHoursForTime(gameMinutes);
 
   const nextDayMorningMinutes = useMemo(
-      () =>
-  startScreenOpen || !skipTimeOpen
-    ? INITIAL_GAME_MINUTES
-    : getNextDayMorningMinutes(gameMinutes),
+    () =>
+      startScreenOpen || !skipTimeOpen
+        ? INITIAL_GAME_MINUTES
+        : getNextDayMorningMinutes(gameMinutes),
     [gameMinutes, startScreenOpen, skipTimeOpen]
   );
 
   const nextScheduledOrderMinutes = useMemo(
     () =>
       startScreenOpen || !skipTimeOpen
-      ? null
-      : findNextScheduledOrderDayMinutes(economyState, gameMinutes),
+        ? null
+        : findNextScheduledOrderDayMinutes(economyState, gameMinutes),
     [economyState, gameMinutes, startScreenOpen, skipTimeOpen]
   );
 

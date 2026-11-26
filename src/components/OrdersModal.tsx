@@ -283,12 +283,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       );
       const tasks: WeeklyScheduleTask[] = isToday
         ? rawTasks.map((task) => {
-            const assignedCourierId =
-              taskAssignmentsByTaskId?.[task.taskId] ?? taskAssignmentsByTaskId?.[task.orderId];
-            return assignedCourierId !== undefined
-              ? { ...task, assignedCourierId }
-              : task;
-          })
+          const assignedCourierId =
+            taskAssignmentsByTaskId?.[task.taskId] ?? taskAssignmentsByTaskId?.[task.orderId];
+          return assignedCourierId !== undefined
+            ? { ...task, assignedCourierId }
+            : task;
+        })
         : rawTasks;
       return {
         targetGameDay,
@@ -364,9 +364,8 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                 -{formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
               </span>
               <span
-                className={`font-mono-nums font-bold whitespace-nowrap ${
-                  monthlyNetForecast >= 0 ? 'text-emerald-300' : 'text-rose-300'
-                }`}
+                className={`font-mono-nums font-bold whitespace-nowrap ${monthlyNetForecast >= 0 ? 'text-emerald-300' : 'text-rose-300'
+                  }`}
               >
                 ({monthlyNetForecast >= 0 ? '+' : ''}
                 {formatCurrencyUsd(monthlyNetForecast, false)})
@@ -398,18 +397,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'offers'}
               aria-controls="panel-offers"
               onClick={() => setActiveTab('offers')}
-              className={`relative px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                activeTab === 'offers'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
-              }`}
+              className={`relative px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'offers'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
+                }`}
             >
               <Files className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'orders.tabOffers')}</span>
               <span
-                className={`font-mono-nums ${
-                  activeTab === 'offers' ? 'text-slate-900' : 'text-slate-400'
-                }`}
+                className={`font-mono-nums ${activeTab === 'offers' ? 'text-slate-900' : 'text-slate-400'
+                  }`}
               >
                 ({economyState.pendingOffers.length})
               </span>
@@ -430,18 +427,16 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'active'}
               aria-controls="panel-active"
               onClick={() => setActiveTab('active')}
-              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                activeTab === 'active'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
-              }`}
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'active'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
+                }`}
             >
               <ClipboardList className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'orders.tabActive')}</span>
               <span
-                className={`font-mono-nums ${
-                  activeTab === 'active' ? 'text-slate-900' : 'text-slate-400'
-                }`}
+                className={`font-mono-nums ${activeTab === 'active' ? 'text-slate-900' : 'text-slate-400'
+                  }`}
               >
                 ({economyState.activeOrders.length})
               </span>
@@ -454,11 +449,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
               aria-selected={activeTab === 'schedule'}
               aria-controls="panel-schedule"
               onClick={() => setActiveTab('schedule')}
-              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                activeTab === 'schedule'
-                  ? 'bg-amber-500 text-slate-950 shadow-sm'
-                  : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
-              }`}
+              className={`px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${activeTab === 'schedule'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-800/90 text-slate-200 hover:bg-slate-700/90 border border-slate-700/80'
+                }`}
             >
               <CalendarDays className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
               <span>{t(language, 'orders.tabSchedule')}</span>
@@ -546,27 +540,24 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       type="button"
                       aria-pressed={isSelected}
                       onClick={() => setSelectedWeekday(day.weekdayIndex)}
-                      className={`min-w-0 rounded-lg border p-1 [@media(min-width:1024px)_and_(min-height:541px)]:p-2.5 text-left flex flex-col justify-between gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
-                        isSelected
-                          ? 'bg-amber-500/15 border-amber-400 shadow-sm'
-                          : day.isToday
-                            ? 'bg-[#1a2438] border-amber-400/50 hover:border-amber-400/80'
-                            : 'bg-[#172030] border-slate-800 hover:border-slate-600'
-                      }`}
+                      className={`min-w-0 rounded-lg border p-1 [@media(min-width:1024px)_and_(min-height:541px)]:p-2.5 text-left flex flex-col justify-between gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${isSelected
+                        ? 'bg-amber-500/15 border-amber-400 shadow-sm'
+                        : day.isToday
+                          ? 'bg-[#1a2438] border-amber-400/50 hover:border-amber-400/80'
+                          : 'bg-[#172030] border-slate-800 hover:border-slate-600'
+                        }`}
                     >
                       <div className="flex items-center justify-between gap-1 min-w-0">
                         <div className="flex items-baseline gap-1 min-w-0 truncate">
                           <span
-                            className={`text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold shrink-0 ${
-                              isSelected || day.isToday ? 'text-amber-300' : 'text-slate-100'
-                            }`}
+                            className={`text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold shrink-0 ${isSelected || day.isToday ? 'text-amber-300' : 'text-slate-100'
+                              }`}
                           >
                             {day.weekdayShort}
                           </span>
                           <span
-                            className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums truncate ${
-                              isSelected ? 'text-slate-200' : 'text-slate-400'
-                            }`}
+                            className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums truncate ${isSelected ? 'text-slate-200' : 'text-slate-400'
+                              }`}
                           >
                             {day.dateLabel}
                           </span>
@@ -579,13 +570,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       </div>
 
                       <span
-                        className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums font-semibold leading-none ${
-                          day.tasks.length > 0
-                            ? isSelected
-                              ? 'text-amber-200'
-                              : 'text-slate-300'
-                            : 'text-slate-500'
-                        }`}
+                        className={`text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums font-semibold leading-none ${day.tasks.length > 0
+                          ? isSelected
+                            ? 'text-amber-200'
+                            : 'text-slate-300'
+                          : 'text-slate-500'
+                          }`}
                       >
                         {t(language, 'orders.tasksCountShort', { count: day.tasks.length })}
                       </span>
@@ -625,20 +615,18 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         weekday: selectedDay.weekdayName,
                       })}
                       onClick={() => setSortMenuOpen((prev) => !prev)}
-                      className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                        selectedDay.tasks.length === 0
-                          ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                          : sortMenuOpen
-                            ? 'bg-amber-500/15 text-amber-200 border-amber-400/70 cursor-pointer'
-                            : 'bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border-slate-700 cursor-pointer'
-                      }`}
+                      className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${selectedDay.tasks.length === 0
+                        ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                        : sortMenuOpen
+                          ? 'bg-amber-500/15 text-amber-200 border-amber-400/70 cursor-pointer'
+                          : 'bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border-slate-700 cursor-pointer'
+                        }`}
                     >
                       <ArrowUpDown className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                       <span>{t(language, 'orders.sortBtn')}</span>
                       <ChevronDown
-                        className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 transition-transform duration-150 ${
-                          sortMenuOpen ? 'rotate-180' : ''
-                        }`}
+                        className={`w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0 transition-transform duration-150 ${sortMenuOpen ? 'rotate-180' : ''
+                          }`}
                         aria-hidden="true"
                       />
                     </button>
@@ -726,13 +714,13 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         const repairTitle =
                           task.repairVehicle.type === 'van'
                             ? t(language, 'orders.repairVanTitle', {
-                                index: task.repairVehicle.index,
-                                durability: durabilityPct,
-                              })
+                              index: task.repairVehicle.index,
+                              durability: durabilityPct,
+                            })
                             : t(language, 'orders.repairBikeTitle', {
-                                index: task.repairVehicle.index,
-                                durability: durabilityPct,
-                              });
+                              index: task.repairVehicle.index,
+                              durability: durabilityPct,
+                            });
                         const mechanicLocation = t(language, 'orders.repairMechanicLocation');
 
                         return (
@@ -760,20 +748,19 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   task.assignedCourierId === 1
                                     ? t(language, 'orders.inProgressOwner')
                                     : t(language, 'orders.inProgressCourier', {
-                                        slot: task.assignedCourierId,
-                                      })
+                                      slot: task.assignedCourierId,
+                                    })
                                 }
-                                className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${
-                                  task.assignedCourierId === 1
-                                    ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
-                                    : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
-                                }`}
+                                className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${task.assignedCourierId === 1
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
+                                  : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
+                                  }`}
                               >
                                 {task.assignedCourierId === 1
                                   ? t(language, 'orders.ownerBadge')
                                   : t(language, 'orders.courierBadge', {
-                                      slot: task.assignedCourierId,
-                                    })}
+                                    slot: task.assignedCourierId,
+                                  })}
                               </span>
                             ) : task.repairWaitingForCourier ? (
                               <span
@@ -800,11 +787,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   title: repairTitle,
                                 })}
                                 title={t(language, 'orders.moveUpTitle')}
-                                className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                                  isFirst
-                                    ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
-                                }`}
+                                className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isFirst
+                                  ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                                  }`}
                               >
                                 ▲
                               </button>
@@ -823,11 +809,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   title: repairTitle,
                                 })}
                                 title={t(language, 'orders.moveDownTitle')}
-                                className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                                  isLast
-                                    ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
-                                }`}
+                                className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isLast
+                                  ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                                  }`}
                               >
                                 ▼
                               </button>
@@ -849,11 +834,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       return (
                         <li
                           key={`${selectedDay.weekdayIndex}-${task.taskId}`}
-                          className={`rounded-md border py-0.5 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0 ${
-                            isExpiring
-                              ? 'animate-expiring-task'
-                              : 'bg-[#182030] border-slate-700/85'
-                          }`}
+                          className={`rounded-md border py-0.5 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm min-w-0 ${isExpiring
+                            ? 'animate-expiring-task'
+                            : 'bg-[#182030] border-slate-700/85'
+                            }`}
                         >
                           {isExpiring && (
                             <span
@@ -888,11 +872,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 picked: pickedUp,
                                 total: totalPkgs,
                               })}
-                              className={`inline-flex items-center gap-1 px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded border leading-none whitespace-nowrap ${
-                                allPickedUp
-                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
-                                  : 'bg-sky-500/15 text-sky-300 border-sky-400/40'
-                              }`}
+                              className={`inline-flex items-center gap-1 px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded border leading-none whitespace-nowrap ${allPickedUp
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
+                                : 'bg-sky-500/15 text-sky-300 border-sky-400/40'
+                                }`}
                             >
                               <Boxes className="w-2.5 h-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                               <span className="font-semibold">
@@ -924,20 +907,19 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 task.assignedCourierId === 1
                                   ? t(language, 'orders.inProgressOwner')
                                   : t(language, 'orders.inProgressCourier', {
-                                      slot: task.assignedCourierId,
-                                    })
+                                    slot: task.assignedCourierId,
+                                  })
                               }
-                              className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${
-                                task.assignedCourierId === 1
-                                  ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
-                                  : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
-                              }`}
+                              className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${task.assignedCourierId === 1
+                                ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
+                                : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
+                                }`}
                             >
                               {task.assignedCourierId === 1
                                 ? t(language, 'orders.ownerBadge')
                                 : t(language, 'orders.courierBadge', {
-                                    slot: task.assignedCourierId,
-                                  })}
+                                  slot: task.assignedCourierId,
+                                })}
                             </span>
                           )}
 
@@ -958,11 +940,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 clientName: translatedClient,
                               })}
                               title={t(language, 'orders.moveUpTitle')}
-                              className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                                isFirst
-                                  ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
-                              }`}
+                              className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isFirst
+                                ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                                }`}
                             >
                               ▲
                             </button>
@@ -982,11 +963,10 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 clientName: translatedClient,
                               })}
                               title={t(language, 'orders.moveDownTitle')}
-                              className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${
-                                isLast
-                                  ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
-                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
-                              }`}
+                              className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isLast
+                                ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
+                                }`}
                             >
                               ▼
                             </button>
@@ -1055,9 +1035,8 @@ const OfferCard: React.FC<OfferCardProps> = ({
           )}
         </div>
         <span
-          className={`font-mono-nums shrink-0 ${
-            expiresUrgent ? 'text-rose-400 font-semibold' : 'text-slate-400'
-          }`}
+          className={`font-mono-nums shrink-0 ${expiresUrgent ? 'text-rose-400 font-semibold' : 'text-slate-400'
+            }`}
         >
           {expiresLabel}
         </span>
@@ -1174,26 +1153,26 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
   const shortTermPickedUp =
     order.kind === 'short_term'
       ? Math.min(
-          order.totalPackages,
-          Math.max(
-            order.pickedUpPackagesTotal ?? 0,
-            order.deliveredPackagesTotal + storedInWarehouse,
-            pickedUpThisWeek
-          )
+        order.totalPackages,
+        Math.max(
+          order.pickedUpPackagesTotal ?? 0,
+          order.deliveredPackagesTotal + storedInWarehouse,
+          pickedUpThisWeek
         )
+      )
       : pickedUpThisWeek;
 
   const progressText = isLongTerm
     ? t(language, 'orders.progressSummary', {
-        picked: pickedUpThisWeek,
-        delivered: deliveredThisWeek,
-        total: weeklyTarget,
-      })
+      picked: pickedUpThisWeek,
+      delivered: deliveredThisWeek,
+      total: weeklyTarget,
+    })
     : t(language, 'orders.progressSummary', {
-        picked: shortTermPickedUp,
-        delivered: order.deliveredPackagesTotal,
-        total: shortTermTotal,
-      });
+      picked: shortTermPickedUp,
+      delivered: order.deliveredPackagesTotal,
+      total: shortTermTotal,
+    });
 
   return (
     <article className="flex flex-col justify-between rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-3.5 gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
