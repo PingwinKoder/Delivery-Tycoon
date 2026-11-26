@@ -852,7 +852,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
             <span
               className="whitespace-nowrap"
-              title={`${t(language, 'save.bikes', { count: bikesCount })} • ${t(language, 'save.scooters', { count: scootersCount })}`}
             >
               <span className="text-slate-400">{t(language, 'company.bikes')} </span>
               <span className="font-bold text-sky-300 font-mono-nums">
@@ -880,7 +879,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
             <span className="text-slate-600" aria-hidden="true">|</span>
 
-            <span className="whitespace-nowrap" title={costsBreakdownTitle}>
+            <span className="whitespace-nowrap">
               <span className="text-slate-400">{t(language, 'company.fixedCosts')} </span>
               <span className="font-bold text-rose-400 font-mono-nums">
                 -{formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
@@ -1223,35 +1222,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               aria-labelledby="company-tab-fleet"
               className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3.5"
             >
-              {/* Live Fuel Market Price Bar */}
-              <div className="rounded-lg bg-[#182030] border border-slate-700/85 px-2 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm">
-                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
-                  <Fuel className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-emerald-400 shrink-0" aria-hidden="true" />
-                  <span className="text-slate-300 font-semibold">
-                    {t(language, 'company.fuelPriceLabel')}
-                  </span>
-                  <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded bg-slate-950 border border-slate-700 font-mono-nums font-bold text-slate-100">
-                    {t(language, 'company.fuelPricePerLiter', {
-                      price: formatCurrencyUsd(currentFuelPrice, true),
-                    })}
-                  </span>
-                  {(isFuelCheaper || isFuelMoreExpensive) && (
-                    <span
-                      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums font-bold border ${isFuelCheaper
-                          ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                          : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
-                        }`}
-                    >
-                      <span>{isFuelCheaper ? '▼' : '▲'}</span>
-                      <span>
-                        {isFuelCheaper ? '-' : '+'}
-                        {formatCurrencyUsd(Math.abs(fuelPriceDelta), true)}
-                      </span>
-                    </span>
-                  )}
-                </div>
-              </div>
-
               {/* Delivery Vans 6-Model Dealership Panel */}
               <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5">
@@ -1261,15 +1231,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       {t(language, 'company.vansCatalogTitle')}
                     </h3>
                     <span
-                      title={t(language, 'company.vansCountTitle')}
                       className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-amber-500/15 border border-amber-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-amber-300 font-mono-nums shrink-0"
                     >
                       {vansCount} / {economyState.parkingSpots}
-                    </span>
-                    <span className="hidden sm:inline text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
-                      {vanShopCondition === 'used'
-                        ? t(language, 'company.vanUsedTrait')
-                        : t(language, 'company.vanNewTrait')}
                     </span>
                   </div>
 
@@ -1312,7 +1276,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     const canPurchase = !vansMaxed && hasFreeParkingForVan && canAfford;
                     const condLabel = getVanConditionLabel(language, spec.condition);
                     const tierLabel = getVanTierLabel(language, spec.tier);
-                    const roofLabel = getVanRoofLabel(language, spec.tier);
 
                     return (
                       <article
@@ -1354,8 +1317,32 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                 {perMonth}
                               </span>
                             </div>
-                            <div className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 pt-0.5 border-t border-slate-800/80">
-                              {roofLabel}
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">
+                                {t(language, 'company.fuelTankLabel')}
+                              </span>
+                              <span className="text-slate-100 font-semibold">
+                                {t(language, 'company.fuelTankValue', {
+                                  liters: spec.fuelTankCapacityLiters,
+                                })}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">
+                                {t(language, 'company.fuelConsumptionLabel')}
+                              </span>
+                              <span
+                                className={`font-semibold ${spec.fuelConsumptionRate <= 1.0
+                                    ? 'text-emerald-300'
+                                    : spec.fuelConsumptionRate <= 1.15
+                                      ? 'text-amber-300'
+                                      : 'text-rose-300'
+                                  }`}
+                              >
+                                {t(language, 'company.fuelConsumptionValue', {
+                                  rate: spec.fuelConsumptionRate.toFixed(2),
+                                })}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -1412,16 +1399,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
                       {t(language, 'company.scootersCatalogTitle')}
                     </h3>
-                    <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-sky-500/15 border border-sky-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-sky-300 font-mono-nums shrink-0">
-                      {t(language, 'company.twoWheelersShelterTitle', {
-                        current: twoWheelersCount,
-                        max: MAX_TWO_WHEELERS,
-                      })}
-                    </span>
                   </div>
-                  <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
-                    {t(language, 'company.twoWheelersShelterHint')}
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
@@ -1439,20 +1417,11 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
                         </span>
                       </div>
-                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
-                        {t(language, 'company.bikesDesc')}
-                      </p>
                       <div className="rounded-md bg-slate-950/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
                           <span className="text-slate-100 font-semibold">
                             {t(language, 'company.packagesCount', { count: BIKE_COURIER_CAPACITY })}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-slate-400">{t(language, 'company.speedLabel')}</span>
-                          <span className="text-sky-300 font-semibold">
-                            {t(language, 'company.speedPxValue', { speed: 113 })}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
@@ -1498,10 +1467,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     const canAfford = economyState.balance >= spec.purchasePrice;
                     const canPurchase = !twoWheelersMaxed && canAfford;
                     const title = getScooterModelDisplayName(language, scooterId);
-                    const desc =
-                      scooterId === 'scooter_cargo'
-                        ? t(language, 'company.scooterCargoDesc')
-                        : t(language, 'company.scooterCityDesc');
 
                     return (
                       <article
@@ -1531,10 +1496,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
                           <ScooterPreviewIllustration modelId={scooterId} />
 
-                          <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 leading-tight">
-                            {desc}
-                          </p>
-
                           <div className="rounded-md bg-slate-950/75 border border-slate-800 px-1.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 space-y-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-1 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-slate-400">{t(language, 'company.payloadLabel')}</span>
@@ -1543,16 +1504,26 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               </span>
                             </div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-slate-400">{t(language, 'company.speedLabel')}</span>
-                              <span className="text-cyan-300 font-semibold">
-                                {t(language, 'company.speedPxValue', { speed: spec.speedPxPerSec })}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
                               <span className="text-slate-400">{t(language, 'company.vanInsuranceShort')}</span>
                               <span className="text-rose-300 font-semibold">
                                 {formatCurrencyUsd(spec.monthlyInsurance, false)}
                                 {perMonth}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">{t(language, 'company.fuelTankLabel')}</span>
+                              <span className="text-slate-100 font-semibold">
+                                {t(language, 'company.fuelTankValue', {
+                                  liters: spec.fuelTankCapacityLiters,
+                                })}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-400">{t(language, 'company.fuelConsumptionLabel')}</span>
+                              <span className="text-emerald-300 font-semibold">
+                                {t(language, 'company.fuelConsumptionValue', {
+                                  rate: spec.fuelConsumptionRate.toFixed(2),
+                                })}
                               </span>
                             </div>
                           </div>
@@ -1674,13 +1645,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
                           <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
                             <span
-                              title={
-                                isSlowed
-                                  ? t(language, 'company.durabilitySlowHint')
-                                  : t(language, 'company.durabilityLabel', {
-                                    percent: roundedDurability,
-                                  })
-                              }
                               className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                             >
                               {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
@@ -1725,7 +1689,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               <button
                                 type="button"
                                 disabled={!canSell}
-                                title={sellBlockedReason ?? undefined}
                                 onClick={() => setConfirmSellKey(vehicleKey)}
                                 className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors ${canSell
                                     ? 'bg-slate-800 hover:bg-rose-950/70 text-rose-300 border-rose-500/40 cursor-pointer'
@@ -1790,13 +1753,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               type="button"
                               disabled={!canRequestRefuel}
                               onClick={() => onRequestVehicleRefuel(vehicleSel)}
-                              title={
-                                !driver
-                                  ? t(language, 'company.refuelNeedsCourier')
-                                  : !canAffordRefuel
-                                    ? formatMissingFunds(fuelQuote.cost, economyState.balance, language)
-                                    : undefined
-                              }
                               className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors shrink-0 ${canRequestRefuel
                                   ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                                   : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
@@ -1845,11 +1801,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   type="button"
                                   disabled={!canAffordRepair}
                                   onClick={() => onRequestVehicleRepair(vehicleSel)}
-                                  title={
-                                    !canAffordRepair
-                                      ? formatMissingFunds(repairCost, economyState.balance, language)
-                                      : undefined
-                                  }
                                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
                                       ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                       : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
@@ -1945,13 +1896,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
                           <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
                             <span
-                              title={
-                                isSlowed
-                                  ? t(language, 'company.durabilitySlowHint')
-                                  : t(language, 'company.durabilityLabel', {
-                                    percent: roundedDurability,
-                                  })
-                              }
                               className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                             >
                               {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
@@ -1996,7 +1940,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               <button
                                 type="button"
                                 disabled={!canSell}
-                                title={sellBlockedReason ?? undefined}
                                 onClick={() => setConfirmSellKey(vehicleKey)}
                                 className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors ${canSell
                                     ? 'bg-slate-800 hover:bg-rose-950/70 text-rose-300 border-rose-500/40 cursor-pointer'
@@ -2061,13 +2004,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               type="button"
                               disabled={!canRequestRefuel}
                               onClick={() => onRequestVehicleRefuel(vehicleSel)}
-                              title={
-                                !driver
-                                  ? t(language, 'company.refuelNeedsCourier')
-                                  : !canAffordRefuel
-                                    ? formatMissingFunds(fuelQuote.cost, economyState.balance, language)
-                                    : undefined
-                              }
                               className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors shrink-0 ${canRequestRefuel
                                   ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
                                   : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
@@ -2114,11 +2050,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   type="button"
                                   disabled={!canAffordRepair}
                                   onClick={() => onRequestVehicleRepair(vehicleSel)}
-                                  title={
-                                    !canAffordRepair
-                                      ? formatMissingFunds(repairCost, economyState.balance, language)
-                                      : undefined
-                                  }
                                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
                                       ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                       : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
@@ -2189,13 +2120,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           </div>
                           <div className="flex flex-wrap items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0">
                             <span
-                              title={
-                                isSlowed
-                                  ? t(language, 'company.durabilitySlowHint')
-                                  : t(language, 'company.durabilityLabel', {
-                                    percent: roundedDurability,
-                                  })
-                              }
                               className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border ${getDurabilityBadgeClass(durability)}`}
                             >
                               {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
@@ -2242,7 +2166,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               <button
                                 type="button"
                                 disabled={!canSell}
-                                title={sellBlockedReason ?? undefined}
                                 onClick={() => setConfirmSellKey(vehicleKey)}
                                 className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors ${canSell
                                     ? 'bg-slate-800 hover:bg-rose-950/70 text-rose-300 border-rose-500/40 cursor-pointer'
@@ -2289,11 +2212,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   type="button"
                                   disabled={!canAffordRepair}
                                   onClick={() => onRequestVehicleRepair(vehicleSel)}
-                                  title={
-                                    !canAffordRepair
-                                      ? formatMissingFunds(repairCost, economyState.balance, language)
-                                      : undefined
-                                  }
                                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canAffordRepair
                                       ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
                                       : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
@@ -2314,13 +2232,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     );
                   })}
 
-                  {ownedVans.length === 0 && (
-                    <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 pt-1 leading-snug">
-                      {t(language, 'company.ownedFleetEmptyVans')}
-                    </p>
-                  )}
-                </div>
-              </article>
+                  </div>
+                </article>
             </div>
           )}
 
@@ -2518,9 +2431,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               {!hasVanQualification && (
                                 <button
                                   type="button"
-                                  title={t(language, 'company.promoteTitle', {
-                                    salary: formatCurrencyUsd(HIRED_VAN_DRIVER_SALARY, false),
-                                  })}
                                   onClick={() => onPromoteCourier(courier.slotIndex)}
                                   className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                                 >

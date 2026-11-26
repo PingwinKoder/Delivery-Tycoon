@@ -152,7 +152,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
               return (
                 <div
                   aria-label={t(language, 'hud.satisfactionAria', { percent: satPct })}
-                  title={t(language, 'hud.satisfactionAria', { percent: satPct })}
                   className={`flex items-center gap-0.5 sm:gap-1 text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[14.5px] [@media(max-height:540px)]:text-xs font-bold tabular-nums whitespace-nowrap shrink-0 ${satColorClass}`}
                 >
                   <SatIcon
@@ -245,11 +244,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
                         ? t(language, 'hud.pause')
                         : t(language, 'hud.speedAria', { speed })
                     }
-                    title={
-                      isPause
-                        ? t(language, 'hud.pause')
-                        : t(language, 'hud.speedTitle', { speed })
-                    }
                     className={`h-7 min-w-[28px] min-[560px]:h-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[26px] sm:min-h-[40px] sm:min-w-[36px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[40px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:min-w-[28px] px-1.5 min-[560px]:px-1 sm:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(max-height:540px)]:px-1.5 rounded-md text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isActive
                       ? isPause
                         ? 'bg-rose-500 text-white shadow-sm'
@@ -276,7 +270,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
                 onOpenSkipTime();
               }}
               aria-label={t(language, 'hud.skipTimeAria')}
-              title={t(language, 'hud.skipTimeTitle')}
               className="h-7 w-7 min-[560px]:h-auto min-[560px]:w-auto min-[560px]:min-h-[38px] min-[560px]:min-w-[38px] sm:min-h-[40px] sm:min-w-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 px-1.5 min-[560px]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(max-height:540px)]:px-1.5 rounded-md text-slate-200 hover:text-white hover:bg-slate-700/70 flex items-center justify-center transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400"
             >
               <SkipForward className="w-3.5 h-3.5 min-[560px]:w-4 min-[560px]:h-4 [@media(min-width:1024px)_and_(min-height:541px)]:w-[18px] [@media(min-width:1024px)_and_(min-height:541px)]:h-[18px] [@media(max-height:540px)]:w-3.5 [@media(max-height:540px)]:h-3.5 shrink-0" aria-hidden="true" />
@@ -364,7 +357,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
           aria-haspopup="dialog"
           aria-expanded={settingsOpen}
           aria-label={settingsLabel}
-          title={t(language, 'hud.settingsTitle')}
           className={`${interactiveClass} order-2 sm:order-1 min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[49px] [@media(min-width:1024px)_and_(min-height:541px)]:min-w-[49px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 [@media(max-height:540px)]:w-8 rounded-xl [@media(max-height:540px)]:rounded-lg flex items-center justify-center shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${settingsOpen
             ? 'bg-slate-800 text-amber-300 border-amber-400/70'
             : 'bg-slate-900/95 text-slate-200 hover:bg-slate-800 hover:text-amber-300 border-slate-700/80'
@@ -389,11 +381,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
               aria-label={
                 unreadOffersCount > 0
                   ? t(language, 'hud.ordersUnreadAria', { count: unreadOffersCount })
-                  : ordersLabel
-              }
-              title={
-                unreadOffersCount > 0
-                  ? t(language, 'hud.ordersUnreadTitle', { count: unreadOffersCount })
                   : ordersLabel
               }
               className={`relative ${interactiveClass} min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[49px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:px-[18px] [@media(max-height:540px)]:px-2 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[15.5px] [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${ordersOpen
@@ -422,7 +409,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
               aria-haspopup="dialog"
               aria-expanded={companyOpen}
               aria-label={companyLabel}
-              title={t(language, 'hud.companyTitle')}
               className={`${interactiveClass} min-h-[40px] min-w-[40px] sm:min-h-[44px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[49px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:min-w-0 [@media(max-height:540px)]:h-8 px-2.5 sm:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:px-[18px] [@media(max-height:540px)]:px-2 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(max-height:540px)]:py-1 rounded-xl [@media(max-height:540px)]:rounded-lg text-xs sm:text-sm [@media(min-width:1024px)_and_(min-height:541px)]:text-[15.5px] [@media(max-height:540px)]:text-[11px] font-bold flex items-center justify-center gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 border shadow-lg transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${companyOpen
                 ? 'bg-slate-800 text-amber-300 border-amber-400/70'
                 : 'bg-slate-900/95 text-slate-100 hover:bg-slate-800 border-slate-700/80'

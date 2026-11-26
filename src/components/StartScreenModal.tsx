@@ -403,7 +403,6 @@ export const StartScreenModal: React.FC<StartScreenModalProps> = ({
                       </span>
                       <span
                         className="text-[10px] tabular-nums text-slate-400 truncate"
-                        title={t(language, 'save.savedAtTooltip', { date: savedAtLabel })}
                       >
                         {savedAtLabel}
                       </span>

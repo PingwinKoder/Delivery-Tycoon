@@ -678,7 +678,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             />
                             <p
                               className="flex-1 min-w-0 truncate text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm leading-tight text-slate-100"
-                              title={`${repairTitle} (${mechanicLocation})`}
                             >
                               <span className="font-semibold text-amber-200 font-mono-nums">
                                 {repairTitle}
@@ -688,13 +687,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
                             {task.assignedCourierId !== undefined ? (
                               <span
-                                title={
-                                  task.assignedCourierId === 1
-                                    ? t(language, 'orders.inProgressOwner')
-                                    : t(language, 'orders.inProgressCourier', {
-                                      slot: task.assignedCourierId,
-                                    })
-                                }
                                 className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${task.assignedCourierId === 1
                                   ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
                                   : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
@@ -709,7 +701,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             ) : task.repairWaitingForCourier ? (
                               <span
                                 className="px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border whitespace-nowrap shrink-0 leading-none bg-amber-500/10 text-amber-300/95 border-amber-400/35"
-                                title={t(language, 'orders.repairWaitingCourier')}
                               >
                                 {t(language, 'orders.repairWaitingCourierShort')}
                               </span>
@@ -730,7 +721,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   weekday: selectedDay.weekdayName,
                                   title: repairTitle,
                                 })}
-                                title={t(language, 'orders.moveUpTitle')}
                                 className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isFirst
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -752,7 +742,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                   weekday: selectedDay.weekdayName,
                                   title: repairTitle,
                                 })}
-                                title={t(language, 'orders.moveDownTitle')}
                                 className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isLast
                                   ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                   : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -785,7 +774,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                         >
                           {isExpiring && (
                             <span
-                              title={expiringTooltip}
                               aria-label={expiringTooltip}
                               className="inline-flex items-center justify-center w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 rounded-full bg-rose-500/25 border border-rose-400/75 text-rose-300 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-extrabold leading-none shrink-0"
                             >
@@ -794,7 +782,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                           )}
                           <p
                             className="flex-1 min-w-0 truncate text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm leading-tight text-slate-100"
-                            title={`#${task.orderNumber} • ${translatedClient} (${translatedAddress})`}
                           >
                             <span className="font-mono-nums font-semibold text-amber-300">
                               #{task.orderNumber}
@@ -808,10 +795,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
                           <div className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0 tabular-nums text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs">
                             <span
-                              title={t(language, 'orders.pickedUpTooltip', {
-                                picked: pickedUp,
-                                total: totalPkgs,
-                              })}
                               aria-label={t(language, 'orders.pickedUpAria', {
                                 picked: pickedUp,
                                 total: totalPkgs,
@@ -828,10 +811,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             </span>
 
                             <span
-                              title={t(language, 'orders.deliveredTooltip', {
-                                delivered,
-                                total: totalPkgs,
-                              })}
                               aria-label={t(language, 'orders.deliveredAria', {
                                 delivered,
                                 total: totalPkgs,
@@ -847,13 +826,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
 
                           {task.assignedCourierId !== undefined && (
                             <span
-                              title={
-                                task.assignedCourierId === 1
-                                  ? t(language, 'orders.inProgressOwner')
-                                  : t(language, 'orders.inProgressCourier', {
-                                    slot: task.assignedCourierId,
-                                  })
-                              }
                               className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${task.assignedCourierId === 1
                                 ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
                                 : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
@@ -883,7 +855,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 orderNumber: task.orderNumber,
                                 clientName: translatedClient,
                               })}
-                              title={t(language, 'orders.moveUpTitle')}
                               className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isFirst
                                 ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                 : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -906,7 +877,6 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                                 orderNumber: task.orderNumber,
                                 clientName: translatedClient,
                               })}
-                              title={t(language, 'orders.moveDownTitle')}
                               className={`w-5 h-5 [@media(min-width:1024px)_and_(min-height:541px)]:w-7 [@media(min-width:1024px)_and_(min-height:541px)]:h-7 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold flex items-center justify-center border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-amber-400 ${isLast
                                 ? 'bg-slate-900/50 text-slate-600 border-slate-800/80 cursor-not-allowed'
                                 : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700 cursor-pointer'
@@ -990,7 +960,6 @@ const OfferCard: React.FC<OfferCardProps> = ({
       <div className="min-w-0">
         <h3
           className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-100 truncate leading-snug"
-          title={`#${offer.orderNumber} • ${translatedClient}`}
         >
           <span className="font-mono-nums text-amber-300">#{offer.orderNumber}</span>
           <span className="text-slate-500 mx-1" aria-hidden="true">•</span>
@@ -998,7 +967,6 @@ const OfferCard: React.FC<OfferCardProps> = ({
         </h3>
         <p
           className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 truncate leading-tight"
-          title={translatedAddress}
         >
           {translatedAddress}
         </p>
@@ -1008,14 +976,12 @@ const OfferCard: React.FC<OfferCardProps> = ({
       <div className="min-w-0 pt-0.5">
         <p
           className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-300 font-mono-nums truncate"
-          title={paramsSummary}
         >
           {paramsSummary}
         </p>
         {offer.kind === 'long_term' && (
           <p
             className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-sky-300/90 font-mono-nums truncate leading-tight mt-0.5"
-            title={t(language, 'orders.deliveryWindow3DaysHint')}
           >
             {t(language, 'orders.deliveryWindow3Days')}
           </p>
@@ -1141,7 +1107,6 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       <div className="min-w-0">
         <h3
           className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-100 truncate leading-snug"
-          title={`#${order.orderNumber} • ${translatedClient}`}
         >
           <span className="font-mono-nums text-amber-300">#{order.orderNumber}</span>
           <span className="text-slate-500 mx-1" aria-hidden="true">•</span>
@@ -1149,7 +1114,6 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
         </h3>
         <p
           className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 truncate leading-tight"
-          title={translatedAddress}
         >
           {translatedAddress}
         </p>
@@ -1159,7 +1123,6 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
       {order.kind === 'long_term' && (
         <div
           className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs leading-tight"
-          title={t(language, 'orders.deliveryWindow3DaysHint')}
         >
           <CalendarDays className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-sky-400 shrink-0" aria-hidden="true" />
           <span className="truncate">
