@@ -195,29 +195,6 @@ interface CameraIntroTransition {
   fromEffectiveZoom: number;
 }
 
-interface AmbientTrafficCar {
-  fromId: string;
-  toId: string;
-  progress: number;
-  speed: number;
-  bodyColor: string;
-  roofColor: string;
-  length: number;
-  width: number;
-  turnSeed: number;
-}
-
-const AMBIENT_CAR_PALETTE: ReadonlyArray<{ body: string; roof: string }> = [
-  { body: '#e2e8f0', roof: '#f8fafc' },
-  { body: '#64748b', roof: '#94a3b8' },
-  { body: '#3b82f6', roof: '#60a5fa' },
-  { body: '#f59e0b', roof: '#fbbf24' },
-  { body: '#ef4444', roof: '#f87171' },
-  { body: '#10b981', roof: '#34d399' },
-  { body: '#475569', roof: '#64748b' },
-  { body: '#f97316', roof: '#fb923c' },
-];
-
 function easeOutCubic(t: number): number {
   const clamped = Math.max(0, Math.min(1, t));
   const inv = 1 - clamped;
@@ -284,163 +261,6 @@ function getPanoramicCamera(
     y: clamped.y,
     effectiveZoom: overviewZoom,
   };
-}
-
-function createAmbientTrafficPool(graph: RoadGraph, count = 10): {
-  nodeMap: Map<string, Point>;
-  adjacency: Map<string, string[]>;
-  cars: AmbientTrafficCar[];
-} {
-  const nodeMap = new Map<string, Point>();
-  for (const node of graph.nodes) {
-    nodeMap.set(node.id, { x: node.x, y: node.y });
-  }
-
-  const adjacency = new Map<string, string[]>();
-  const validSegments: Array<{ from: string; to: string }> = [];
-
-  for (const edge of graph.edges) {
-    const [fromId, toId] = edge;
-    if (fromId === 'base' || toId === 'base') continue;
-    const fromPt = nodeMap.get(fromId);
-    const toPt = nodeMap.get(toId);
-    if (!fromPt || !toPt) continue;
-    if (Math.hypot(toPt.x - fromPt.x, toPt.y - fromPt.y) < 35) continue;
-
-    const listA = adjacency.get(fromId) ?? [];
-    if (!listA.includes(toId)) listA.push(toId);
-    adjacency.set(fromId, listA);
-
-    const listB = adjacency.get(toId) ?? [];
-    if (!listB.includes(fromId)) listB.push(fromId);
-    adjacency.set(toId, listB);
-
-    validSegments.push({ from: fromId, to: toId });
-    validSegments.push({ from: toId, to: fromId });
-  }
-
-  const cars: AmbientTrafficCar[] = [];
-  if (validSegments.length === 0) {
-    return { nodeMap, adjacency, cars };
-  }
-
-  const stride = Math.max(1, Math.floor(validSegments.length / count));
-  for (let i = 0; i < count; i++) {
-    const seg = validSegments[(i * stride + i * 3) % validSegments.length];
-    const palette = AMBIENT_CAR_PALETTE[i % AMBIENT_CAR_PALETTE.length];
-    cars.push({
-      fromId: seg.from,
-      toId: seg.to,
-      progress: ((i * 0.37) % 0.85) + 0.05,
-      speed: 52 + ((i * 19) % 38),
-      bodyColor: palette.body,
-      roofColor: palette.roof,
-      length: 10.5 + (i % 3) * 1.1,
-      width: 5.4 + (i % 2) * 0.7,
-      turnSeed: i + 1,
-    });
-  }
-
-  return { nodeMap, adjacency, cars };
-}
-
-function stepAmbientTraffic(
-  cars: AmbientTrafficCar[],
-  nodeMap: Map<string, Point>,
-  adjacency: Map<string, string[]>,
-  dt: number
-): void {
-  if (dt <= 0 || cars.length === 0) return;
-
-  for (const car of cars) {
-    const fromPt = nodeMap.get(car.fromId);
-    const toPt = nodeMap.get(car.toId);
-    if (!fromPt || !toPt) continue;
-    const segLen = Math.max(1, Math.hypot(toPt.x - fromPt.x, toPt.y - fromPt.y));
-    car.progress += (car.speed * dt) / segLen;
-
-    if (car.progress >= 1) {
-      const neighbors = adjacency.get(car.toId);
-      if (neighbors && neighbors.length > 0) {
-        const nonReverse = neighbors.filter((id) => id !== car.fromId);
-        const candidates = nonReverse.length > 0 ? nonReverse : neighbors;
-        car.turnSeed = (car.turnSeed * 7 + 3) % 97;
-        const nextTo = candidates[car.turnSeed % candidates.length];
-        car.fromId = car.toId;
-        car.toId = nextTo;
-        car.progress = car.progress - Math.floor(car.progress);
-      } else {
-        const prevFrom = car.fromId;
-        car.fromId = car.toId;
-        car.toId = prevFrom;
-        car.progress = 0;
-      }
-    }
-  }
-}
-
-function drawAmbientTraffic(
-  ctx: CanvasRenderingContext2D,
-  cars: readonly AmbientTrafficCar[],
-  nodeMap: Map<string, Point>,
-  viewBounds: { minX: number; maxX: number; minY: number; maxY: number },
-  alpha: number
-): void {
-  if (alpha <= 0.01 || cars.length === 0) return;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-
-  for (const car of cars) {
-    const fromPt = nodeMap.get(car.fromId);
-    const toPt = nodeMap.get(car.toId);
-    if (!fromPt || !toPt) continue;
-
-    const dx = toPt.x - fromPt.x;
-    const dy = toPt.y - fromPt.y;
-    const angle = Math.atan2(dy, dx);
-    // Offset cleanly onto the right-hand lane
-    const laneOffset = 4.4;
-    const cx = fromPt.x + dx * car.progress - Math.sin(angle) * laneOffset;
-    const cy = fromPt.y + dy * car.progress + Math.cos(angle) * laneOffset;
-
-    if (
-      cx < viewBounds.minX ||
-      cx > viewBounds.maxX ||
-      cy < viewBounds.minY ||
-      cy > viewBounds.maxY
-    ) {
-      continue;
-    }
-
-    const halfL = car.length * 0.5;
-    const halfW = car.width * 0.5;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-
-    // Subtle ground shadow
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
-    ctx.fillRect(-halfL + 0.8, -halfW + 1.1, car.length, car.width);
-
-    // Car body
-    ctx.fillStyle = car.bodyColor;
-    ctx.fillRect(-halfL, -halfW, car.length, car.width);
-
-    // Roof / cabin highlight
-    ctx.fillStyle = car.roofColor;
-    ctx.fillRect(-halfL * 0.45, -halfW * 0.72, car.length * 0.52, car.width * 0.72);
-
-    // Tiny warm headlights at front
-    ctx.fillStyle = '#fef08a';
-    ctx.fillRect(halfL - 1.1, -halfW + 0.6, 1.1, 1.3);
-    ctx.fillRect(halfL - 1.1, halfW - 1.9, 1.1, 1.3);
-
-    ctx.restore();
-  }
-
-  ctx.restore();
 }
 
 type ArrowKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
@@ -510,12 +330,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   const cameraIntroRef = useRef<CameraIntroTransition | null>(null);
   const initializedCameraRef = useRef<boolean>(false);
   const pressedArrowKeysRef = useRef<Set<ArrowKey>>(new Set());
-
-  const ambientTrafficRef = useRef<{
-    nodeMap: Map<string, Point>;
-    adjacency: Map<string, string[]>;
-    cars: AmbientTrafficCar[];
-  }>(createAmbientTrafficPool(graph, 10));
 
   const couriersFleetRef = useRef<MultiCourierFleetState>(
     createInitialCourierFleet(economyStateRef?.current?.couriers)
@@ -1540,7 +1354,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         MAP_SIZE
       );
       let renderCacheZoomKey = cameraRef.current.zoom;
-      let ambientTrafficAlpha = 0;
       let fogProgress = 0;
       let notifyIntroComplete = false;
       let notifyOutroComplete = false;
@@ -1553,7 +1366,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           renderCamY = panCam.y;
           renderEffectiveZoom = panCam.effectiveZoom;
           renderCacheZoomKey = panCam.effectiveZoom;
-          ambientTrafficAlpha = 1;
           fogProgress = 1;
           if (propsRef.current.overviewMode) {
             cameraIntroRef.current = null;
@@ -1563,7 +1375,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           renderCamY = activeIntro.fromY;
           renderEffectiveZoom = activeIntro.fromEffectiveZoom;
           renderCacheZoomKey = activeIntro.fromEffectiveZoom;
-          ambientTrafficAlpha = activeIntro.direction === 'in' ? 1 : 0;
           fogProgress = activeIntro.direction === 'in' ? 1 : 0;
         } else {
           if (!activeIntro.started) {
@@ -1594,7 +1405,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             renderCamX = clampedCenter.x;
             renderCamY = clampedCenter.y;
             renderCacheZoomKey = renderEffectiveZoom;
-            ambientTrafficAlpha = Math.max(0, 1 - eased * 1.4);
             fogProgress = 1 - eased;
 
             if (rawT >= 1) {
@@ -1606,7 +1416,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               renderCamY = baseCam.y;
               renderEffectiveZoom = toEffectiveZoom;
               renderCacheZoomKey = baseCam.zoom;
-              ambientTrafficAlpha = 0;
               fogProgress = 0;
               notifyIntroComplete = true;
             }
@@ -1627,7 +1436,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             renderCamX = clampedCenter.x;
             renderCamY = clampedCenter.y;
             renderCacheZoomKey = renderEffectiveZoom;
-            ambientTrafficAlpha = Math.min(1, eased * 1.25);
             fogProgress = eased;
 
             if (rawT >= 1) {
@@ -1637,7 +1445,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               renderCamY = panCam.y;
               renderEffectiveZoom = panCam.effectiveZoom;
               renderCacheZoomKey = panCam.effectiveZoom;
-              ambientTrafficAlpha = 1;
               fogProgress = 1;
               notifyOutroComplete = true;
             }
@@ -1649,7 +1456,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         renderCamY = panCam.y;
         renderEffectiveZoom = panCam.effectiveZoom;
         renderCacheZoomKey = panCam.effectiveZoom;
-        ambientTrafficAlpha = 1;
         fogProgress = 1;
       } else {
         const camCur = cameraRef.current;
@@ -1687,16 +1493,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           );
           renderCacheZoomKey = camStep.camera.zoom;
         }
-      }
-
-      // Advance lightweight background street traffic while Start Screen overview or fly-in is visible
-      if (ambientTrafficAlpha > 0.01) {
-        stepAmbientTraffic(
-          ambientTrafficRef.current.cars,
-          ambientTrafficRef.current.nodeMap,
-          ambientTrafficRef.current.adjacency,
-          rawDt
-        );
       }
 
       // Shared speed-scaled simulation step for couriers and future fleet vehicles (0 = paused)
@@ -2159,16 +1955,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       reusableViewBounds.minY = renderCamY - halfViewH;
       reusableViewBounds.maxY = renderCamY + halfViewH;
       const viewBounds = reusableViewBounds;
-
-      if (ambientTrafficAlpha > 0.01) {
-        drawAmbientTraffic(
-          ctx,
-          ambientTrafficRef.current.cars,
-          ambientTrafficRef.current.nodeMap,
-          viewBounds,
-          ambientTrafficAlpha
-        );
-      }
 
       const curBikesCount = propsRef.current.bikesCount;
       const curVansCount = propsRef.current.vansCount;

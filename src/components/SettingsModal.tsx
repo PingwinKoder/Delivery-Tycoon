@@ -28,9 +28,11 @@ export interface SettingsModalProps {
 
 function isDesktopEnvironment(): boolean {
   if (typeof window === 'undefined') return false;
-  const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
-  const isNarrowScreen = window.innerWidth < 1024;
-  return !isCoarsePointer && !isNarrowScreen;
+  const isMobile =
+    window.innerWidth < 1024 &&
+    window.matchMedia('(pointer: coarse)').matches &&
+    !window.matchMedia('(pointer: fine)').matches;
+  return !isMobile;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({

@@ -83,7 +83,9 @@ export function requestMobileFullscreen(): void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
   const isMobile =
-    window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 1024;
+    window.innerWidth < 1024 &&
+    window.matchMedia('(pointer: coarse)').matches &&
+    !window.matchMedia('(pointer: fine)').matches;
   if (!isMobile) return;
 
   const doc = document as Document & { webkitFullscreenElement?: Element | null };

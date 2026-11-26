@@ -391,8 +391,15 @@ export function App() {
 
   // Automatically enforce fullscreen mode on mobile devices upon user touch/pointer interaction
   useEffect(() => {
+    const isMobileDevice = () =>
+      window.innerWidth < 1024 &&
+      window.matchMedia('(pointer: coarse)').matches &&
+      !window.matchMedia('(pointer: fine)').matches;
+
     const handleMobileInteraction = () => {
-      requestMobileFullscreen();
+      if (isMobileDevice()) {
+        requestMobileFullscreen();
+      }
     };
 
     window.addEventListener('pointerdown', handleMobileInteraction, { passive: true });
