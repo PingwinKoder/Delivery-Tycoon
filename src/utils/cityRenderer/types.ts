@@ -5,6 +5,7 @@ import type {
   FencePost3D,
   FenceSegment3D,
   PrecomputedBuilding3D,
+  UrbanProp3D,
 } from '../buildings';
 import type { BaseDepotSpec, StreetSpec } from '../cityMap';
 import type { FenceSpriteAnchorBounds } from '../houseQuarters';
@@ -189,6 +190,7 @@ export interface SceneSpriteAtlas {
   sheets: HTMLCanvasElement[];
   buildings: BuildingSpriteCache;
   fences: FenceSpriteCache;
+  urbanProps: Map<string, FenceSprite>;
 }
 
 export type AtlasBakeJob =
@@ -210,6 +212,13 @@ export type AtlasBakeJob =
       kind: 'fencePost';
       slotId: string;
       post: FencePost3D;
+      bounds: FenceSpriteAnchorBounds;
+      scale: number;
+    }
+  | {
+      kind: 'urbanProp';
+      slotId: string;
+      prop: UrbanProp3D;
       bounds: FenceSpriteAnchorBounds;
       scale: number;
     };

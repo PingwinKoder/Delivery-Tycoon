@@ -946,6 +946,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             sheets: [],
             buildings: { key: spriteKey, sheets: [], sprites: new Map() },
             fences: { sheets: [], segments: new Map(), cornerPost: null, gatePost: null },
+            urbanProps: new Map(),
           };
         } else {
           sceneSpriteAtlasRef.current = buildSceneSpriteAtlas(
@@ -2684,7 +2685,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           viewBounds,
           depthEntities,
           sceneSpriteAtlasRef.current?.buildings ?? null,
-          sceneSpriteAtlasRef.current?.fences ?? null
+          sceneSpriteAtlasRef.current?.fences ?? null,
+          sceneSpriteAtlasRef.current?.urbanProps ?? null
         );
         if (curBaseNode) {
           drawBaseMarker(curBaseNode);

@@ -280,6 +280,7 @@ export function disposeSceneSpriteAtlas(atlas: SceneSpriteAtlas | null) {
   atlas.fences.segments.clear();
   atlas.fences.cornerPost = null;
   atlas.fences.gatePost = null;
+  atlas.urbanProps.clear();
 }
 
 function isoPtZ(u: number, v: number, z: number): { x: number; y: number } {
@@ -1724,8 +1725,10 @@ function bakeAtlasJobs(
         drawBuilding3DVector(sCtx, job.item.building, job.item.prism, BUILDING_SPRITE_INV_SCALE);
       } else if (job.kind === 'fenceSegment') {
         drawFenceSegment3D(sCtx, job.segment, FENCE_SPRITE_INV_SCALE);
-      } else {
+      } else if (job.kind === 'fencePost') {
         drawFencePost3D(sCtx, job.post, FENCE_SPRITE_INV_SCALE);
+      } else {
+        drawUrbanProp3D(sCtx, job.prop, BUILDING_SPRITE_INV_SCALE);
       }
 
       sCtx.restore();
@@ -1744,8 +1747,77 @@ function bakeAtlasJobs(
   return { sheets, slots };
 }
 
+function getUrbanPropAnchor(prop: UrbanProp3D): { x: number; y: number } {
+  if (prop.propKind === 'parkFenceSegment') {
+    return isoToCanvas((prop.u1 + prop.u2) * 0.5, (prop.v1 + prop.v2) * 0.5);
+  }
+  return isoToCanvas(prop.u, prop.v);
+}
+
+function getUrbanPropArchetypeKey(prop: UrbanProp3D): string {
+  switch (prop.propKind) {
+    case 'tree':
+      return `tree:${prop.species}:${prop.variant}:${Math.round(prop.crownRadius * 2)}:${Math.round(prop.height)}`;
+    case 'parkFencePost':
+      return `post:${prop.isGatePost ? 1 : 0}:${Math.round(prop.height)}`;
+    case 'parkFenceSegment':
+      return `seg:${prop.axis}:${Math.round(Math.abs(prop.u2 - prop.u1) + Math.abs(prop.v2 - prop.v1))}:${Math.round(prop.height)}`;
+    case 'lamp':
+      return `lamp:${Math.round(prop.height)}`;
+    case 'bench':
+      return `bench:${prop.axis}:${prop.facingSign}`;
+    case 'fountain':
+      return `fountain:${Math.round(prop.radius)}`;
+  }
+}
+
+function computeUrbanPropSpriteBounds(prop: UrbanProp3D): FenceSpriteAnchorBounds {
+  const anchor = getUrbanPropAnchor(prop);
+  let minX = prop.minX - 4;
+  let maxX = prop.maxX + 4;
+  let minY = prop.minY - 4;
+  let maxY = prop.maxY + 4;
+
+  if (prop.propKind === 'tree') {
+    const r = prop.crownRadius;
+    const h = prop.height;
+    minX = Math.min(minX, anchor.x - r * 1.45 - 6);
+    maxX = Math.max(maxX, anchor.x + r * 1.75 + h * 0.08 + 6);
+    minY = Math.min(minY, anchor.y - h - r * 1.05 - 6);
+    maxY = Math.max(maxY, anchor.y + r * 0.8 + 6);
+  } else if (prop.propKind === 'lamp') {
+    minX = Math.min(minX, anchor.x - 14);
+    maxX = Math.max(maxX, anchor.x + 22);
+    minY = Math.min(minY, anchor.y - prop.height - 14);
+    maxY = Math.max(maxY, anchor.y + 8);
+  } else if (prop.propKind === 'parkFenceSegment') {
+    const p1 = isoToCanvas(prop.u1, prop.v1);
+    const p2 = isoToCanvas(prop.u2, prop.v2);
+    minX = Math.min(minX, p1.x, p2.x) - 4;
+    maxX = Math.max(maxX, p1.x, p2.x) + 4;
+    minY = Math.min(minY, p1.y, p2.y) - prop.height - 6;
+    maxY = Math.max(maxY, p1.y, p2.y) + 6;
+  }
+
+  minX = Math.floor(minX);
+  minY = Math.floor(minY);
+  maxX = Math.ceil(maxX);
+  maxY = Math.ceil(maxY);
+
+  return {
+    minX,
+    minY,
+    anchorX: anchor.x,
+    anchorY: anchor.y,
+    offsetX: minX - anchor.x,
+    offsetY: minY - anchor.y,
+    worldWidth: Math.max(1, maxX - minX),
+    worldHeight: Math.max(1, maxY - minY),
+  };
+}
+
 /**
- * Packs all 3D buildings and residential yard fences together into 1–2 shared
+ * Packs all 3D buildings, residential yard fences, and urban/park props together into shared
  * row-packed HTMLCanvasElement Texture Atlas sheets (<= 2048x2048 px each).
  * Eliminates hundreds of separate canvas allocations while preserving exact Z-sorting.
  */
@@ -1773,6 +1845,17 @@ export function buildSceneSpriteAtlas(
     { slotId: string; bounds: FenceSpriteAnchorBounds }
   >();
   const fenceInstances: Array<{
+    id: string;
+    archetypeKey: string;
+    anchorX: number;
+    anchorY: number;
+  }> = [];
+
+  const urbanPropArchetypeToSlot = new Map<
+    string,
+    { slotId: string; bounds: FenceSpriteAnchorBounds }
+  >();
+  const urbanPropInstances: Array<{
     id: string;
     archetypeKey: string;
     anchorX: number;
@@ -1832,6 +1915,17 @@ export function buildSceneSpriteAtlas(
           scale,
         });
       }
+    } else if (entry.kind === 'urbanProp') {
+      const prop = entry.prop;
+      const anchor = getUrbanPropAnchor(prop);
+      const archetypeKey = getUrbanPropArchetypeKey(prop);
+      if (!urbanPropArchetypeToSlot.has(archetypeKey)) {
+        const slotId = `u:${urbanPropArchetypeToSlot.size}`;
+        const bounds = computeUrbanPropSpriteBounds(prop);
+        urbanPropArchetypeToSlot.set(archetypeKey, { slotId, bounds });
+        jobs.push({ kind: 'urbanProp', slotId, prop, bounds, scale });
+      }
+      urbanPropInstances.push({ id: prop.id, archetypeKey, anchorX: anchor.x, anchorY: anchor.y });
     }
   }
 
@@ -1927,6 +2021,31 @@ export function buildSceneSpriteAtlas(
       }
       : null;
 
+  const urbanProps = new Map<string, FenceSprite>();
+  for (let i = 0; i < urbanPropInstances.length; i++) {
+    const inst = urbanPropInstances[i];
+    const meta = urbanPropArchetypeToSlot.get(inst.archetypeKey);
+    if (!meta) continue;
+    const slot = slots.get(meta.slotId);
+    if (!slot) continue;
+    urbanProps.set(inst.id, {
+      id: inst.id,
+      sheet: slot.sheet,
+      sheetIndex: slot.sheetIndex,
+      sx: slot.sx,
+      sy: slot.sy,
+      sw: slot.sw,
+      sh: slot.sh,
+      anchorX: inst.anchorX,
+      anchorY: inst.anchorY,
+      offsetX: meta.bounds.offsetX,
+      offsetY: meta.bounds.offsetY,
+      worldWidth: slot.sw / scale,
+      worldHeight: slot.sh / scale,
+      scale,
+    });
+  }
+
   return {
     key,
     sheets,
@@ -1941,6 +2060,7 @@ export function buildSceneSpriteAtlas(
       cornerPost,
       gatePost,
     },
+    urbanProps,
   };
 }
 
@@ -2158,7 +2278,8 @@ export function renderBuildings3D(
   viewBounds?: WorldViewBounds,
   entities: DepthSortedEntity[] = [],
   spriteCache?: BuildingSpriteCache | null,
-  fenceSpriteCache?: FenceSpriteCache | null
+  fenceSpriteCache?: FenceSpriteCache | null,
+  urbanPropSpriteMap?: Map<string, FenceSprite> | null
 ) {
   const invScale = 1 / Math.sqrt(zoom);
   const hasBounds = Boolean(viewBounds);
@@ -2321,7 +2442,32 @@ export function renderBuildings3D(
         }
 
         if (staticEntry.kind === 'urbanProp') {
-          drawUrbanProp3D(ctx, staticEntry.prop, invScale);
+          const propSprite = urbanPropSpriteMap?.get(staticEntry.prop.id);
+          if (propSprite) {
+            const drawX = propSprite.anchorX + propSprite.offsetX;
+            const drawY = propSprite.anchorY + propSprite.offsetY;
+            if (
+              !viewBounds ||
+              (drawX + propSprite.worldWidth >= viewBounds.minX &&
+                drawX <= viewBounds.maxX &&
+                drawY + propSprite.worldHeight >= viewBounds.minY &&
+                drawY <= viewBounds.maxY)
+            ) {
+              ctx.drawImage(
+                propSprite.sheet,
+                propSprite.sx,
+                propSprite.sy,
+                propSprite.sw,
+                propSprite.sh,
+                drawX,
+                drawY,
+                propSprite.worldWidth,
+                propSprite.worldHeight
+              );
+            }
+          } else {
+            drawUrbanProp3D(ctx, staticEntry.prop, invScale);
+          }
           continue;
         }
 
