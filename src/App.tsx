@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Package, X } from 'lucide-react';
 import { INITIAL_ROAD_GRAPH } from './data/initialRoadGraph';
 import { CompanyModal } from './components/CompanyModal';
 import { MapCanvas, type MapCanvasController } from './components/MapCanvas';
@@ -39,6 +40,7 @@ import {
   getGameMinutesPerRealSecond,
 } from './utils/gameClock';
 import {
+  QUICKBOX_BUILD_COST,
   acceptOrderOffer,
   advanceOrderEconomy,
   applyVehicleWearBatch,
@@ -47,6 +49,7 @@ import {
   countUnreadOffers,
   createInitialOrderEconomyState,
   fireCourierInSlot,
+  formatCurrencyUsd,
   getFreeWarehouseCapacity,
   getMonthlySatisfaction,
   getNextDayMorningMinutes,
@@ -60,10 +63,12 @@ import {
   loadPackagesFromWarehouseForBike,
   markAllPendingOffersSeen,
   moveWeeklyTaskPriority,
+  orderQuickBoxConstruction,
   promoteCourierInSlot,
   purchaseBicycle,
   purchaseEmployeeLicense,
   purchaseParkingSpot,
+  purchaseQuickBoxLicense,
   purchaseScooter,
   purchaseVan,
   purchaseWarehouseUpgrade,
@@ -303,6 +308,10 @@ function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyS
       saved.currentFuelPricePerLiter ?? base.currentFuelPricePerLiter,
     previousFuelPricePerLiter:
       saved.previousFuelPricePerLiter ?? base.previousFuelPricePerLiter,
+    quickBoxLicenseOwned: saved.quickBoxLicenseOwned ?? base.quickBoxLicenseOwned ?? false,
+    quickBoxes: Array.isArray(saved.quickBoxes)
+      ? saved.quickBoxes.map((qb) => ({ ...qb }))
+      : base.quickBoxes ?? [],
     nextFuelPriceChangeGameDay:
       saved.nextFuelPriceChangeGameDay ?? base.nextFuelPriceChangeGameDay,
   };
@@ -358,6 +367,8 @@ export function App() {
   const [companyOpen, setCompanyOpen] = useState<boolean>(false);
   const companyOpenRef = useRef<boolean>(false);
   companyOpenRef.current = companyOpen;
+  const [quickBoxPlacementMode, setQuickBoxPlacementMode] = useState<boolean>(false);
+  const [pendingQuickBoxSlotId, setPendingQuickBoxSlotId] = useState<string | null>(null);
   const [skipTimeOpen, setSkipTimeOpen] = useState<boolean>(false);
   const [monthlyReportRecord, setMonthlyReportRecord] =
     useState<MonthlySettlementRecord | null>(null);
@@ -837,7 +848,8 @@ export function App() {
     cameraTransition !== null ||
     settingsOpen ||
     exitConfirmOpen ||
-    monthlyReportRecord !== null;
+    monthlyReportRecord !== null ||
+    quickBoxPlacementMode;
 
   useEffect(() => {
     if (isPausedByOverlay || gameSpeed === 0) return;
@@ -1272,6 +1284,57 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleBuyQuickBoxLicense = useCallback(() => {
+    applyEconomyUpdate((prev) => purchaseQuickBoxLicense(prev).state);
+  }, [applyEconomyUpdate]);
+
+  const handleEnterQuickBoxPlacementMode = useCallback(() => {
+    setCompanyOpen(false);
+    setOrdersOpen(false);
+    setSkipTimeOpen(false);
+    setSettingsOpen(false);
+    setPendingQuickBoxSlotId(null);
+    setQuickBoxPlacementMode(true);
+  }, []);
+
+  const handleExitQuickBoxPlacementMode = useCallback(() => {
+    setPendingQuickBoxSlotId(null);
+    setQuickBoxPlacementMode(false);
+  }, []);
+
+  const handleSelectQuickBoxSlot = useCallback((slotId: string) => {
+    setPendingQuickBoxSlotId(slotId);
+  }, []);
+
+  const handleCancelQuickBoxConfirm = useCallback(() => {
+    setPendingQuickBoxSlotId(null);
+  }, []);
+
+  const handleConfirmBuildQuickBox = useCallback(() => {
+    if (!pendingQuickBoxSlotId) return;
+    const slotId = pendingQuickBoxSlotId;
+    const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
+    applyEconomyUpdate((prev) => orderQuickBoxConstruction(prev, slotId, currentGameDay).state);
+    setPendingQuickBoxSlotId(null);
+    setQuickBoxPlacementMode(false);
+  }, [pendingQuickBoxSlotId, applyEconomyUpdate]);
+
+  useEffect(() => {
+    if (!quickBoxPlacementMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (pendingQuickBoxSlotId !== null) {
+          setPendingQuickBoxSlotId(null);
+        } else {
+          setQuickBoxPlacementMode(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [quickBoxPlacementMode, pendingQuickBoxSlotId]);
+
   const unreadOffersCount = startScreenOpen ? 0 : countUnreadOffers(economyState);
   const effectiveSimSpeed: GameSpeed = isPausedByOverlay ? 0 : gameSpeed;
   const isNightMode =
@@ -1326,11 +1389,14 @@ export function App() {
           companyOpen ||
           settingsOpen ||
           exitConfirmOpen ||
-          monthlyReportRecord !== null
+          monthlyReportRecord !== null ||
+          pendingQuickBoxSlotId !== null
         }
         sessionEpoch={sessionEpoch}
         maxFps={isMobileDevice ? settings.mobileMaxFps : settings.pcMaxFps}
         language={settings.language}
+        quickBoxPlacementMode={quickBoxPlacementMode}
+        onSelectQuickBoxSlot={handleSelectQuickBoxSlot}
         onFpsChange={setFps}
         onMapReady={handleMapReady}
         onIntroFlyInComplete={handleIntroFlyInComplete}
@@ -1348,7 +1414,7 @@ export function App() {
       />
 
       <Toolbar
-        hudVisible={hudVisible}
+        hudVisible={hudVisible && !quickBoxPlacementMode}
         language={settings.language}
         footprintOnly={footprintOnly}
         balance={economyState.balance}
@@ -1410,7 +1476,82 @@ export function App() {
           onPromoteCourier={handlePromoteCourier}
           onFireCourier={handleFireCourier}
           onAssignCourierVehicle={handleAssignCourierVehicle}
+          onBuyQuickBoxLicense={handleBuyQuickBoxLicense}
+          onEnterQuickBoxPlacementMode={handleEnterQuickBoxPlacementMode}
         />
+      )}
+
+      {/* HUD-less QuickBox Placement Mode: top-left Close button + centered Yes/No confirmation modal */}
+      {quickBoxPlacementMode && (
+        <>
+          <div className="fixed left-3 top-3 z-40">
+            <button
+              type="button"
+              onClick={handleExitQuickBoxPlacementMode}
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-[#182030] hover:bg-slate-800 text-slate-100 border border-slate-600/90 shadow-lg text-xs sm:text-sm font-bold flex items-center gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+            >
+              <X className="w-4 h-4 text-slate-300 shrink-0" aria-hidden="true" />
+              <span>{t(settings.language, 'company.quickBoxClosePlacementBtn')}</span>
+            </button>
+          </div>
+
+          {pendingQuickBoxSlotId !== null && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="quickbox-confirm-title"
+              onClick={handleCancelQuickBoxConfirm}
+            >
+              <div
+                className="w-full max-w-md rounded-2xl bg-[#182030] border border-amber-400/50 shadow-2xl overflow-hidden text-slate-100"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-slate-700/80 bg-[#141b29]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Package className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                    <h2 id="quickbox-confirm-title" className="text-sm sm:text-base font-bold text-slate-100 truncate">
+                      {t(settings.language, 'company.quickBoxConfirmTitle')}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelQuickBoxConfirm}
+                    aria-label={t(settings.language, 'company.quickBoxClosePlacementBtn')}
+                    className="p-1.5 rounded-lg text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </button>
+                </div>
+
+                <div className="px-4 sm:px-5 py-4 text-xs sm:text-sm text-slate-200 leading-relaxed">
+                  <p>
+                    {t(settings.language, 'company.quickBoxConfirmDesc', {
+                      amount: formatCurrencyUsd(QUICKBOX_BUILD_COST, false),
+                    })}
+                  </p>
+                </div>
+
+                <div className="px-4 sm:px-5 pb-4 pt-2 flex items-center justify-end gap-2 border-t border-slate-800/90">
+                  <button
+                    type="button"
+                    onClick={handleCancelQuickBoxConfirm}
+                    className="min-h-[40px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs sm:text-sm font-semibold transition-colors cursor-pointer touch-manipulation"
+                  >
+                    {t(settings.language, 'company.quickBoxConfirmNo')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmBuildQuickBox}
+                    className="min-h-[40px] px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors cursor-pointer touch-manipulation"
+                  >
+                    {t(settings.language, 'company.quickBoxConfirmYes')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {monthlyReportRecord && (

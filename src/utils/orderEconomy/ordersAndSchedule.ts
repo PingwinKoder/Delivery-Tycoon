@@ -24,6 +24,7 @@ import {
   getGameClockDisplay,
 } from '../gameClock';
 import {
+  activateReadyQuickBoxes,
   calculateMonthlyCompanyCosts,
   completeDueCourierTrainings,
   getFreeWarehouseCapacity,
@@ -49,6 +50,7 @@ import {
   LATE_PICKUP_SATISFACTION_PENALTY,
   LONG_TERM_DELIVERY_WINDOW_DAYS,
   MAX_MONTHLY_SETTLEMENTS_HISTORY,
+  QUICKBOX_READY_MINUTE_OF_DAY,
   SUNDAY_SETTLEMENT_MINUTE_OF_DAY,
   SUNDAY_WEEKDAY_INDEX,
   UNDELIVERED_PACKAGE_PENALTY_MULTIPLIER,
@@ -893,9 +895,15 @@ export function processMonthlySettlement(
   const repairExpenses = roundCurrency(ledger.repairExpenses);
   const penaltyExpenses = roundCurrency(ledger.penaltyExpenses);
   const trainingExpenses = roundCurrency(ledger.trainingExpenses ?? 0);
+  const quickBoxExpenses = roundCurrency(ledger.quickBoxExpenses ?? 0);
   const totalRevenue = roundCurrency(shortTermRevenue + longTermContractPayout);
   const totalExpenses = roundCurrency(
-    monthlyCosts.totalFixedCosts + fuelExpenses + repairExpenses + penaltyExpenses + trainingExpenses
+    monthlyCosts.totalFixedCosts +
+      fuelExpenses +
+      repairExpenses +
+      penaltyExpenses +
+      trainingExpenses +
+      quickBoxExpenses
   );
   const netChange = roundCurrency(totalRevenue - totalExpenses);
   const averageSatisfaction =
@@ -1215,6 +1223,12 @@ export function hasEconomyBoundaryBetween(prevMinutes: number, nextMinutes: numb
   const nextElapsedDay = Math.floor(next / MINUTES_PER_DAY);
   if (nextElapsedDay > prevElapsedDay) return true;
 
+  // Same day: check if we crossed QuickBox 10:00 opening time
+  const quickBoxTrigger = prevElapsedDay * MINUTES_PER_DAY + QUICKBOX_READY_MINUTE_OF_DAY;
+  if (prev < quickBoxTrigger && next >= quickBoxTrigger) {
+    return true;
+  }
+
   // Same day: check if we crossed Sunday 23:59
   if (prevElapsedDay % DAYS_PER_WEEK === SUNDAY_WEEKDAY_INDEX) {
     const sundayTrigger = prevElapsedDay * MINUTES_PER_DAY + SUNDAY_SETTLEMENT_MINUTE_OF_DAY;
@@ -1331,6 +1345,9 @@ export function advanceOrderEconomy(
       }
     }
   }
+
+  // Activate any QuickBox lockers whose 10:00 construction completion time has been reached
+  current = activateReadyQuickBoxes(current, targetMinutes);
 
   return {
     ...current,

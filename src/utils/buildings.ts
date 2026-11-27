@@ -102,11 +102,28 @@ export interface DeliveryZone {
 
 export interface ParcelLockerSlot {
   id: string;
+  /** 0..7 deterministic city zone index */
+  zoneIndex: number;
   quarterId: string;
+  /** Full reserved plot footprint (QuickBox pad + adjacent single courier parking bay) */
   uMin: number;
   uMax: number;
   vMin: number;
   vMax: number;
+  /** QuickBox locker kiosk footprint inside the plot */
+  lockerRect: { uMin: number; uMax: number; vMin: number; vMax: number };
+  /** Single courier parking bay adjacent to the locker (appears once status === 'active') */
+  parkingBay: { uMin: number; uMax: number; vMin: number; vMax: number };
+  /** Short asphalt driveway bridging the sidewalk from the bordering street into parkingBay */
+  driveway: { uMin: number; uMax: number; vMin: number; vMax: number };
+  /** Side of the plot facing the bordering street */
+  streetSide: ParkingEdgeSide;
+  /** Bordering street ID from ALL_STREETS */
+  streetId: string;
+  /** Snapped road approach point on the bordering street */
+  roadApproachPoint?: RoadApproachPoint;
+  /** Dedicated courier bay stop point inside parkingBay */
+  deliveryStopPoint?: DeliveryStopPoint;
   /** Isometric center */
   u: number;
   v: number;
@@ -205,6 +222,11 @@ const BUILDING_FOOTPRINT_STYLES: Record<BuildingType, PaletteFootprintBase> = {
     footprintFill: 'rgba(5, 150, 105, 0.42)',
     footprintStroke: '#047857',
     accent: '#34d399',
+  },
+  quickbox: {
+    footprintFill: 'rgba(245, 158, 11, 0.42)',
+    footprintStroke: '#b45309',
+    accent: '#fbbf24',
   },
 };
 
@@ -344,6 +366,9 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
     { roof: '#f1f5f9', leftWall: '#059669', rightWall: '#047857' },
     { roof: '#f1f5f9', leftWall: '#0d9488', rightWall: '#0f766e' },
   ]),
+  quickbox: buildPalettes('quickbox', [
+    { roof: '#f59e0b', leftWall: '#e2e8f0', rightWall: '#94a3b8' },
+  ]),
 };
 
 function round1(value: number): number {
@@ -401,6 +426,8 @@ export function getBuildingHeight(typ: BuildingType, pietra: number): number {
       return 30;
     case 'stacja_paliw':
       return 28;
+    case 'quickbox':
+      return 20;
   }
 }
 
@@ -2407,29 +2434,6 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
   });
 
   // ---------------------------------------------------------------------------
-  // 2F. 8 ZAREZERWOWANYCH MIEJSC POD PRZYSZŁE PACZKOMATY (parcelLockerSlots)
-  //     Small subtle cobblestone paver pads spread evenly across the city
-  // ---------------------------------------------------------------------------
-  const lockerCandidates = scanConcretePlazaSpots(22, 12, 6, 6);
-  const chosenLockerSpots = selectSpatiallySpread(lockerCandidates, 8, 1);
-
-  const parcelLockerSlots: ParcelLockerSlot[] = chosenLockerSpots.map((spot, idx) => {
-    const nearest = findNearestStreetForBuilding(spot.uMin, spot.uMax, spot.vMin, spot.vMax);
-    return {
-      id: `locker_slot_${idx + 1}`,
-      quarterId: spot.quarterId,
-      uMin: round1(spot.uMin),
-      uMax: round1(spot.uMax),
-      vMin: round1(spot.vMin),
-      vMax: round1(spot.vMax),
-      ...makeIsoCanvasPoint(spot.u, spot.v),
-      axis: spot.axis,
-      nearestStreetName: nearest.name,
-      occupied: false,
-    };
-  });
-
-  // ---------------------------------------------------------------------------
   // 2G. REWORK INFRASTRUKTURY SERWISOWEJ (Krok 2A - Część 1):
   //     Usuń 6 wskazanych parkingów (po wygenerowaniu kiosków i paczkomatów, aby
   //     w 100% zachować istniejące kioski/pawilony) i wstaw w miejsce 3 z nich:
@@ -2586,6 +2590,372 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // 2H. 8 WIDOCZNYCH, PRZYULICZNYCH DZIAŁEK POD AUTOMATY QUICKBOX (parcelLockerSlots)
+  //     Each plot sits flush beside a main street with room for both the QuickBox locker
+  //     and a single courier parking bay + driveway, guaranteed unoccluded by 3D buildings.
+  // ---------------------------------------------------------------------------
+  interface QuickBoxCandidate {
+    quarterId: string;
+    uMin: number;
+    uMax: number;
+    vMin: number;
+    vMax: number;
+    lockerRect: { uMin: number; uMax: number; vMin: number; vMax: number };
+    parkingBay: { uMin: number; uMax: number; vMin: number; vMax: number };
+    driveway: { uMin: number; uMax: number; vMin: number; vMax: number };
+    streetSide: ParkingEdgeSide;
+    streetId: string;
+    streetName: string;
+    axis: 'u' | 'v';
+    u: number;
+    v: number;
+    frontFacingBonus: number;
+  }
+
+  // Build 6-vertex 2D isometric prism silhouettes of all placed 3D buildings for strict front-visibility checks
+  const buildingSilhouettes = raw
+    .filter((b) => b.height > 0)
+    .map((b) => {
+      const pts = [
+        isoToCanvas(b.uMin, b.vMin),
+        isoToCanvas(b.uMax, b.vMin),
+        isoToCanvas(b.uMax, b.vMax),
+        isoToCanvas(b.uMin, b.vMax),
+      ];
+      let top = pts[0];
+      let bottom = pts[0];
+      let left = pts[0];
+      let right = pts[0];
+      for (let i = 1; i < pts.length; i++) {
+        if (pts[i].y < top.y) top = pts[i];
+        if (pts[i].y > bottom.y) bottom = pts[i];
+        if (pts[i].x < left.x) left = pts[i];
+        if (pts[i].x > right.x) right = pts[i];
+      }
+      const h = b.height;
+      const poly = [
+        { x: top.x, y: top.y - h },
+        { x: right.x, y: right.y - h },
+        { x: right.x, y: right.y },
+        { x: bottom.x, y: bottom.y },
+        { x: left.x, y: left.y },
+        { x: left.x, y: left.y - h },
+      ];
+      return {
+        minX: left.x - 4,
+        maxX: right.x + 4,
+        minY: top.y - h - 4,
+        maxY: bottom.y + 4,
+        poly,
+      };
+    });
+
+  const isCanvasPtInPoly = (x: number, y: number, poly: readonly { x: number; y: number }[]) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x;
+      const yi = poly[i].y;
+      const xj = poly[j].x;
+      const yj = poly[j].y;
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-9) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+
+  const isQuickBoxCandidateOccluded = (
+    lockerRect: { uMin: number; uMax: number; vMin: number; vMax: number },
+    parkingBay: { uMin: number; uMax: number; vMin: number; vMax: number }
+  ): boolean => {
+    const lCenter = isoToCanvas((lockerRect.uMin + lockerRect.uMax) / 2, (lockerRect.vMin + lockerRect.vMax) / 2);
+    const bCenter = isoToCanvas((parkingBay.uMin + parkingBay.uMax) / 2, (parkingBay.vMin + parkingBay.vMax) / 2);
+    const probePts = [
+      lCenter,
+      { x: lCenter.x, y: lCenter.y - 20 },
+      isoToCanvas(lockerRect.uMin, lockerRect.vMin),
+      isoToCanvas(lockerRect.uMax, lockerRect.vMin),
+      isoToCanvas(lockerRect.uMax, lockerRect.vMax),
+      isoToCanvas(lockerRect.uMin, lockerRect.vMax),
+      bCenter,
+    ];
+    for (const pt of probePts) {
+      for (let i = 0; i < buildingSilhouettes.length; i++) {
+        const sil = buildingSilhouettes[i];
+        if (pt.x < sil.minX || pt.x > sil.maxX || pt.y < sil.minY || pt.y > sil.maxY) continue;
+        if (isCanvasPtInPoly(pt.x, pt.y, sil.poly)) return true;
+      }
+    }
+    return false;
+  };
+
+  const overlapsAccessRoad = (
+    box: { uMin: number; uMax: number; vMin: number; vMax: number },
+    pad: number
+  ): boolean => {
+    for (const ar of RESIDENTIAL_ACCESS_ROADS) {
+      const half = ar.asphaltWidth / 2 + ar.sidewalkWidth + pad;
+      const arBox =
+        ar.axis === 'u'
+          ? {
+              uMin: ar.coord - half,
+              uMax: ar.coord + half,
+              vMin: Math.min(ar.startCoord, ar.endCoord) - pad,
+              vMax: Math.max(ar.startCoord, ar.endCoord) + pad,
+            }
+          : {
+              uMin: Math.min(ar.startCoord, ar.endCoord) - pad,
+              uMax: Math.max(ar.startCoord, ar.endCoord) + pad,
+              vMin: ar.coord - half,
+              vMax: ar.coord + half,
+            };
+      if (rectsOverlap(box, arBox, 0)) return true;
+    }
+    return false;
+  };
+
+  const scanRoadsideQuickBoxCandidates = (
+    plotAlong: number,
+    plotDepth: number,
+    bldgPad: number,
+    otherPad: number
+  ): QuickBoxCandidate[] => {
+    const out: QuickBoxCandidate[] = [];
+    const streetCoversSpan = (s: StreetSpec, a: number, b: number) =>
+      s.spans.some(([s0, s1]) => a >= s0 + 8 && b <= s1 - 8);
+
+    const trySide = (
+      q: (typeof CITY_QUARTERS)[number],
+      streetSide: ParkingEdgeSide,
+      street: StreetSpec
+    ) => {
+      const isUStreet = street.axis === 'u';
+      const alongMin = (isUStreet ? q.vMin : q.uMin) + 28;
+      const alongMax = (isUStreet ? q.vMax : q.uMax) - 28 - plotAlong;
+      if (alongMax < alongMin) return;
+
+      const streetAsphaltEdge =
+        streetSide === 'uMin' || streetSide === 'vMin'
+          ? street.coord + street.asphaltWidth / 2
+          : street.coord - street.asphaltWidth / 2;
+
+      for (let along = alongMin; along <= alongMax; along += 12) {
+        if (!streetCoversSpan(street, along, along + plotAlong)) continue;
+
+        let uMin: number;
+        let uMax: number;
+        let vMin: number;
+        let vMax: number;
+        let lockerRect: { uMin: number; uMax: number; vMin: number; vMax: number };
+        let parkingBay: { uMin: number; uMax: number; vMin: number; vMax: number };
+        let driveway: { uMin: number; uMax: number; vMin: number; vMax: number };
+
+        const lockerAlong = 18;
+        const lockerDepth = 10;
+        const bayAlong = plotAlong - lockerAlong - 4;
+        const bayDepth = plotDepth - 4;
+        const dwWidth = 14;
+
+        if (streetSide === 'uMin') {
+          uMin = q.uMin + 2;
+          uMax = uMin + plotDepth;
+          vMin = along;
+          vMax = along + plotAlong;
+          lockerRect = { uMin: uMin + 5, uMax: uMin + 5 + lockerDepth, vMin: vMin + 1, vMax: vMin + 1 + lockerAlong };
+          parkingBay = { uMin: uMin + 1, uMax: uMin + 1 + bayDepth, vMin: vMax - bayAlong - 1, vMax: vMax - 1 };
+          const dwCenterV = (parkingBay.vMin + parkingBay.vMax) / 2;
+          driveway = { uMin: streetAsphaltEdge - 1, uMax: parkingBay.uMin + 1, vMin: dwCenterV - dwWidth / 2, vMax: dwCenterV + dwWidth / 2 };
+        } else if (streetSide === 'uMax') {
+          uMax = q.uMax - 2;
+          uMin = uMax - plotDepth;
+          vMin = along;
+          vMax = along + plotAlong;
+          lockerRect = { uMin: uMax - 5 - lockerDepth, uMax: uMax - 5, vMin: vMin + 1, vMax: vMin + 1 + lockerAlong };
+          parkingBay = { uMin: uMax - 1 - bayDepth, uMax: uMax - 1, vMin: vMax - bayAlong - 1, vMax: vMax - 1 };
+          const dwCenterV = (parkingBay.vMin + parkingBay.vMax) / 2;
+          driveway = { uMin: parkingBay.uMax - 1, uMax: streetAsphaltEdge + 1, vMin: dwCenterV - dwWidth / 2, vMax: dwCenterV + dwWidth / 2 };
+        } else if (streetSide === 'vMin') {
+          vMin = q.vMin + 2;
+          vMax = vMin + plotDepth;
+          uMin = along;
+          uMax = along + plotAlong;
+          lockerRect = { uMin: uMin + 1, uMax: uMin + 1 + lockerAlong, vMin: vMin + 5, vMax: vMin + 5 + lockerDepth };
+          parkingBay = { uMin: uMax - bayAlong - 1, uMax: uMax - 1, vMin: vMin + 1, vMax: vMin + 1 + bayDepth };
+          const dwCenterU = (parkingBay.uMin + parkingBay.uMax) / 2;
+          driveway = { uMin: dwCenterU - dwWidth / 2, uMax: dwCenterU + dwWidth / 2, vMin: streetAsphaltEdge - 1, vMax: parkingBay.vMin + 1 };
+        } else {
+          vMax = q.vMax - 2;
+          vMin = vMax - plotDepth;
+          uMin = along;
+          uMax = along + plotAlong;
+          lockerRect = { uMin: uMin + 1, uMax: uMin + 1 + lockerAlong, vMin: vMax - 5 - lockerDepth, vMax: vMax - 5 };
+          parkingBay = { uMin: uMax - bayAlong - 1, uMax: uMax - 1, vMin: vMax - 1 - bayDepth, vMax: vMax - 1 };
+          const dwCenterU = (parkingBay.uMin + parkingBay.uMax) / 2;
+          driveway = { uMin: dwCenterU - dwWidth / 2, uMax: dwCenterU + dwWidth / 2, vMin: parkingBay.vMax - 1, vMax: streetAsphaltEdge + 1 };
+        }
+
+        if (!isBuildingVisibleInMap(uMin, uMax, vMin, vMax, 30)) continue;
+        if (rectOverlapsActiveStreet(uMin, uMax, vMin, vMax)) continue;
+        if (rectOverlapsRoundabout(uMin, uMax, vMin, vMax, 20)) continue;
+        if (rectOverlapsBaseYard(uMin, uMax, vMin, vMax, 12)) continue;
+        const box = { uMin, uMax, vMin, vMax };
+        if (overlapsAccessRoad(box, 5)) continue;
+        if (raw.some((b) => rectsOverlap(b, box, bldgPad))) continue;
+        if (overlapsAnyParking(box, otherPad)) continue;
+        if (deliveryZones.some((dz) => rectsOverlap(dz.bay, box, otherPad) || rectsOverlap(dz.driveway, box, otherPad))) continue;
+        if (houseYards.some((hy) => rectsOverlap(hy, box, otherPad))) continue;
+        if (serviceFacilities.some((sf) => rectsOverlap(sf.yard, box, otherPad + 2))) continue;
+        if (isQuickBoxCandidateOccluded(lockerRect, parkingBay)) continue;
+
+        const cu = (uMin + uMax) / 2;
+        const cv = (vMin + vMax) / 2;
+        if (out.some((prev) => prev.quarterId === q.id && Math.hypot(prev.u - cu, prev.v - cv) < 34)) {
+          continue;
+        }
+
+        // Front-facing bonus: sides where the street opens in front of the plot in isometric view
+        const plotCenterCanvas = isoToCanvas(cu, cv);
+        const streetProbeCanvas = isoToCanvas(
+          streetSide === 'uMin' ? street.coord : streetSide === 'uMax' ? street.coord : cu,
+          streetSide === 'vMin' ? street.coord : streetSide === 'vMax' ? street.coord : cv
+        );
+        const frontFacingBonus = streetProbeCanvas.y > plotCenterCanvas.y ? 1 : 0;
+
+        out.push({
+          quarterId: q.id,
+          uMin: round1(uMin),
+          uMax: round1(uMax),
+          vMin: round1(vMin),
+          vMax: round1(vMax),
+          lockerRect: {
+            uMin: round1(lockerRect.uMin),
+            uMax: round1(lockerRect.uMax),
+            vMin: round1(lockerRect.vMin),
+            vMax: round1(lockerRect.vMax),
+          },
+          parkingBay: {
+            uMin: round1(parkingBay.uMin),
+            uMax: round1(parkingBay.uMax),
+            vMin: round1(parkingBay.vMin),
+            vMax: round1(parkingBay.vMax),
+          },
+          driveway: {
+            uMin: round1(driveway.uMin),
+            uMax: round1(driveway.uMax),
+            vMin: round1(driveway.vMin),
+            vMax: round1(driveway.vMax),
+          },
+          streetSide,
+          streetId: street.id,
+          streetName: street.name,
+          axis: isUStreet ? 'v' : 'u',
+          u: round1(cu),
+          v: round1(cv),
+          frontFacingBonus,
+        });
+      }
+    };
+
+    for (const q of CITY_QUARTERS) {
+      if (q.kind === 'park' || q.id === 'q_3_1' || q.id === 'q_3_4') continue;
+      for (const s of U_STREETS) {
+        const edgePos = s.coord + s.asphaltWidth / 2 + s.sidewalkWidth;
+        const edgeNeg = s.coord - s.asphaltWidth / 2 - s.sidewalkWidth;
+        if (Math.abs(q.uMin - edgePos) <= 12) trySide(q, 'uMin', s);
+        if (Math.abs(q.uMax - edgeNeg) <= 12) trySide(q, 'uMax', s);
+      }
+      for (const s of V_STREETS) {
+        const edgePos = s.coord + s.asphaltWidth / 2 + s.sidewalkWidth;
+        const edgeNeg = s.coord - s.asphaltWidth / 2 - s.sidewalkWidth;
+        if (Math.abs(q.vMin - edgePos) <= 12) trySide(q, 'vMin', s);
+        if (Math.abs(q.vMax - edgeNeg) <= 12) trySide(q, 'vMax', s);
+      }
+    }
+
+    return out;
+  };
+
+  let qbCandidates = scanRoadsideQuickBoxCandidates(42, 22, 4, 4);
+  if (qbCandidates.length < 8) {
+    const relaxed = scanRoadsideQuickBoxCandidates(38, 20, 2.5, 2.5);
+    for (const c of relaxed) {
+      if (!qbCandidates.some((p) => Math.hypot(p.u - c.u, p.v - c.v) < 40)) {
+        qbCandidates.push(c);
+      }
+    }
+  }
+
+  // Greedy farthest-point spatial selection of 8 QuickBox plots across all city districts
+  const chosenQbSpots: QuickBoxCandidate[] = [];
+  if (qbCandidates.length > 0) {
+    // Prefer front-facing plots first when picking the seed and ties
+    const preferredPool = qbCandidates.filter((c) => c.frontFacingBonus > 0);
+    const seedPool = preferredPool.length >= 8 ? preferredPool : qbCandidates;
+    // Start with the northwest-most front-facing candidate for deterministic wide city spread
+    const first = [...seedPool].sort((a, b) => a.u + a.v - (b.u + b.v))[0];
+    chosenQbSpots.push(first);
+
+    while (chosenQbSpots.length < 8) {
+      let bestCand: QuickBoxCandidate | null = null;
+      let bestScore = -1;
+      for (const cand of qbCandidates) {
+        if (chosenQbSpots.some((c) => c.quarterId === cand.quarterId)) continue;
+        let minDist = Infinity;
+        for (const picked of chosenQbSpots) {
+          const d = Math.hypot(cand.u - picked.u, cand.v - picked.v);
+          if (d < minDist) minDist = d;
+        }
+        const score = minDist + cand.frontFacingBonus * 90;
+        if (score > bestScore) {
+          bestScore = score;
+          bestCand = cand;
+        }
+      }
+      if (!bestCand) {
+        // Fallback allowing same quarter if fewer than 8 distinct quarters had open roadside plots
+        for (const cand of qbCandidates) {
+          if (chosenQbSpots.includes(cand)) continue;
+          let minDist = Infinity;
+          for (const picked of chosenQbSpots) {
+            const d = Math.hypot(cand.u - picked.u, cand.v - picked.v);
+            if (d < minDist) minDist = d;
+          }
+          if (minDist < 120) continue;
+          const score = minDist + cand.frontFacingBonus * 90;
+          if (score > bestScore) {
+            bestScore = score;
+            bestCand = cand;
+          }
+        }
+      }
+      if (!bestCand) break;
+      chosenQbSpots.push(bestCand);
+    }
+  }
+
+  // Deterministic geographic ordering (NW -> SE) for stable slot IDs & zone indices 0..7
+  chosenQbSpots.sort((a, b) => a.u - b.u || a.v - b.v);
+
+  const parcelLockerSlots: ParcelLockerSlot[] = chosenQbSpots.map((spot, idx) => ({
+    id: `locker_slot_${idx + 1}`,
+    zoneIndex: idx,
+    quarterId: spot.quarterId,
+    uMin: spot.uMin,
+    uMax: spot.uMax,
+    vMin: spot.vMin,
+    vMax: spot.vMax,
+    lockerRect: spot.lockerRect,
+    parkingBay: spot.parkingBay,
+    driveway: spot.driveway,
+    streetSide: spot.streetSide,
+    streetId: spot.streetId,
+    ...makeIsoCanvasPoint(spot.u, spot.v),
+    axis: spot.axis,
+    nearestStreetName: spot.streetName,
+    occupied: false,
+  }));
+
   // 3. Assign realistic Polish street addresses to ALL buildings (including kiosks & houses on access roads)
   const roadById = new Map(ALL_ADDRESSABLE_ROADS.map((r) => [r.id, r]));
   const grouped = new Map<
@@ -2670,6 +3040,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     deliveryZones,
     houseYards,
     serviceFacilities,
+    parcelLockerSlots,
     baseRoadGraph
   );
 
@@ -2825,6 +3196,7 @@ function attachDeliveryPointsToBuildings(
   deliveryZones: DeliveryZone[],
   houseYards: HouseYardFence[],
   serviceFacilities: ServiceFacilitySpec[],
+  parcelLockerSlots: ParcelLockerSlot[],
   roadGraph: RoadGraph
 ) {
   const nodeById = new Map(roadGraph.nodes.map((n) => [n.id, n]));
@@ -3097,6 +3469,50 @@ function attachDeliveryPointsToBuildings(
       }
     }
   }
+
+  // 3. Attach exact roadApproachPoint and dedicated courier bay deliveryStopPoint to every QuickBox slot
+  for (const slot of parcelLockerSlots) {
+    const targetStreet = streetById.get(slot.streetId);
+    const streetEdges = targetStreet
+      ? candidateEdges.filter((e) =>
+          targetStreet.axis === 'u'
+            ? Math.abs(e.au - targetStreet.coord) < 5 && Math.abs(e.bu - targetStreet.coord) < 5
+            : Math.abs(e.av - targetStreet.coord) < 5 && Math.abs(e.bv - targetStreet.coord) < 5
+        )
+      : [];
+    const bayCenterU = (slot.parkingBay.uMin + slot.parkingBay.uMax) * 0.5;
+    const bayCenterV = (slot.parkingBay.vMin + slot.parkingBay.vMax) * 0.5;
+    const mouthU =
+      slot.streetSide === 'uMin'
+        ? slot.driveway.uMin
+        : slot.streetSide === 'uMax'
+          ? slot.driveway.uMax
+          : bayCenterU;
+    const mouthV =
+      slot.streetSide === 'vMin'
+        ? slot.driveway.vMin
+        : slot.streetSide === 'vMax'
+          ? slot.driveway.vMax
+          : bayCenterV;
+    const proj = projectIsoPointOntoEdges(
+      mouthU,
+      mouthV,
+      streetEdges.length > 0 ? streetEdges : candidateEdges
+    );
+    const stopPt = makeIsoCanvasPoint(bayCenterU, bayCenterV);
+    const mouthPt = makeIsoCanvasPoint(mouthU, mouthV);
+    if (proj) {
+      slot.roadApproachPoint = proj.approach;
+      slot.deliveryStopPoint = {
+        x: stopPt.x,
+        y: stopPt.y,
+        u: stopPt.u,
+        v: stopPt.v,
+        surface: 'delivery_zone',
+        approachWaypoints: [{ x: mouthPt.x, y: mouthPt.y }],
+      };
+    }
+  }
 }
 
 const CITY_STRUCTURES = buildProceduralCityStructures();
@@ -3106,6 +3522,106 @@ export const PROCEDURAL_PARKING_LOTS: ParkingLot[] = CITY_STRUCTURES.parkingLots
 export const PROCEDURAL_DELIVERY_ZONES: DeliveryZone[] = CITY_STRUCTURES.deliveryZones;
 export const PARCEL_LOCKER_SLOTS: ParcelLockerSlot[] = CITY_STRUCTURES.parcelLockerSlots;
 export const parcelLockerSlots: ParcelLockerSlot[] = PARCEL_LOCKER_SLOTS;
+export const QUICKBOX_SLOTS: ParcelLockerSlot[] = PARCEL_LOCKER_SLOTS;
+
+/**
+ * Partitions all residential buildings (`dom`, `blok_maly`, `blok_sredni`, `blok_wysoki`)
+ * into 8 geographically cohesive, equal-sized QuickBox zones (`0..7`, ~1/8 of homes/blocks each).
+ */
+function buildBalancedQuickBoxZones(
+  buildings: readonly Building[],
+  slots: readonly ParcelLockerSlot[]
+): ReadonlyMap<string, number> {
+  const map = new Map<string, number>();
+  if (slots.length === 0) return map;
+
+  const residential = buildings.filter(
+    (b) =>
+      b.typ === 'dom' ||
+      b.typ === 'blok_maly' ||
+      b.typ === 'blok_sredni' ||
+      b.typ === 'blok_wysoki'
+  );
+  const zoneCount = slots.length;
+  const baseCap = Math.floor(residential.length / zoneCount);
+  const remainder = residential.length % zoneCount;
+  const capacities = Array.from({ length: zoneCount }, (_, i) => baseCap + (i < remainder ? 1 : 0));
+  const counts = new Array<number>(zoneCount).fill(0);
+
+  // Precompute distances from each residential building to each QuickBox slot
+  const entries = residential.map((b) => {
+    const bu = (b.uMin + b.uMax) * 0.5;
+    const bv = (b.vMin + b.vMax) * 0.5;
+    const rankedZones = slots
+      .map((s, idx) => ({
+        zoneIndex: s.zoneIndex ?? idx,
+        dist: Math.hypot(bu - s.u, bv - s.v),
+      }))
+      .sort((a, bDist) => a.dist - bDist.dist);
+    const regret =
+      rankedZones.length >= 2 ? rankedZones[1].dist - rankedZones[0].dist : rankedZones[0].dist;
+    return { id: b.id, rankedZones, regret };
+  });
+
+  // Assign highest-regret (most unambiguous) buildings first so zones stay geographically compact & balanced
+  entries.sort((a, b) => b.regret - a.regret);
+
+  for (const entry of entries) {
+    let assigned = entry.rankedZones[0].zoneIndex;
+    for (const candidate of entry.rankedZones) {
+      if (counts[candidate.zoneIndex] < capacities[candidate.zoneIndex]) {
+        assigned = candidate.zoneIndex;
+        break;
+      }
+    }
+    counts[assigned] += 1;
+    map.set(entry.id, assigned);
+  }
+
+  return map;
+}
+
+export const QUICKBOX_ZONE_BY_BUILDING_ID: ReadonlyMap<string, number> = buildBalancedQuickBoxZones(
+  PROCEDURAL_BUILDINGS,
+  PARCEL_LOCKER_SLOTS
+);
+
+export function getQuickBoxZoneForBuilding(buildingId: string): number | null {
+  const z = QUICKBOX_ZONE_BY_BUILDING_ID.get(buildingId);
+  return z !== undefined ? z : null;
+}
+
+export function getQuickBoxSlotById(slotId: string): ParcelLockerSlot | undefined {
+  return PARCEL_LOCKER_SLOTS.find((s) => s.id === slotId);
+}
+
+export function getQuickBoxSlotByZone(zoneIndex: number): ParcelLockerSlot | undefined {
+  return PARCEL_LOCKER_SLOTS.find((s) => s.zoneIndex === zoneIndex);
+}
+
+/**
+ * Builds a synthetic delivery target `Building` representing an active QuickBox locker
+ * so bikes, scooters, and vans route directly into its dedicated courier parking bay.
+ */
+export function createQuickBoxTargetBuilding(slot: ParcelLockerSlot): Building {
+  return {
+    id: `quickbox_${slot.id}`,
+    typ: 'quickbox',
+    nazwaUlicy: slot.nearestStreetName,
+    numerBudynku: slot.zoneIndex + 1,
+    pietra: 1,
+    mieszkania: 0,
+    uMin: slot.lockerRect.uMin,
+    uMax: slot.lockerRect.uMax,
+    vMin: slot.lockerRect.vMin,
+    vMax: slot.lockerRect.vMax,
+    height: 20,
+    colorVariant: 0,
+    dostepnyDlaDostaw: true,
+    roadApproachPoint: slot.roadApproachPoint,
+    deliveryStopPoint: slot.deliveryStopPoint,
+  };
+}
 export const PROCEDURAL_HOUSE_YARDS: HouseYardFence[] = CITY_STRUCTURES.houseYards;
 export const PROCEDURAL_SERVICE_FACILITIES: ServiceFacilitySpec[] =
   CITY_STRUCTURES.serviceFacilities;

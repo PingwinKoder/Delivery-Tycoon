@@ -8,7 +8,8 @@ export type BuildingType =
   | 'kiosk'
   | 'dworzec'
   | 'mechanik'
-  | 'stacja_paliw';
+  | 'stacja_paliw'
+  | 'quickbox';
 
 export interface BuildingPalette {
   roof: string;
@@ -139,6 +140,12 @@ export const BUILDING_TYPE_META: Record<BuildingType, BuildingTypeMeta> = {
     shortLabel: 'Stacja paliw',
     description: 'Stacja paliw z wiatą, dystrybutorami i pawilonem obsługi',
     badgeColor: '#059669',
+  },
+  quickbox: {
+    label: 'Automat QuickBox',
+    shortLabel: 'QuickBox',
+    description: 'Automat paczkowy QuickBox z dedykowanym miejscem postojowym dla kuriera',
+    badgeColor: '#f59e0b',
   },
 };
 

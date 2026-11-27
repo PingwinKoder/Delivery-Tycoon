@@ -399,6 +399,8 @@ export interface CurrentMonthLedger {
   penaltyExpenses: number;
   /** Total employee driving course fees paid during the current month */
   trainingExpenses?: number;
+  /** Total QuickBox license & construction expenses paid during the current month */
+  quickBoxExpenses?: number;
   /** Number of orders completed during the current month */
   completedOrdersCount: number;
   /** Sum of company satisfaction snapshots recorded during the current month */
@@ -518,6 +520,16 @@ export interface UpgradePurchaseResult {
   reason?: 'max_reached' | 'insufficient_funds' | 'no_parking_spot';
 }
 
+export type QuickBoxStatus = 'building' | 'active';
+
+export interface OwnedQuickBox {
+  slotId: string;
+  status: QuickBoxStatus;
+  orderedAtGameDay: number;
+  readyAtGameDay: number;
+  readyAtMinutes: number;
+}
+
 export interface OrderEconomyState {
   balance: number;
   /** Total successfully completed orders (starts at 0) */
@@ -606,4 +618,8 @@ export interface OrderEconomyState {
   previousFuelPricePerLiter: number;
   /** 1-based gameplay day when the next fuel market price update occurs */
   nextFuelPriceChangeGameDay: number;
+  /** Whether the company owns the QuickBox parcel locker network license ($15,000 one-time) */
+  quickBoxLicenseOwned: boolean;
+  /** Owned QuickBox parcel lockers (under construction or active) across the 8 city slots */
+  quickBoxes: OwnedQuickBox[];
 }

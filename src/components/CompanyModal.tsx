@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Fuel,
   Lock,
+  Package,
   ParkingSquare,
   UserMinus,
   UserPlus,
@@ -50,6 +51,9 @@ import {
   MAX_VANS,
   MAX_WAREHOUSE_TIER,
   PARKING_SPOT_COST,
+  QUICKBOX_BUILD_COST,
+  QUICKBOX_LICENSE_COST,
+  QUICKBOX_MAX_SLOTS,
   REFUEL_AVAILABLE_THRESHOLD_RATIO,
   REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
   SCOOTER_MODELS,
@@ -432,6 +436,8 @@ interface CompanyModalProps {
   onPromoteCourier: (slotIndex: number) => void;
   onFireCourier: (slotIndex: number) => void;
   onAssignCourierVehicle: (slotIndex: number, vehicle: ActiveVehicleSelection | null) => void;
+  onBuyQuickBoxLicense: () => void;
+  onEnterQuickBoxPlacementMode: () => void;
 }
 
 interface CourierVehicleDropdownProps {
@@ -646,6 +652,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   onPromoteCourier,
   onFireCourier,
   onAssignCourierVehicle,
+  onBuyQuickBoxLicense,
+  onEnterQuickBoxPlacementMode,
 }) => {
   const [activeTab, setActiveTab] = useState<CompanyTabId>('base');
   const [vanShopCondition, setVanShopCondition] = useState<VanCondition>('used');
@@ -1220,6 +1228,102 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </button>
                 </div>
               </article>
+
+              {/* QuickBox Parcel Locker Network Card */}
+              {(() => {
+                const licenseOwned = Boolean(economyState.quickBoxLicenseOwned);
+                const ownedQuickBoxes = economyState.quickBoxes ?? [];
+                const totalCount = ownedQuickBoxes.length;
+                const buildingCount = ownedQuickBoxes.filter((qb) => qb.status === 'building').length;
+                const canBuyLicense = !licenseOwned && economyState.balance >= QUICKBOX_LICENSE_COST;
+                const allSlotsTaken = totalCount >= QUICKBOX_MAX_SLOTS;
+                const canBuildQuickBox =
+                  licenseOwned && !allSlotsTaken && economyState.balance >= QUICKBOX_BUILD_COST;
+
+                return (
+                  <article className="md:col-span-2 rounded-lg bg-[#182030] border border-amber-400/40 p-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 flex flex-col justify-between gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                    <div className="space-y-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 min-w-0">
+                          <Package className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-amber-400 shrink-0" aria-hidden="true" />
+                          <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
+                            {t(language, 'company.quickBoxTitle')}
+                          </h3>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-amber-200 whitespace-nowrap">
+                            {t(language, 'company.quickBoxSubtitle')}
+                          </span>
+                        </div>
+
+                        {licenseOwned && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {buildingCount > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-violet-500/15 border border-violet-400/40 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-violet-300 font-mono-nums">
+                                {t(language, 'company.quickBoxBuildingCount', { count: buildingCount })}
+                              </span>
+                            )}
+                            <span className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded bg-emerald-500/15 border border-emerald-400/40 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold text-emerald-300 font-mono-nums">
+                              {totalCount} / {QUICKBOX_MAX_SLOTS}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-300 leading-snug">
+                        {licenseOwned
+                          ? t(language, 'company.quickBoxActiveDesc')
+                          : t(language, 'company.quickBoxLicenseDesc')}
+                      </p>
+                    </div>
+
+                    <div className="pt-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0 leading-tight">
+                        {!licenseOwned && !canBuyLicense && (
+                          <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums">
+                            {formatMissingFunds(QUICKBOX_LICENSE_COST, economyState.balance, language)}
+                          </span>
+                        )}
+                        {licenseOwned && !allSlotsTaken && !canBuildQuickBox && (
+                          <span className="block text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-rose-300 font-mono-nums">
+                            {formatMissingFunds(QUICKBOX_BUILD_COST, economyState.balance, language)}
+                          </span>
+                        )}
+                      </div>
+
+                      {!licenseOwned ? (
+                        <button
+                          type="button"
+                          disabled={!canBuyLicense}
+                          onClick={onBuyQuickBoxLicense}
+                          className={`px-2.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canBuyLicense
+                              ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
+                            }`}
+                        >
+                          {t(language, 'company.quickBoxBuyLicenseBtn', {
+                            amount: formatCurrencyUsd(QUICKBOX_LICENSE_COST, false),
+                          })}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!canBuildQuickBox}
+                          onClick={onEnterQuickBoxPlacementMode}
+                          className={`px-2.5 py-1 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold font-mono-nums shrink-0 transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 ${canBuildQuickBox
+                              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 cursor-pointer'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700/80 cursor-not-allowed'
+                            }`}
+                        >
+                          {allSlotsTaken
+                            ? t(language, 'company.quickBoxAllBuiltBtn')
+                            : t(language, 'company.quickBoxBuildBtn', {
+                              amount: formatCurrencyUsd(QUICKBOX_BUILD_COST, false),
+                            })}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })()}
             </div>
           )}
 
@@ -2617,7 +2721,8 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
               ledger.fuelExpenses +
               ledger.repairExpenses +
               ledger.penaltyExpenses +
-              (ledger.trainingExpenses ?? 0);
+              (ledger.trainingExpenses ?? 0) +
+              (ledger.quickBoxExpenses ?? 0);
             const projectedTotalExpenses = totalOperatingExpenses + monthlyCosts.totalFixedCosts;
             const projectedMonthBalance = totalLiveRevenue - projectedTotalExpenses;
             const operatingMarginPct =

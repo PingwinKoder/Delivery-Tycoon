@@ -5,6 +5,7 @@ import type {
   CurrentMonthLedger,
   OrderEconomyState,
   OrderOffer,
+  OwnedQuickBox,
   OwnedScooter,
   OwnedVan,
   ReputationLevel,
@@ -113,6 +114,10 @@ export interface SavedGameState {
   previousFuelPricePerLiter?: number;
   /** 1-based gameplay day of the next fuel price update (optional in legacy saves) */
   nextFuelPriceChangeGameDay?: number;
+  /** Whether the company owns the QuickBox license (optional in legacy saves -> false) */
+  quickBoxLicenseOwned?: boolean;
+  /** Owned QuickBox parcel lockers (optional in legacy saves -> []) */
+  quickBoxes?: OwnedQuickBox[];
   /** Full underlying economy state snapshot for exact lossless restoration */
   economyState?: OrderEconomyState;
 }
@@ -745,6 +750,46 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
         ? Math.floor(cloned.economyState.nextFuelPriceChangeGameDay)
         : safeGameDay + 4;
 
+  const safeQuickBoxLicenseOwned = Boolean(
+    typeof cloned.quickBoxLicenseOwned === 'boolean'
+      ? cloned.quickBoxLicenseOwned
+      : isPlainObject(cloned.economyState) && typeof cloned.economyState.quickBoxLicenseOwned === 'boolean'
+        ? cloned.economyState.quickBoxLicenseOwned
+        : false
+  );
+  const rawQuickBoxes = Array.isArray(cloned.quickBoxes)
+    ? cloned.quickBoxes
+    : isPlainObject(cloned.economyState) && Array.isArray(cloned.economyState.quickBoxes)
+      ? cloned.economyState.quickBoxes
+      : [];
+  const seenQbSlots = new Set<string>();
+  const safeQuickBoxes: OwnedQuickBox[] = [];
+  for (const item of rawQuickBoxes) {
+    if (!isPlainObject(item) || typeof item.slotId !== 'string' || !item.slotId) continue;
+    if (seenQbSlots.has(item.slotId)) continue;
+    seenQbSlots.add(item.slotId);
+    const orderedDay =
+      typeof item.orderedAtGameDay === 'number' && Number.isFinite(item.orderedAtGameDay)
+        ? Math.max(1, Math.floor(item.orderedAtGameDay))
+        : safeGameDay;
+    const readyDay =
+      typeof item.readyAtGameDay === 'number' && Number.isFinite(item.readyAtGameDay)
+        ? Math.max(1, Math.floor(item.readyAtGameDay))
+        : orderedDay + 1;
+    const readyMin =
+      typeof item.readyAtMinutes === 'number' && Number.isFinite(item.readyAtMinutes)
+        ? Math.floor(item.readyAtMinutes)
+        : (readyDay - 1) * MINUTES_PER_DAY + 10 * 60;
+    const rawStatus = item.status === 'active' || safeMinutes >= readyMin ? 'active' : 'building';
+    safeQuickBoxes.push({
+      slotId: item.slotId,
+      status: rawStatus,
+      orderedAtGameDay: orderedDay,
+      readyAtGameDay: readyDay,
+      readyAtMinutes: readyMin,
+    });
+  }
+
   let normalizedEconomyState: OrderEconomyState | undefined = cloned.economyState;
   if (normalizedEconomyState && isPlainObject(normalizedEconomyState)) {
     const cleanCompanyCouriers: CompanyCourier[] =
@@ -790,6 +835,8 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
       currentFuelPricePerLiter: safeCurrentFuelPrice,
       previousFuelPricePerLiter: safePreviousFuelPrice,
       nextFuelPriceChangeGameDay: rawNextFuelChangeDay,
+      quickBoxLicenseOwned: safeQuickBoxLicenseOwned,
+      quickBoxes: safeQuickBoxes.map((qb) => ({ ...qb })),
     };
   }
 
@@ -812,6 +859,8 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
     currentFuelPricePerLiter: safeCurrentFuelPrice,
     previousFuelPricePerLiter: safePreviousFuelPrice,
     nextFuelPriceChangeGameDay: rawNextFuelChangeDay,
+    quickBoxLicenseOwned: safeQuickBoxLicenseOwned,
+    quickBoxes: safeQuickBoxes,
     vans: safeVans,
     vansCount: safeVansCount,
     activeVehicle: safeActiveVehicle,
@@ -1004,6 +1053,10 @@ export function createSavedGameState(
     currentFuelPricePerLiter: savedFuelPrice,
     previousFuelPricePerLiter: savedPrevFuelPrice,
     nextFuelPriceChangeGameDay: savedNextFuelChangeDay,
+    quickBoxLicenseOwned: Boolean(economyState.quickBoxLicenseOwned),
+    quickBoxes: Array.isArray(economyState.quickBoxes)
+      ? economyState.quickBoxes.map((qb) => ({ ...qb }))
+      : [],
     economyState: deepCloneJson({
       ...economyState,
       bikesCount: safeBikesCount,
@@ -1018,6 +1071,10 @@ export function createSavedGameState(
       currentFuelPricePerLiter: savedFuelPrice,
       previousFuelPricePerLiter: savedPrevFuelPrice,
       nextFuelPriceChangeGameDay: savedNextFuelChangeDay,
+      quickBoxLicenseOwned: Boolean(economyState.quickBoxLicenseOwned),
+      quickBoxes: Array.isArray(economyState.quickBoxes)
+        ? economyState.quickBoxes.map((qb) => ({ ...qb }))
+        : [],
     }),
   };
 }

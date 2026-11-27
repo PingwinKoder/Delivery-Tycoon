@@ -9,6 +9,7 @@ import type {
   HirableEmployeeRole,
   MonthlyCostBreakdown,
   OrderEconomyState,
+  OwnedQuickBox,
   OwnedScooter,
   OwnedVan,
   ParkingSpotUpgradeInfo,
@@ -67,6 +68,9 @@ import {
   MAX_WAREHOUSE_TIER,
   NEW_VAN_WEAR_PER_WORLD_PX,
   PARKING_SPOT_COST,
+  QUICKBOX_BUILD_COST,
+  QUICKBOX_LICENSE_COST,
+  QUICKBOX_MAX_SLOTS,
   REPAIR_AVAILABLE_DURABILITY_THRESHOLD,
   SCOOTER_CARGO_REPAIR_COST_MULTIPLIER,
   SCOOTER_CARGO_WEAR_PER_WORLD_PX,
@@ -78,6 +82,7 @@ import {
   VAN_MODELS,
   VAN_REPAIR_COST_MULTIPLIER,
   WAREHOUSE_TIERS,
+  calculateQuickBoxReadyTime,
   clampFuelLiters,
   clampVehicleDurability,
   createClockRandomSeed,
@@ -361,6 +366,8 @@ export function createInitialOrderEconomyState(
     currentFuelPricePerLiter: BASE_FUEL_PRICE_PER_LITER,
     previousFuelPricePerLiter: BASE_FUEL_PRICE_PER_LITER,
     nextFuelPriceChangeGameDay: INITIAL_NEXT_FUEL_PRICE_CHANGE_GAME_DAY,
+    quickBoxLicenseOwned: false,
+    quickBoxes: [],
   };
 
   // Day 1 starts with 2 deterministic unread offers immediately available
@@ -1640,6 +1647,111 @@ export function fireCourierInSlot(
       employees: syncEmployeesFromCouriers(nextCouriers),
     },
     fired: true,
+  };
+}
+
+/**
+ * Purchases the one-time QuickBox parcel locker network license ($15,000).
+ */
+export function purchaseQuickBoxLicense(state: OrderEconomyState): {
+  state: OrderEconomyState;
+  purchased: boolean;
+} {
+  if (state.quickBoxLicenseOwned || state.balance < QUICKBOX_LICENSE_COST) {
+    return { state, purchased: false };
+  }
+
+  const baseLedger =
+    state.currentMonthLedger ??
+    createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
+
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - QUICKBOX_LICENSE_COST),
+      quickBoxLicenseOwned: true,
+      quickBoxes: Array.isArray(state.quickBoxes) ? state.quickBoxes : [],
+      currentMonthLedger: {
+        ...baseLedger,
+        quickBoxExpenses: roundCurrency((baseLedger.quickBoxExpenses ?? 0) + QUICKBOX_LICENSE_COST),
+      },
+    },
+    purchased: true,
+  };
+}
+
+/**
+ * Orders construction of a QuickBox parcel locker on a free slot ($1,500 one-time).
+ * Construction completes after 1 full business day (Mon–Fri) at 10:00.
+ */
+export function orderQuickBoxConstruction(
+  state: OrderEconomyState,
+  slotId: string,
+  currentGameDay: number
+): { state: OrderEconomyState; ordered: boolean; quickBox?: OwnedQuickBox } {
+  const existingBoxes = Array.isArray(state.quickBoxes) ? state.quickBoxes : [];
+  if (
+    !state.quickBoxLicenseOwned ||
+    state.balance < QUICKBOX_BUILD_COST ||
+    existingBoxes.length >= QUICKBOX_MAX_SLOTS ||
+    existingBoxes.some((qb) => qb.slotId === slotId)
+  ) {
+    return { state, ordered: false };
+  }
+
+  const safeDay = Math.max(1, Math.floor(currentGameDay));
+  const { readyAtGameDay, readyAtMinutes } = calculateQuickBoxReadyTime(safeDay);
+  const newQuickBox: OwnedQuickBox = {
+    slotId,
+    status: 'building',
+    orderedAtGameDay: safeDay,
+    readyAtGameDay,
+    readyAtMinutes,
+  };
+
+  const baseLedger =
+    state.currentMonthLedger ??
+    createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
+
+  return {
+    state: {
+      ...state,
+      balance: roundCurrency(state.balance - QUICKBOX_BUILD_COST),
+      quickBoxes: [...existingBoxes, newQuickBox],
+      currentMonthLedger: {
+        ...baseLedger,
+        quickBoxExpenses: roundCurrency((baseLedger.quickBoxExpenses ?? 0) + QUICKBOX_BUILD_COST),
+      },
+    },
+    ordered: true,
+    quickBox: newQuickBox,
+  };
+}
+
+/**
+ * Activates any QuickBox parcel lockers whose `readyAtMinutes <= currentMinutes`.
+ */
+export function activateReadyQuickBoxes(
+  state: OrderEconomyState,
+  currentMinutes: number
+): OrderEconomyState {
+  const existingBoxes = state.quickBoxes;
+  if (!Array.isArray(existingBoxes) || existingBoxes.length === 0) return state;
+
+  const target = Math.floor(currentMinutes);
+  let changed = false;
+  const nextBoxes = existingBoxes.map((qb) => {
+    if (qb.status === 'building' && target >= qb.readyAtMinutes) {
+      changed = true;
+      return { ...qb, status: 'active' as const };
+    }
+    return qb;
+  });
+
+  if (!changed) return state;
+  return {
+    ...state,
+    quickBoxes: nextBoxes,
   };
 }
 

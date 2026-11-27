@@ -47,6 +47,40 @@ export const HIRED_VAN_DRIVER_SALARY = 2300;
 export const CAT_B_COURSE_COST = 350;
 export const CAT_B_COURSE_DURATION_DAYS = 2;
 
+/** QuickBox parcel locker network constants */
+export const QUICKBOX_LICENSE_COST = 15000;
+export const QUICKBOX_BUILD_COST = 1500;
+export const QUICKBOX_MAX_SLOTS = 8;
+/** QuickBox lockers finish construction and open at 10:00 (600 minutes into the day) */
+export const QUICKBOX_READY_MINUTE_OF_DAY = 10 * 60;
+
+/**
+ * Computes the completion day and minute (10:00) for a QuickBox ordered on `orderedAtGameDay`,
+ * requiring 1 full business day (Mon–Fri):
+ * - Mon–Thu (0..3) -> next day (Tue–Fri) at 10:00 (+1 day)
+ * - Fri (4) -> Monday at 10:00 (+3 days)
+ * - Sat (5) -> Monday is construction workday -> ready Tuesday at 10:00 (+3 days)
+ * - Sun (6) -> Monday is construction workday -> ready Tuesday at 10:00 (+2 days)
+ */
+export function calculateQuickBoxReadyTime(orderedAtGameDay: number): {
+  readyAtGameDay: number;
+  readyAtMinutes: number;
+} {
+  const safeDay = Math.max(1, Math.floor(orderedAtGameDay));
+  const weekdayIndex = (safeDay - 1) % DAYS_PER_WEEK; // 0=Mon..4=Fri, 5=Sat, 6=Sun
+  let daysToAdd = 1;
+  if (weekdayIndex === 4) {
+    daysToAdd = 3; // Fri -> Mon
+  } else if (weekdayIndex === 5) {
+    daysToAdd = 3; // Sat -> Tue (Mon is construction workday)
+  } else if (weekdayIndex === 6) {
+    daysToAdd = 2; // Sun -> Tue (Mon is construction workday)
+  }
+  const readyAtGameDay = safeDay + daysToAdd;
+  const readyAtMinutes = (readyAtGameDay - 1) * MINUTES_PER_DAY + QUICKBOX_READY_MINUTE_OF_DAY;
+  return { readyAtGameDay, readyAtMinutes };
+}
+
 /** Starter monthly fixed company costs at game start (Base Lv.1 $350 + 1st bike insurance $50 = $400/mies.) */
 export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + COURIER_INSURANCE_COST; // $400
 

@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { MAP_HEIGHT, MAP_WIDTH } from '../data/initialRoadGraph';
 import { type Building, formatBuildingAddress } from '../types/building';
 import type { Point, RoadGraph } from '../types/roadGraph';
-import type { DepthSortedEntity } from '../utils/buildings';
+import {
+  type DepthSortedEntity,
+  PARCEL_LOCKER_SLOTS,
+  type ParcelLockerSlot,
+  createQuickBoxTargetBuilding,
+  getQuickBoxSlotById,
+  getQuickBoxZoneForBuilding,
+} from '../utils/buildings';
 import { BASE_DEPOT, type BaseDepotSpec, canvasToIso } from '../utils/cityMap';
 import {
   type ProceduralTextures,
@@ -34,6 +41,10 @@ import {
   drawIsometricBicycle,
   drawIsometricDeliveryVan,
   drawIsometricScooter,
+  drawQuickBoxActiveLocker,
+  drawQuickBoxConstructionSite,
+  drawQuickBoxCourierBay,
+  drawQuickBoxPlacementBubble,
 } from '../utils/courierRenderer';
 import {
   type ArrowInputVector,
@@ -45,6 +56,7 @@ import {
   createInitialCamera,
   getEffectiveZoom,
   panCameraByScreenDelta,
+  screenToWorld,
   stepCameraPhysics,
   zoomCameraAtScreenPoint,
   zoomCameraByWheel,
@@ -158,6 +170,9 @@ interface MapCanvasProps {
   maxFps?: MaxFpsLimit;
   /** Active UI language for map street labels and gas station pylons */
   language?: SupportedLanguage;
+  /** True when player is choosing a QuickBox construction plot directly on the map */
+  quickBoxPlacementMode?: boolean;
+  onSelectQuickBoxSlot?: (slotId: string) => void;
   onFpsChange?: (fps: number) => void;
   onMapReady?: () => void;
   onIntroFlyInComplete?: () => void;
@@ -322,6 +337,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
   sessionEpoch = 0,
   maxFps = 60,
   language = 'pl',
+  quickBoxPlacementMode = false,
+  onSelectQuickBoxSlot,
   onFpsChange,
   onMapReady,
   onIntroFlyInComplete,
@@ -404,6 +421,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     overviewMode,
     maxFps,
     language,
+    quickBoxPlacementMode,
+    onSelectQuickBoxSlot,
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
@@ -437,6 +456,8 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     overviewMode,
     maxFps,
     language,
+    quickBoxPlacementMode,
+    onSelectQuickBoxSlot,
     onFpsChange,
     onMapReady,
     onIntroFlyInComplete,
@@ -940,10 +961,50 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     // Interaction state (pan & pinch-to-zoom)
     let isPanning = false;
     let pointerLastScreen = { x: 0, y: 0 };
+    let pointerDownScreen: Point | null = null;
+    let pointerMovedDist = 0;
+    let hoveredQuickBoxSlotId: string | null = null;
 
     // Touch pinch state
     let pinchLastDist = 0;
     let pinchLastMid = { x: 0, y: 0 };
+
+    const hitTestQuickBoxBubble = (localX: number, localY: number): string | null => {
+      if (
+        !propsRef.current.quickBoxPlacementMode ||
+        propsRef.current.interactionBlocked ||
+        propsRef.current.overviewMode
+      ) {
+        return null;
+      }
+      const occupiedIds = new Set(
+        (propsRef.current.economyStateRef?.current?.quickBoxes ?? []).map((qb) => qb.slotId)
+      );
+      const cam = cameraRef.current;
+      const vp = viewportRef.current;
+      const worldPt = screenToWorld(localX, localY, cam, vp, MAP_SIZE);
+      const effZoom = getEffectiveZoom(cam.zoom, vp, MAP_SIZE);
+      const invS = 1 / Math.sqrt(Math.max(0.2, effZoom));
+      const s = Math.max(0.85, Math.min(2.2, invS * 1.15));
+      const bubbleHitRadius = 21 * s;
+      const plotHitRadius = 22 * s;
+
+      let bestId: string | null = null;
+      let bestDist = Infinity;
+      for (const slot of PARCEL_LOCKER_SLOTS) {
+        if (occupiedIds.has(slot.id)) continue;
+        const dBubble = Math.hypot(worldPt.x - slot.x, worldPt.y - (slot.y - 24 * s));
+        const dPlot = Math.hypot(worldPt.x - slot.x, worldPt.y - slot.y);
+        if (dBubble <= bubbleHitRadius && dBubble < bestDist) {
+          bestDist = dBubble;
+          bestId = slot.id;
+        } else if (dPlot <= plotHitRadius && dPlot < bestDist) {
+          bestDist = dPlot;
+          bestId = slot.id;
+        }
+      }
+      return bestId;
+    };
 
     const getLocalPos = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
@@ -957,19 +1018,34 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       if (propsRef.current.interactionBlocked) return;
       if (e.button !== 0) return;
       cameraVelocityRef.current = { vx: 0, vy: 0 };
-      pointerLastScreen = getLocalPos(e.clientX, e.clientY);
+      const pos = getLocalPos(e.clientX, e.clientY);
+      pointerLastScreen = pos;
+      pointerDownScreen = pos;
+      pointerMovedDist = 0;
       isPanning = true;
     };
 
     const onMouseMove = (e: MouseEvent) => {
       if (propsRef.current.interactionBlocked) {
         isPanning = false;
+        hoveredQuickBoxSlotId = null;
+        canvas.style.cursor = '';
         return;
       }
-      if (!isPanning) return;
       const pos = getLocalPos(e.clientX, e.clientY);
+      if (!isPanning) {
+        if (propsRef.current.quickBoxPlacementMode) {
+          hoveredQuickBoxSlotId = hitTestQuickBoxBubble(pos.x, pos.y);
+          canvas.style.cursor = hoveredQuickBoxSlotId ? 'pointer' : '';
+        } else if (hoveredQuickBoxSlotId !== null) {
+          hoveredQuickBoxSlotId = null;
+          canvas.style.cursor = '';
+        }
+        return;
+      }
       const dx = pos.x - pointerLastScreen.x;
       const dy = pos.y - pointerLastScreen.y;
+      pointerMovedDist += Math.hypot(dx, dy);
       cameraVelocityRef.current = { vx: 0, vy: 0 };
       targetCameraRef.current = panCameraByScreenDelta(
         targetCameraRef.current,
@@ -981,12 +1057,29 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       pointerLastScreen = pos;
     };
 
-    const onMouseUp = () => {
+    const onMouseUp = (e: MouseEvent) => {
+      if (
+        isPanning &&
+        pointerDownScreen &&
+        pointerMovedDist < 10 &&
+        propsRef.current.quickBoxPlacementMode &&
+        !propsRef.current.interactionBlocked
+      ) {
+        const pos = getLocalPos(e.clientX, e.clientY);
+        const hitSlotId = hitTestQuickBoxBubble(pos.x, pos.y);
+        if (hitSlotId) {
+          propsRef.current.onSelectQuickBoxSlot?.(hitSlotId);
+        }
+      }
       isPanning = false;
+      pointerDownScreen = null;
     };
 
     const onMouseLeave = () => {
       isPanning = false;
+      pointerDownScreen = null;
+      hoveredQuickBoxSlotId = null;
+      canvas.style.cursor = '';
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -1030,9 +1123,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
       if (touches.length === 1) {
         pointerLastScreen = { x: touches[0].x, y: touches[0].y };
+        pointerDownScreen = { x: touches[0].x, y: touches[0].y };
+        pointerMovedDist = 0;
         isPanning = true;
       } else if (touches.length >= 2) {
         isPanning = false;
+        pointerDownScreen = null;
         const [t0, t1] = touches;
         pinchLastDist = Math.hypot(t1.x - t0.x, t1.y - t0.y);
         pinchLastMid = { x: (t0.x + t1.x) / 2, y: (t0.y + t1.y) / 2 };
@@ -1052,6 +1148,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const t = touches[0];
         const dx = t.x - pointerLastScreen.x;
         const dy = t.y - pointerLastScreen.y;
+        pointerMovedDist += Math.hypot(dx, dy);
         targetCameraRef.current = panCameraByScreenDelta(
           targetCameraRef.current,
           dx,
@@ -1095,9 +1192,22 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       e.preventDefault();
       const remaining = syncTouches(e.touches);
       if (remaining.length === 0) {
+        if (
+          pointerDownScreen &&
+          pointerMovedDist < 12 &&
+          propsRef.current.quickBoxPlacementMode &&
+          !propsRef.current.interactionBlocked
+        ) {
+          const hitSlotId = hitTestQuickBoxBubble(pointerDownScreen.x, pointerDownScreen.y);
+          if (hitSlotId) {
+            propsRef.current.onSelectQuickBoxSlot?.(hitSlotId);
+          }
+        }
         isPanning = false;
+        pointerDownScreen = null;
       } else if (remaining.length === 1) {
         pointerLastScreen = { x: remaining[0].x, y: remaining[0].y };
+        pointerDownScreen = null;
         isPanning = true;
       }
     };
@@ -1169,15 +1279,48 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
       }
 
+      // Active QuickBox parcel lockers capture 50% of residential deliveries inside their zone
+      const activeQuickBoxByZone = new Map<number, ParcelLockerSlot>();
+      for (const qb of ecoState.quickBoxes ?? []) {
+        if (qb.status !== 'active') continue;
+        const slot = getQuickBoxSlotById(qb.slotId);
+        if (slot && slot.roadApproachPoint && slot.deliveryStopPoint) {
+          activeQuickBoxByZone.set(slot.zoneIndex, slot);
+        }
+      }
+      const zoneSeenPackages = new Map<number, number>();
+      const quickBoxTargetCache = new Map<string, Building>();
+
       for (const batch of batches) {
         const senderBuildingId = senderLookup.get(batch.orderId) ?? null;
         for (let p = 0; p < batch.count; p++) {
           const recipient = pickRandomRecipientBuildingForPackage(curBuildings, senderBuildingId);
           if (!recipient) continue;
-          let entry = stopByBuildingId.get(recipient.id);
+
+          let finalRecipient = recipient;
+          if (activeQuickBoxByZone.size > 0) {
+            const zoneIdx = getQuickBoxZoneForBuilding(recipient.id);
+            if (zoneIdx !== null) {
+              const activeSlot = activeQuickBoxByZone.get(zoneIdx);
+              if (activeSlot) {
+                const seen = (zoneSeenPackages.get(zoneIdx) ?? 0) + 1;
+                zoneSeenPackages.set(zoneIdx, seen);
+                if (seen % 2 === 1) {
+                  let qbTarget = quickBoxTargetCache.get(activeSlot.id);
+                  if (!qbTarget) {
+                    qbTarget = createQuickBoxTargetBuilding(activeSlot);
+                    quickBoxTargetCache.set(activeSlot.id, qbTarget);
+                  }
+                  finalRecipient = qbTarget;
+                }
+              }
+            }
+          }
+
+          let entry = stopByBuildingId.get(finalRecipient.id);
           if (!entry) {
-            entry = { building: recipient, items: [] };
-            stopByBuildingId.set(recipient.id, entry);
+            entry = { building: finalRecipient, items: [] };
+            stopByBuildingId.set(finalRecipient.id, entry);
           }
           const existingItem = entry.items.find((it) => it.orderId === batch.orderId);
           if (existingItem) {
@@ -2335,12 +2478,39 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
       };
 
+      const ownedQuickBoxes = currentEco?.quickBoxes ?? [];
+      const ownedQuickBoxBySlotId = new Map(ownedQuickBoxes.map((qb) => [qb.slotId, qb]));
+      const quickBoxDepthEntities: DepthSortedEntity[] = [];
+      for (const qb of ownedQuickBoxes) {
+        const slot = getQuickBoxSlotById(qb.slotId);
+        if (!slot) continue;
+        quickBoxDepthEntities.push({
+          id: `quickbox_${slot.id}`,
+          uMin: slot.lockerRect.uMin,
+          uMax: slot.lockerRect.uMax,
+          vMin: slot.lockerRect.vMin,
+          vMax: slot.lockerRect.vMax,
+          draw: (drawCtx) =>
+            qb.status === 'active'
+              ? drawQuickBoxActiveLocker(drawCtx, slot)
+              : drawQuickBoxConstructionSite(drawCtx, slot),
+        });
+      }
+
       if (isFootprintOnly) {
         // 2D Footprints Mode: footprints & optional road grid are already baked into the static ground buffer
         drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+        for (const qb of ownedQuickBoxes) {
+          if (qb.status !== 'active') continue;
+          const slot = getQuickBoxSlotById(qb.slotId);
+          if (slot) drawQuickBoxCourierBay(ctx, slot);
+        }
         drawDynamicRouteAndPin();
         if (curBaseNode) {
           drawBaseMarker(curBaseNode);
+        }
+        for (const qbEntity of quickBoxDepthEntities) {
+          qbEntity.draw(ctx);
         }
         drawBikeRackWithOptionalBike(ctx, rack, parkedBikeIndices, parkedScooters);
         const parkedVanSlots = getBaseParkedVanSlots(
@@ -2373,7 +2543,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         // fences, BAZA bike rack, parked fleet vans on P1–P8, and ALL active courier vehicles so tall blocks naturally occlude them
         let depthEntities: DepthSortedEntity[];
         if (!anyCourierInRoute) {
-          depthEntities = cachedIdleDepthEntities;
+          depthEntities =
+            quickBoxDepthEntities.length > 0
+              ? [...cachedIdleDepthEntities, ...quickBoxDepthEntities]
+              : cachedIdleDepthEntities;
         } else {
           const bikeRackEntity: DepthSortedEntity = {
             id: rack.id,
@@ -2394,7 +2567,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             const vanIdx = Number(entity.id.replace('base_parked_van_', ''));
             return !activeOutVanIndices || !activeOutVanIndices.has(vanIdx);
           });
-          depthEntities = [bikeRackEntity, ...parkedVanEntities];
+          depthEntities = [bikeRackEntity, ...parkedVanEntities, ...quickBoxDepthEntities];
 
           for (const slotIndex of COURIER_SLOT_INDICES) {
             const entry = fleet[slotIndex];
@@ -2434,6 +2607,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
 
         drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+        for (const qb of ownedQuickBoxes) {
+          if (qb.status !== 'active') continue;
+          const slot = getQuickBoxSlotById(qb.slotId);
+          if (slot) drawQuickBoxCourierBay(ctx, slot);
+        }
         if (streetNamesVisible && !propsRef.current.overviewMode) {
           renderStreetNames(ctx, effectiveZoom, viewBounds, propsRef.current.language ?? 'pl');
         }
@@ -2464,6 +2642,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
       const canvasLang = propsRef.current.language ?? 'pl';
       for (const pylon of GAS_STATION_PRICE_PYLONS) {
         drawGasStationPricePylon(ctx, pylon, liveFuelPrice, prevFuelPrice, invScale, canvasLang);
+      }
+
+      // Clickable '+' bubbles over every free QuickBox plot while in placement mode
+      if (propsRef.current.quickBoxPlacementMode && !propsRef.current.overviewMode) {
+        for (const slot of PARCEL_LOCKER_SLOTS) {
+          if (ownedQuickBoxBySlotId.has(slot.id)) continue;
+          drawQuickBoxPlacementBubble(ctx, slot, invScale, hoveredQuickBoxSlotId === slot.id);
+        }
       }
 
       ctx.restore();

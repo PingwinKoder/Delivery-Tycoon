@@ -1038,9 +1038,11 @@ export function resolveVanStopForBuilding(
   parkingNavNetworks: readonly ParkingNavNetwork[] = ALL_PARKING_NAV_NETWORKS,
   excludeSpotIds?: ReadonlySet<string>
 ): VanBuildingStopPlan | null {
-  // Service facilities (mechanic garage, gas stations) ALWAYS use their own dedicated driveway apron
+  // Service facilities (mechanic garage, gas stations) and QuickBox lockers ALWAYS use their own dedicated driveway apron / courier bay
   if (
-    (building.typ === 'mechanik' || building.typ === 'stacja_paliw') &&
+    (building.typ === 'mechanik' ||
+      building.typ === 'stacja_paliw' ||
+      building.typ === 'quickbox') &&
     building.roadApproachPoint &&
     building.deliveryStopPoint?.surface === 'delivery_zone'
   ) {

@@ -2,6 +2,7 @@ import type { Point } from '../types/roadGraph';
 import type { ScooterModelId, VanCondition, VanTier } from '../types/orders';
 import type { BaseBikeRackSpec, BaseLoadingZoneSpec } from './cityMap';
 import { isoToCanvas } from './cityMap';
+import type { ParcelLockerSlot } from './buildings';
 import type { SupportedLanguage } from './settingsSystem';
 
 /** Compact, minimalist bicycle & rider scale (~20% smaller than 0.67 for crisp city readability) */
@@ -1958,6 +1959,371 @@ export function drawGasStationPricePylon(
   ctx.strokeText(priceText, base.x, priceY);
   ctx.fillStyle = priceColor;
   ctx.fillText(priceText, base.x, priceY);
+
+  ctx.restore();
+}
+
+function drawIsoQuad(
+  ctx: CanvasRenderingContext2D,
+  uMin: number,
+  uMax: number,
+  vMin: number,
+  vMax: number,
+  yOffset = 0
+) {
+  const p0 = isoToCanvas(uMin, vMin);
+  const p1 = isoToCanvas(uMax, vMin);
+  const p2 = isoToCanvas(uMax, vMax);
+  const p3 = isoToCanvas(uMin, vMax);
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y + yOffset);
+  ctx.lineTo(p1.x, p1.y + yOffset);
+  ctx.lineTo(p2.x, p2.y + yOffset);
+  ctx.lineTo(p3.x, p3.y + yOffset);
+  ctx.closePath();
+}
+
+function drawIsoExtrudedBox(
+  ctx: CanvasRenderingContext2D,
+  rect: { uMin: number; uMax: number; vMin: number; vMax: number },
+  height: number,
+  colors: { top: string; left: string; right: string; outline?: string }
+) {
+  const p00 = isoToCanvas(rect.uMin, rect.vMin);
+  const p10 = isoToCanvas(rect.uMax, rect.vMin);
+  const p11 = isoToCanvas(rect.uMax, rect.vMax);
+  const p01 = isoToCanvas(rect.uMin, rect.vMax);
+  // Sort 4 ground vertices into top/right/bottom/left in screen space for axis-independent isometric prism drawing
+  const pts = [p00, p10, p11, p01];
+  let top = pts[0];
+  let bottom = pts[0];
+  let left = pts[0];
+  let right = pts[0];
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].y < top.y) top = pts[i];
+    if (pts[i].y > bottom.y) bottom = pts[i];
+    if (pts[i].x < left.x) left = pts[i];
+    if (pts[i].x > right.x) right = pts[i];
+  }
+  const outline = colors.outline ?? '#0f172a';
+
+  // Left visible front face (left -> bottom)
+  ctx.fillStyle = colors.left;
+  ctx.beginPath();
+  ctx.moveTo(left.x, left.y - height);
+  ctx.lineTo(bottom.x, bottom.y - height);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.lineTo(left.x, left.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  // Right visible front face (bottom -> right)
+  ctx.fillStyle = colors.right;
+  ctx.beginPath();
+  ctx.moveTo(bottom.x, bottom.y - height);
+  ctx.lineTo(right.x, right.y - height);
+  ctx.lineTo(right.x, right.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  // Top roof face
+  ctx.fillStyle = colors.top;
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y - height);
+  ctx.lineTo(right.x, right.y - height);
+  ctx.lineTo(bottom.x, bottom.y - height);
+  ctx.lineTo(left.x, left.y - height);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1.15;
+  ctx.stroke();
+
+  return { top, right, bottom, left };
+}
+
+/**
+ * Draws the dedicated single courier parking bay & short street driveway right next to an ACTIVE QuickBox.
+ * Rendered on the ground layer beneath 3D buildings/vehicles (only once status === 'active').
+ */
+export function drawQuickBoxCourierBay(
+  ctx: CanvasRenderingContext2D,
+  slot: ParcelLockerSlot
+) {
+  const { parkingBay: bay, driveway: dw } = slot;
+  ctx.save();
+
+  // 1. Short asphalt driveway connecting bordering street edge across sidewalk into the bay
+  drawIsoQuad(ctx, dw.uMin, dw.uMax, dw.vMin, dw.vMax);
+  ctx.fillStyle = '#334155';
+  ctx.fill();
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // 2. Curb framing around the single courier parking bay
+  drawIsoQuad(ctx, bay.uMin - 1.4, bay.uMax + 1.4, bay.vMin - 1.4, bay.vMax + 1.4);
+  ctx.fillStyle = '#64748b';
+  ctx.fill();
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  // 3. Dark graphite tarmac stall surface
+  drawIsoQuad(ctx, bay.uMin, bay.uMax, bay.vMin, bay.vMax);
+  ctx.fillStyle = '#273244';
+  ctx.fill();
+
+  // 4. Crisp amber-yellow courier bay inner border marking
+  drawIsoQuad(ctx, bay.uMin + 1.8, bay.uMax - 1.8, bay.vMin + 1.8, bay.vMax - 1.8);
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 1.35;
+  ctx.stroke();
+
+  // 5. Center amber courier parking badge
+  const bayCenter = isoToCanvas((bay.uMin + bay.uMax) * 0.5, (bay.vMin + bay.vMax) * 0.5);
+  ctx.fillStyle = 'rgba(250, 204, 21, 0.92)';
+  ctx.font = '800 8px "Inter", system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('P', bayCenter.x, bayCenter.y);
+
+  ctx.restore();
+}
+
+/**
+ * Draws a 3D isometric construction enclosure / scaffolding box with yellow-black warning accents
+ * while a QuickBox parcel locker is under construction (`status === 'building'`).
+ */
+export function drawQuickBoxConstructionSite(
+  ctx: CanvasRenderingContext2D,
+  slot: ParcelLockerSlot
+) {
+  const r = slot.lockerRect;
+  ctx.save();
+
+  // Soft ground shadow
+  drawIsoQuad(ctx, r.uMin - 1, r.uMax + 2, r.vMin - 1, r.vMax + 2, 1.5);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
+  ctx.fill();
+
+  // Lower yellow-and-black construction safety plinth
+  drawIsoExtrudedBox(ctx, r, 5, {
+    top: '#eab308',
+    left: '#ca8a04',
+    right: '#1e293b',
+    outline: '#0f172a',
+  });
+
+  // Main tarpaulin/construction enclosure body
+  const inner = {
+    uMin: r.uMin + 0.8,
+    uMax: r.uMax - 0.8,
+    vMin: r.vMin + 0.8,
+    vMax: r.vMax - 0.8,
+  };
+  const box = drawIsoExtrudedBox(ctx, inner, 17, {
+    top: '#475569',
+    left: '#334155',
+    right: '#1e293b',
+    outline: '#0f172a',
+  });
+
+  // Diagonal yellow hazard stripe bands on both visible front walls
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 2.1;
+  ctx.beginPath();
+  ctx.moveTo(box.left.x + 2, box.left.y - 4);
+  ctx.lineTo(box.bottom.x - 2, box.bottom.y - 4);
+  ctx.moveTo(box.bottom.x + 2, box.bottom.y - 4);
+  ctx.lineTo(box.right.x - 2, box.right.y - 4);
+  ctx.stroke();
+
+  // Steel scaffolding corner posts rising slightly above the enclosure
+  const postHeight = 22;
+  const corners = [
+    isoToCanvas(r.uMin, r.vMin),
+    isoToCanvas(r.uMax, r.vMin),
+    isoToCanvas(r.uMax, r.vMax),
+    isoToCanvas(r.uMin, r.vMax),
+  ];
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 1.6;
+  for (const c of corners) {
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(c.x, c.y - postHeight);
+    ctx.stroke();
+  }
+
+  // Top scaffolding frame crossbar
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y - postHeight);
+  ctx.lineTo(corners[1].x, corners[1].y - postHeight);
+  ctx.lineTo(corners[2].x, corners[2].y - postHeight);
+  ctx.lineTo(corners[3].x, corners[3].y - postHeight);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Draws a modern 3D isometric active QuickBox parcel locker with amber canopy,
+ * modular locker compartment grid lines, and glowing cyan touchscreen console.
+ */
+export function drawQuickBoxActiveLocker(
+  ctx: CanvasRenderingContext2D,
+  slot: ParcelLockerSlot
+) {
+  const r = slot.lockerRect;
+  ctx.save();
+
+  // Ground drop shadow
+  drawIsoQuad(ctx, r.uMin - 1, r.uMax + 2.5, r.vMin - 1, r.vMax + 2.5, 1.8);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
+  ctx.fill();
+
+  // Main sleek graphite locker body
+  const lockerH = 19;
+  const body = drawIsoExtrudedBox(ctx, r, lockerH, {
+    top: '#f59e0b',
+    left: '#e2e8f0',
+    right: '#94a3b8',
+    outline: '#0f172a',
+  });
+
+  // Amber brand roof overhang canopy
+  const canopy = {
+    uMin: r.uMin - 0.9,
+    uMax: r.uMax + 0.9,
+    vMin: r.vMin - 0.9,
+    vMax: r.vMax + 0.9,
+  };
+  const p00 = isoToCanvas(canopy.uMin, canopy.vMin);
+  const p10 = isoToCanvas(canopy.uMax, canopy.vMin);
+  const p11 = isoToCanvas(canopy.uMax, canopy.vMax);
+  const p01 = isoToCanvas(canopy.uMin, canopy.vMax);
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath();
+  ctx.moveTo(p00.x, p00.y - lockerH - 2.2);
+  ctx.lineTo(p10.x, p10.y - lockerH - 2.2);
+  ctx.lineTo(p11.x, p11.y - lockerH - 2.2);
+  ctx.lineTo(p01.x, p01.y - lockerH - 2.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // Locker compartment door grid lines on the longer visible front facade
+  const leftLen = Math.hypot(body.bottom.x - body.left.x, body.bottom.y - body.left.y);
+  const rightLen = Math.hypot(body.right.x - body.bottom.x, body.right.y - body.bottom.y);
+  const fStart = leftLen >= rightLen ? body.left : body.bottom;
+  const fEnd = leftLen >= rightLen ? body.bottom : body.right;
+
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
+  ctx.lineWidth = 0.85;
+  // Vertical column dividers (4 locker columns)
+  for (let col = 1; col <= 3; col++) {
+    const t = col / 4;
+    const x = fStart.x + (fEnd.x - fStart.x) * t;
+    const y = fStart.y + (fEnd.y - fStart.y) * t;
+    ctx.beginPath();
+    ctx.moveTo(x, y - lockerH + 2.5);
+    ctx.lineTo(x, y - 1.5);
+    ctx.stroke();
+  }
+  // Horizontal shelf dividers
+  for (let row = 1; row <= 2; row++) {
+    const hOff = (lockerH - 4) * (row / 3) + 2;
+    ctx.beginPath();
+    ctx.moveTo(fStart.x, fStart.y - hOff);
+    ctx.lineTo(fEnd.x, fEnd.y - hOff);
+    ctx.stroke();
+  }
+
+  // Illuminated cyan touchscreen terminal in the center column of the locker front
+  const cx = (fStart.x + fEnd.x) * 0.5;
+  const cy = (fStart.y + fEnd.y) * 0.5 - lockerH * 0.52;
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(cx - 2.6, cy - 3.6, 5.2, 7.2);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(cx - 1.8, cy - 2.8, 3.6, 4.4);
+
+  ctx.restore();
+}
+
+/**
+ * Draws a crisp, clickable floating '+' bubble directly above an available QuickBox plot
+ * while the player is in QuickBox placement mode.
+ */
+export function drawQuickBoxPlacementBubble(
+  ctx: CanvasRenderingContext2D,
+  slot: ParcelLockerSlot,
+  invScale: number,
+  isHovered = false
+) {
+  const s = Math.max(0.85, Math.min(2.2, invScale * 1.15));
+  const anchor = isoToCanvas(slot.u, slot.v);
+  const radius = (isHovered ? 15.5 : 13.5) * s;
+  const cy = anchor.y - 24 * s;
+  const cx = anchor.x;
+
+  ctx.save();
+
+  // Soft ground highlight ring on the available plot
+  drawIsoQuad(ctx, slot.uMin, slot.uMax, slot.vMin, slot.vMax);
+  ctx.fillStyle = isHovered ? 'rgba(16, 185, 129, 0.34)' : 'rgba(16, 185, 129, 0.18)';
+  ctx.fill();
+  ctx.strokeStyle = isHovered ? '#34d399' : '#10b981';
+  ctx.lineWidth = 2.0 * s;
+  ctx.stroke();
+
+  // Pointer stem triangle connecting bubble down to plot center
+  ctx.fillStyle = isHovered ? '#34d399' : '#10b981';
+  ctx.beginPath();
+  ctx.moveTo(cx - 5 * s, cy + radius * 0.72);
+  ctx.lineTo(cx + 5 * s, cy + radius * 0.72);
+  ctx.lineTo(cx, anchor.y - 3 * s);
+  ctx.closePath();
+  ctx.fill();
+
+  // Outer drop shadow + glowing emerald circle
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.55)';
+  ctx.beginPath();
+  ctx.arc(cx, cy + 2 * s, radius + 1.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = isHovered ? '#34d399' : '#10b981';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.2 * s;
+  ctx.stroke();
+
+  // Crisp bold '+' symbol
+  const arm = 5.5 * s;
+  ctx.strokeStyle = '#022c22';
+  ctx.lineWidth = 2.8 * s;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - arm, cy);
+  ctx.lineTo(cx + arm, cy);
+  ctx.moveTo(cx, cy - arm);
+  ctx.lineTo(cx, cy + arm);
+  ctx.stroke();
 
   ctx.restore();
 }
