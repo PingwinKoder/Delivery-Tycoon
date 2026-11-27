@@ -1732,7 +1732,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     }
   ): RawBuildingCandidate | null => {
     const height = candidate.heightOverride ?? getBuildingHeight(candidate.typ, candidate.pietra);
-    const minDim = candidate.typ === 'garaz' ? 11 : 18;
+    const minDim = candidate.typ === 'garaz' ? 15 : 18;
     if (candidate.uMax - candidate.uMin < minDim || candidate.vMax - candidate.vMin < minDim) return null;
     if (!isBuildingVisibleInMap(candidate.uMin, candidate.uMax, candidate.vMin, candidate.vMax, height)) {
       return null;
@@ -1748,13 +1748,13 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     }
 
     const candIsBlock = isApartmentBlock(candidate.typ);
+    const candIsGarage = candidate.typ === 'garaz';
     for (const existing of raw) {
       const pad =
-        candidate.typ === 'garaz'
-          ? 1.5
-          : candIsBlock && isApartmentBlock(existing.typ)
-            ? -0.5
-            : 6;
+        (candIsBlock && isApartmentBlock(existing.typ)) ||
+        (candIsGarage && existing.typ === 'garaz')
+          ? -0.5
+          : 6;
       if (rectsOverlap(existing, candidate, pad)) {
         return null;
       }
@@ -3154,159 +3154,181 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
   }));
 
   // ---------------------------------------------------------------------------
-  // 2I. PRZYDOMOWE GARAŻE NA WEWNĘTRZNYCH OSIEDLACH DOMKÓW (typ: 'garaz', dostepnyDlaDostaw: false)
-  //     Placed beside ~30% of single-family houses in inner house quarters where free space exists
-  //     without blocking the yard entrance gate or overlapping any street, yard, or QuickBox plot.
+  // 2I. SZEREGI GARAŻY I POJEDYNCZE GARAŻE MIĘDZY POSESJAMI (typ: 'garaz', dostepnyDlaDostaw: false)
+  //     Placed strictly in free roadside gaps between house yards (never inside houseYards)
+  //     along streets and residential access roads in inner 'houses' quarters:
+  //     - 2..5 wall-to-wall garages in wider gaps (shared roof/facade palette per row)
+  //     - 1 standalone garage in narrower gaps
   // ---------------------------------------------------------------------------
   const garageDriveways: GarageDrivewaySpec[] = [];
-  const rawById = new Map(raw.map((b) => [b.id, b]));
+  const GARAGE_BAY_WIDTH = 17;
+  const GARAGE_DEPTH = 25;
+  const GARAGE_HEIGHT = 21;
+  const GARAGE_FRONT_SETBACK = 6;
+  const GARAGE_YARD_MARGIN = 3.5;
+  const GARAGE_DRIVEWAY_DEPTH = 6.5;
   let garageSeq = 0;
+  let garageRowSeq = 0;
 
-  for (let yi = 0; yi < houseYards.length; yi++) {
-    // Deterministic ~32% selection across houses
-    if (yi % 3 !== 0 && yi % 11 !== 4) continue;
-    const yard = houseYards[yi];
-    const yMidU = (yard.uMin + yard.uMax) * 0.5;
-    const yMidV = (yard.vMin + yard.vMax) * 0.5;
-    // Inner built-up residential estates only (skip outer map exit fringes)
-    if (yMidU < -1060 || yMidU > 980 || yMidV < -1060 || yMidV > 1080) continue;
+  type GarageStrip = {
+    streetSide: 'uMin' | 'uMax' | 'vMin' | 'vMax';
+    frontCoord: number;
+    spanMin: number;
+    spanMax: number;
+    streetId?: string;
+  };
 
-    const house = rawById.get(yard.buildingId);
-    if (!house || house.typ !== 'dom') continue;
-
-    const alongU = yard.streetSide === 'vMin' || yard.streetSide === 'vMax';
-    const gW = alongU ? 13 : 17;
-    const gH = alongU ? 17 : 13;
-
-    type GarageCandidate = {
-      uMin: number;
-      uMax: number;
-      vMin: number;
-      vMax: number;
-      insideYard: boolean;
+  const makeGarageBayBox = (
+    strip: GarageStrip,
+    pos: number
+  ): { uMin: number; uMax: number; vMin: number; vMax: number } => {
+    if (strip.streetSide === 'vMin') {
+      return {
+        uMin: round1(pos),
+        uMax: round1(pos + GARAGE_BAY_WIDTH),
+        vMin: round1(strip.frontCoord),
+        vMax: round1(strip.frontCoord + GARAGE_DEPTH),
+      };
+    }
+    if (strip.streetSide === 'vMax') {
+      return {
+        uMin: round1(pos),
+        uMax: round1(pos + GARAGE_BAY_WIDTH),
+        vMin: round1(strip.frontCoord - GARAGE_DEPTH),
+        vMax: round1(strip.frontCoord),
+      };
+    }
+    if (strip.streetSide === 'uMin') {
+      return {
+        uMin: round1(strip.frontCoord),
+        uMax: round1(strip.frontCoord + GARAGE_DEPTH),
+        vMin: round1(pos),
+        vMax: round1(pos + GARAGE_BAY_WIDTH),
+      };
+    }
+    return {
+      uMin: round1(strip.frontCoord - GARAGE_DEPTH),
+      uMax: round1(strip.frontCoord),
+      vMin: round1(pos),
+      vMax: round1(pos + GARAGE_BAY_WIDTH),
     };
-    const candidates: GarageCandidate[] = [];
+  };
 
-    // 1) Inside-yard candidates directly beside the house (2.5u from house wall, 1.5u from yard fence)
-    if (yard.streetSide === 'vMin') {
-      const vMin = Math.max(yard.vMin + 1.5, Math.min(house.vMin, yard.vMax - 1.5 - gH));
-      const vMax = vMin + gH;
-      candidates.push(
-        { uMin: house.uMax + 2.5, uMax: house.uMax + 2.5 + gW, vMin, vMax, insideYard: true },
-        { uMin: house.uMin - 2.5 - gW, uMax: house.uMin - 2.5, vMin, vMax, insideYard: true }
-      );
-    } else if (yard.streetSide === 'vMax') {
-      const vMax = Math.min(yard.vMax - 1.5, Math.max(house.vMax, yard.vMin + 1.5 + gH));
-      const vMin = vMax - gH;
-      candidates.push(
-        { uMin: house.uMax + 2.5, uMax: house.uMax + 2.5 + gW, vMin, vMax, insideYard: true },
-        { uMin: house.uMin - 2.5 - gW, uMax: house.uMin - 2.5, vMin, vMax, insideYard: true }
-      );
-    } else if (yard.streetSide === 'uMin') {
-      const uMin = Math.max(yard.uMin + 1.5, Math.min(house.uMin, yard.uMax - 1.5 - gW));
-      const uMax = uMin + gW;
-      candidates.push(
-        { uMin, uMax, vMin: house.vMax + 2.5, vMax: house.vMax + 2.5 + gH, insideYard: true },
-        { uMin, uMax, vMin: house.vMin - 2.5 - gH, vMax: house.vMin - 2.5, insideYard: true }
-      );
-    } else {
-      const uMax = Math.min(yard.uMax - 1.5, Math.max(house.uMax, yard.uMin + 1.5 + gW));
-      const uMin = uMax - gW;
-      candidates.push(
-        { uMin, uMax, vMin: house.vMax + 2.5, vMax: house.vMax + 2.5 + gH, insideYard: true },
-        { uMin, uMax, vMin: house.vMin - 2.5 - gH, vMax: house.vMin - 2.5, insideYard: true }
-      );
+  const canPlaceGarageBay = (box: {
+    uMin: number;
+    uMax: number;
+    vMin: number;
+    vMax: number;
+  }): boolean => {
+    const cu = (box.uMin + box.uMax) * 0.5;
+    const cv = (box.vMin + box.vMax) * 0.5;
+    if (cu < -1060 || cu > 980 || cv < -1060 || cv > 1080) return false;
+    if (!isBuildingVisibleInMap(box.uMin, box.uMax, box.vMin, box.vMax, GARAGE_HEIGHT + 6)) {
+      return false;
     }
+    if (rectOverlapsActiveStreet(box.uMin, box.uMax, box.vMin, box.vMax)) return false;
+    if (rectOverlapsRoundabout(box.uMin, box.uMax, box.vMin, box.vMax, 18)) return false;
+    if (rectOverlapsBaseYard(box.uMin, box.uMax, box.vMin, box.vMax, 10)) return false;
+    if (overlapsAccessRoad(box, 3.0)) return false;
+    if (houseYards.some((hy) => rectsOverlap(hy, box, GARAGE_YARD_MARGIN))) return false;
+    if (raw.some((b) => rectsOverlap(b, box, b.typ === 'garaz' ? 3.5 : 5.5))) return false;
+    if (overlapsAnyParking(box, 4)) return false;
+    if (parcelLockerSlots.some((s) => rectsOverlap(s, box, 4))) return false;
+    if (serviceFacilities.some((sf) => rectsOverlap(sf.yard, box, 4))) return false;
+    return true;
+  };
 
-    // 2) Flank candidates outside the yard fence along the same street frontage (left or right side)
-    if (yard.streetSide === 'vMin') {
-      candidates.push(
-        { uMin: yard.uMax + 2, uMax: yard.uMax + 2 + gW, vMin: yard.vMin + 4, vMax: yard.vMin + 4 + gH, insideYard: false },
-        { uMin: yard.uMin - 2 - gW, uMax: yard.uMin - 2, vMin: yard.vMin + 4, vMax: yard.vMin + 4 + gH, insideYard: false }
-      );
-    } else if (yard.streetSide === 'vMax') {
-      candidates.push(
-        { uMin: yard.uMax + 2, uMax: yard.uMax + 2 + gW, vMin: yard.vMax - 4 - gH, vMax: yard.vMax - 4, insideYard: false },
-        { uMin: yard.uMin - 2 - gW, uMax: yard.uMin - 2, vMin: yard.vMax - 4 - gH, vMax: yard.vMax - 4, insideYard: false }
-      );
-    } else if (yard.streetSide === 'uMin') {
-      candidates.push(
-        { uMin: yard.uMin + 4, uMax: yard.uMin + 4 + gW, vMin: yard.vMax + 2, vMax: yard.vMax + 2 + gH, insideYard: false },
-        { uMin: yard.uMin + 4, uMax: yard.uMin + 4 + gW, vMin: yard.vMin - 2 - gH, vMax: yard.vMin - 2, insideYard: false }
-      );
-    } else {
-      candidates.push(
-        { uMin: yard.uMax - 4 - gW, uMax: yard.uMax - 4, vMin: yard.vMax + 2, vMax: yard.vMax + 2 + gH, insideYard: false },
-        { uMin: yard.uMax - 4 - gW, uMax: yard.uMax - 4, vMin: yard.vMin - 2 - gH, vMax: yard.vMin - 2, insideYard: false }
-      );
-    }
+  for (const q of CITY_QUARTERS) {
+    if (q.kind !== 'houses') continue;
+    const qMidU = (q.uMin + q.uMax) * 0.5;
+    const qMidV = (q.vMin + q.vMax) * 0.5;
+    if (qMidU < -1060 || qMidU > 980 || qMidV < -1060 || qMidV > 1080) continue;
 
-    for (const gc of candidates) {
-      if (gc.insideYard) {
-        if (
-          gc.uMin < yard.uMin + 1.5 ||
-          gc.uMax > yard.uMax - 1.5 ||
-          gc.vMin < yard.vMin + 1.5 ||
-          gc.vMax > yard.vMax - 1.5
-        ) {
-          continue;
+    const strips: GarageStrip[] = [
+      { streetSide: 'vMin', frontCoord: q.vMin + GARAGE_FRONT_SETBACK, spanMin: q.uMin + 14, spanMax: q.uMax - 14 },
+      { streetSide: 'vMax', frontCoord: q.vMax - GARAGE_FRONT_SETBACK, spanMin: q.uMin + 14, spanMax: q.uMax - 14 },
+      { streetSide: 'uMin', frontCoord: q.uMin + GARAGE_FRONT_SETBACK, spanMin: q.vMin + 14, spanMax: q.vMax - 14 },
+      { streetSide: 'uMax', frontCoord: q.uMax - GARAGE_FRONT_SETBACK, spanMin: q.vMin + 14, spanMax: q.vMax - 14 },
+    ];
+
+    const ar = accessRoadByQuarter.get(q.id);
+    if (ar) {
+      const arHalf = ar.asphaltWidth / 2 + ar.sidewalkWidth;
+      const arMin = Math.min(ar.startCoord, ar.endCoord) + 12;
+      const arMax = Math.max(ar.startCoord, ar.endCoord) - 12;
+      if (ar.axis === 'u') {
+        const sMin = Math.max(q.vMin + 14, arMin);
+        const sMax = Math.min(q.vMax - 14, arMax);
+        if (sMax - sMin >= GARAGE_BAY_WIDTH) {
+          strips.push(
+            { streetSide: 'uMin', frontCoord: ar.coord + arHalf + GARAGE_FRONT_SETBACK, spanMin: sMin, spanMax: sMax, streetId: ar.id },
+            { streetSide: 'uMax', frontCoord: ar.coord - arHalf - GARAGE_FRONT_SETBACK, spanMin: sMin, spanMax: sMax, streetId: ar.id }
+          );
+        }
+      } else {
+        const sMin = Math.max(q.uMin + 14, arMin);
+        const sMax = Math.min(q.uMax - 14, arMax);
+        if (sMax - sMin >= GARAGE_BAY_WIDTH) {
+          strips.push(
+            { streetSide: 'vMin', frontCoord: ar.coord + arHalf + GARAGE_FRONT_SETBACK, spanMin: sMin, spanMax: sMax, streetId: ar.id },
+            { streetSide: 'vMax', frontCoord: ar.coord - arHalf - GARAGE_FRONT_SETBACK, spanMin: sMin, spanMax: sMax, streetId: ar.id }
+          );
         }
       }
-      if (!isBuildingVisibleInMap(gc.uMin, gc.uMax, gc.vMin, gc.vMax, 24)) continue;
-      if (rectOverlapsActiveStreet(gc.uMin, gc.uMax, gc.vMin, gc.vMax)) continue;
-      if (rectOverlapsRoundabout(gc.uMin, gc.uMax, gc.vMin, gc.vMax, 18)) continue;
-      if (rectOverlapsBaseYard(gc.uMin, gc.uMax, gc.vMin, gc.vMax, 10)) continue;
-      if (overlapsAccessRoad(gc, 3.5)) continue;
-      if (
-        raw.some((b) =>
-          rectsOverlap(b, gc, gc.insideYard && b.id === house.id ? 1.5 : 3.0)
-        )
-      ) {
-        continue;
-      }
-      if (
-        houseYards.some(
-          (hy) => (!gc.insideYard || hy.buildingId !== yard.buildingId) && rectsOverlap(hy, gc, 1.2)
-        )
-      ) {
-        continue;
-      }
-      if (overlapsAnyParking(gc, 4)) continue;
-      if (parcelLockerSlots.some((s) => rectsOverlap(s, gc, 4))) continue;
-      if (serviceFacilities.some((sf) => rectsOverlap(sf.yard, gc, 4))) continue;
+    }
 
-      const gCenterU = (gc.uMin + gc.uMax) * 0.5;
-      const gCenterV = (gc.vMin + gc.vMax) * 0.5;
-      // Ensure garage never blocks the house gate entrance corridor
-      if (Math.hypot(gCenterU - yard.gateCenter.u, gCenterV - yard.gateCenter.v) < 13) continue;
+    for (const strip of strips) {
+      if (strip.spanMax - strip.spanMin < GARAGE_BAY_WIDTH) continue;
+      let pos = strip.spanMin;
+      while (pos + GARAGE_BAY_WIDTH <= strip.spanMax) {
+        const firstBox = makeGarageBayBox(strip, pos);
+        if (!canPlaceGarageBay(firstBox)) {
+          pos += 2;
+          continue;
+        }
 
-      const placedGarage = tryPush({
-        id: `b_garaz_${++garageSeq}`,
-        typ: 'garaz',
-        pietra: 1,
-        mieszkania: 0,
-        uMin: round1(gc.uMin),
-        uMax: round1(gc.uMax),
-        vMin: round1(gc.vMin),
-        vMax: round1(gc.vMax),
-        colorVariant: house.colorVariant,
-        dostepnyDlaDostaw: false,
-        forcedStreetId: yard.streetId,
-      });
+        // Extend into a contiguous wall-to-wall garage row (up to 5 bays) if the gap is wide enough
+        const rowBoxes = [firstBox];
+        while (rowBoxes.length < 5) {
+          const nextPos = pos + rowBoxes.length * GARAGE_BAY_WIDTH;
+          if (nextPos + GARAGE_BAY_WIDTH > strip.spanMax) break;
+          const nextBox = makeGarageBayBox(strip, nextPos);
+          if (!canPlaceGarageBay(nextBox)) break;
+          rowBoxes.push(nextBox);
+        }
 
-      if (placedGarage) {
-        // Short cobblestone driveway pad right in front of the garage door toward the street
-        const dwDepth = 6.5;
-        const dw: GarageDrivewaySpec =
-          yard.streetSide === 'vMin'
-            ? { id: `gdw_${garageSeq}`, uMin: gc.uMin + 1.5, uMax: gc.uMax - 1.5, vMin: gc.vMin - dwDepth, vMax: gc.vMin }
-            : yard.streetSide === 'vMax'
-              ? { id: `gdw_${garageSeq}`, uMin: gc.uMin + 1.5, uMax: gc.uMax - 1.5, vMin: gc.vMax, vMax: gc.vMax + dwDepth }
-              : yard.streetSide === 'uMin'
-                ? { id: `gdw_${garageSeq}`, uMin: gc.uMin - dwDepth, uMax: gc.uMin, vMin: gc.vMin + 1.5, vMax: gc.vMax - 1.5 }
-                : { id: `gdw_${garageSeq}`, uMin: gc.uMax, uMax: gc.uMax + dwDepth, vMin: gc.vMin + 1.5, vMax: gc.vMax - 1.5 };
-        garageDriveways.push(dw);
-        break;
+        const rowColorVariant = garageRowSeq++ % 4;
+        let placedCount = 0;
+        for (const box of rowBoxes) {
+          const placedGarage = tryPush({
+            id: `b_garaz_${++garageSeq}`,
+            typ: 'garaz',
+            pietra: 1,
+            mieszkania: 0,
+            uMin: box.uMin,
+            uMax: box.uMax,
+            vMin: box.vMin,
+            vMax: box.vMax,
+            heightOverride: GARAGE_HEIGHT,
+            colorVariant: rowColorVariant,
+            dostepnyDlaDostaw: false,
+            forcedStreetId: strip.streetId,
+          });
+          if (!placedGarage) break;
+          placedCount++;
+
+          const dw: GarageDrivewaySpec =
+            strip.streetSide === 'vMin'
+              ? { id: `gdw_${garageSeq}`, uMin: box.uMin + 1.5, uMax: box.uMax - 1.5, vMin: box.vMin - GARAGE_DRIVEWAY_DEPTH, vMax: box.vMin }
+              : strip.streetSide === 'vMax'
+                ? { id: `gdw_${garageSeq}`, uMin: box.uMin + 1.5, uMax: box.uMax - 1.5, vMin: box.vMax, vMax: box.vMax + GARAGE_DRIVEWAY_DEPTH }
+                : strip.streetSide === 'uMin'
+                  ? { id: `gdw_${garageSeq}`, uMin: box.uMin - GARAGE_DRIVEWAY_DEPTH, uMax: box.uMin, vMin: box.vMin + 1.5, vMax: box.vMax - 1.5 }
+                  : { id: `gdw_${garageSeq}`, uMin: box.uMax, uMax: box.uMax + GARAGE_DRIVEWAY_DEPTH, vMin: box.vMin + 1.5, vMax: box.vMax - 1.5 };
+          garageDriveways.push(dw);
+        }
+
+        pos += placedCount > 0 ? placedCount * GARAGE_BAY_WIDTH + 6 : 2;
       }
     }
   }
@@ -3328,7 +3350,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     variant: number
   ): UrbanProp3D => {
     const c = isoToCanvas(u, v);
-    const padX = crownRadius * 1.45 + 6;
+    const padX = crownRadius * 1.65 + 8;
     const footR = Math.min(4.2, crownRadius * 0.42);
     return {
       propKind: 'tree',
@@ -3345,7 +3367,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
       vMax: round1(v + footR),
       minX: c.x - padX,
       maxX: c.x + padX + 10,
-      minY: c.y - height - crownRadius * 0.7 - 4,
+      minY: c.y - height - crownRadius * 0.95 - 6,
       maxY: c.y + crownRadius * 0.75 + 4,
     };
   };
@@ -3619,8 +3641,8 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         if (nextParkRand() < 0.2) continue;
 
         const isConifer = nextParkRand() < 0.32;
-        const crownRadius = isConifer ? 7.2 + nextParkRand() * 2.2 : 8.0 + nextParkRand() * 3.0;
-        const height = isConifer ? 26 + nextParkRand() * 8 : 22 + nextParkRand() * 9;
+        const crownRadius = isConifer ? 8.0 + nextParkRand() * 2.4 : 8.8 + nextParkRand() * 3.2;
+        const height = isConifer ? 33 + nextParkRand() * 10 : 29 + nextParkRand() * 11;
         const variant = Math.floor(nextParkRand() * 4);
         placedParkTrees.push({ u: ju, v: jv });
         urbanProps.push(makeTreeProp(ju, jv, isConifer ? 'conifer' : 'deciduous', crownRadius, height, variant));
@@ -3674,8 +3696,8 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         }
 
         const isConifer = nextResRand() < 0.28;
-        const crownRadius = isConifer ? 6.8 + nextResRand() * 2.0 : 7.5 + nextResRand() * 2.5;
-        const height = isConifer ? 24 + nextResRand() * 6 : 21 + nextResRand() * 7;
+        const crownRadius = isConifer ? 7.5 + nextResRand() * 2.2 : 8.2 + nextResRand() * 2.8;
+        const height = isConifer ? 30 + nextResRand() * 8 : 27 + nextResRand() * 9;
         const variant = Math.floor(nextResRand() * 4);
         placedResProps.push({ u: ju, v: jv });
         urbanProps.push(makeTreeProp(ju, jv, isConifer ? 'conifer' : 'deciduous', crownRadius, height, variant));

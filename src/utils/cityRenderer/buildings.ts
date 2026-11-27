@@ -1291,28 +1291,62 @@ function drawUrbanProp3D(
     const h = prop.height;
 
     ctx.save();
-    // Soft grounded tree shadow on grass
+    // Soft grounded tree shadow on grass scaled to taller silhouette & spreading crown
     ctx.fillStyle = 'rgba(15, 23, 42, 0.24)';
     ctx.beginPath();
-    ctx.ellipse(c.x + r * 0.45, c.y + r * 0.14, r * 1.05, r * 0.52, 0, 0, Math.PI * 2);
+    ctx.ellipse(
+      c.x + r * 0.52 + h * 0.06,
+      c.y + r * 0.16,
+      r * 1.18,
+      r * 0.56,
+      0.08,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
 
-    // Trunk
-    const trunkH = prop.species === 'conifer' ? h * 0.26 : h * 0.42;
-    const trunkW = Math.max(2.4, r * 0.3);
-    ctx.fillStyle = '#5c3d2e';
+    // Natural tapered trunk with subtle root flare at the base
+    const trunkH = prop.species === 'conifer' ? h * 0.28 : h * 0.46;
+    const baseHalfW = Math.max(1.9, r * 0.23);
+    const topHalfW = Math.max(1.05, r * 0.115);
+    const rootFlare = baseHalfW * 1.32;
+
+    // Shadowed right half + full trunk base
+    ctx.fillStyle = '#4a3222';
+    ctx.beginPath();
+    ctx.moveTo(c.x - rootFlare, c.y + 1.2);
+    ctx.quadraticCurveTo(c.x - baseHalfW * 0.85, c.y - trunkH * 0.24, c.x - topHalfW, c.y - trunkH);
+    ctx.lineTo(c.x + topHalfW, c.y - trunkH);
+    ctx.quadraticCurveTo(c.x + baseHalfW * 0.85, c.y - trunkH * 0.24, c.x + rootFlare, c.y + 1.2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Sunlit left side of the trunk
+    ctx.fillStyle = '#6b4732';
+    ctx.beginPath();
+    ctx.moveTo(c.x - rootFlare, c.y + 1.2);
+    ctx.quadraticCurveTo(c.x - baseHalfW * 0.85, c.y - trunkH * 0.24, c.x - topHalfW, c.y - trunkH);
+    ctx.lineTo(c.x + topHalfW * 0.1, c.y - trunkH);
+    ctx.lineTo(c.x - baseHalfW * 0.08, c.y + 1.2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Trunk ink outline
     ctx.strokeStyle = '#1e293b';
     ctx.lineWidth = 0.95 * invScale;
     ctx.beginPath();
-    ctx.roundRect(c.x - trunkW * 0.5, c.y - trunkH, trunkW, trunkH + 1.2, 1);
-    ctx.fill();
+    ctx.moveTo(c.x - rootFlare, c.y + 1.2);
+    ctx.quadraticCurveTo(c.x - baseHalfW * 0.85, c.y - trunkH * 0.24, c.x - topHalfW, c.y - trunkH);
+    ctx.lineTo(c.x + topHalfW, c.y - trunkH);
+    ctx.quadraticCurveTo(c.x + baseHalfW * 0.85, c.y - trunkH * 0.24, c.x + rootFlare, c.y + 1.2);
+    ctx.closePath();
     ctx.stroke();
 
     if (prop.species === 'conifer') {
       const pal = CONIFER_TREE_PALETTES[prop.variant % CONIFER_TREE_PALETTES.length];
       // 3 stacked evergreen conifer tiers
       const tiers = [
-        { baseY: c.y - trunkH * 0.75, topY: c.y - h * 0.62, halfW: r * 1.05 },
+        { baseY: c.y - trunkH * 0.78, topY: c.y - h * 0.62, halfW: r * 1.05 },
         { baseY: c.y - h * 0.42, topY: c.y - h * 0.84, halfW: r * 0.82 },
         { baseY: c.y - h * 0.66, topY: c.y - h, halfW: r * 0.56 },
       ];
@@ -1347,30 +1381,163 @@ function drawUrbanProp3D(
       }
     } else {
       const pal = DECIDUOUS_TREE_PALETTES[prop.variant % DECIDUOUS_TREE_PALETTES.length];
-      const cy = c.y - h * 0.64;
-      // Shadowed lower crown mass
-      ctx.fillStyle = pal.dark;
-      ctx.beginPath();
-      ctx.ellipse(c.x + 1.2, cy + r * 0.22, r * 1.06, r * 0.78, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const crownVariant = prop.variant % 4;
+      const cy = c.y - h * 0.67;
 
-      // Main mid-green foliage body
-      ctx.fillStyle = pal.mid;
-      ctx.beginPath();
-      ctx.ellipse(c.x, cy, r * 1.04, r * 0.82, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // Forked Y-shaped main branches emerging from upper trunk into lower canopy
+      const forkY = c.y - trunkH * 0.84;
+      const branchSpec: Array<{ tx: number; ty: number; w: number }> = [
+        { tx: c.x - r * 0.46, ty: cy + r * 0.22, w: Math.max(1.3, topHalfW * 1.15) },
+        { tx: c.x + r * 0.44, ty: cy + r * 0.26, w: Math.max(1.2, topHalfW * 1.05) },
+      ];
+      if (crownVariant === 1 || crownVariant === 3) {
+        branchSpec.push({
+          tx: c.x + (crownVariant === 1 ? -r * 0.08 : r * 0.12),
+          ty: cy + r * 0.04,
+          w: Math.max(1.1, topHalfW * 0.95),
+        });
+      }
+      ctx.lineCap = 'round';
+      for (const br of branchSpec) {
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = br.w + 1.4 * invScale;
+        ctx.beginPath();
+        ctx.moveTo(c.x, forkY);
+        ctx.lineTo(br.tx, br.ty);
+        ctx.stroke();
 
-      // Sunlit upper-left foliage crown lobe
-      ctx.fillStyle = pal.light;
-      ctx.beginPath();
-      ctx.ellipse(c.x - r * 0.26, cy - r * 0.26, r * 0.62, r * 0.48, -0.25, 0, Math.PI * 2);
-      ctx.fill();
+        ctx.strokeStyle = '#5a3c29';
+        ctx.lineWidth = br.w;
+        ctx.beginPath();
+        ctx.moveTo(c.x, forkY);
+        ctx.lineTo(br.tx, br.ty);
+        ctx.stroke();
+      }
 
-      // Crisp dark outline around canopy
+      // 4 organic multi-lobe canopy archetypes (6-8 overlapping foliage puffs)
+      const lobeSets: ReadonlyArray<ReadonlyArray<{ dx: number; dy: number; rx: number; ry: number }>> = [
+        // 0: Broad oak / maple dome
+        [
+          { dx: -0.68, dy: 0.12, rx: 0.56, ry: 0.46 },
+          { dx: 0.68, dy: 0.14, rx: 0.55, ry: 0.45 },
+          { dx: -0.46, dy: -0.34, rx: 0.54, ry: 0.48 },
+          { dx: 0.44, dy: -0.32, rx: 0.52, ry: 0.46 },
+          { dx: 0.0, dy: -0.56, rx: 0.56, ry: 0.46 },
+          { dx: -0.18, dy: 0.22, rx: 0.58, ry: 0.44 },
+          { dx: 0.26, dy: 0.24, rx: 0.54, ry: 0.42 },
+        ],
+        // 1: Taller linden / park lime
+        [
+          { dx: -0.56, dy: 0.16, rx: 0.5, ry: 0.46 },
+          { dx: 0.56, dy: 0.18, rx: 0.5, ry: 0.45 },
+          { dx: -0.42, dy: -0.28, rx: 0.5, ry: 0.5 },
+          { dx: 0.4, dy: -0.26, rx: 0.48, ry: 0.48 },
+          { dx: -0.12, dy: -0.66, rx: 0.5, ry: 0.48 },
+          { dx: 0.18, dy: -0.58, rx: 0.44, ry: 0.44 },
+          { dx: 0.04, dy: 0.24, rx: 0.56, ry: 0.42 },
+        ],
+        // 2: Asymmetric natural park tree
+        [
+          { dx: -0.74, dy: 0.06, rx: 0.56, ry: 0.46 },
+          { dx: 0.6, dy: 0.18, rx: 0.52, ry: 0.44 },
+          { dx: -0.48, dy: -0.42, rx: 0.54, ry: 0.48 },
+          { dx: 0.34, dy: -0.28, rx: 0.5, ry: 0.44 },
+          { dx: -0.06, dy: -0.56, rx: 0.52, ry: 0.45 },
+          { dx: -0.24, dy: 0.24, rx: 0.56, ry: 0.42 },
+          { dx: 0.24, dy: 0.22, rx: 0.5, ry: 0.4 },
+        ],
+        // 3: Wide spreading canopy (8 lobes)
+        [
+          { dx: -0.78, dy: 0.14, rx: 0.54, ry: 0.42 },
+          { dx: 0.78, dy: 0.16, rx: 0.54, ry: 0.42 },
+          { dx: -0.5, dy: -0.26, rx: 0.52, ry: 0.46 },
+          { dx: 0.52, dy: -0.24, rx: 0.5, ry: 0.45 },
+          { dx: -0.14, dy: -0.52, rx: 0.52, ry: 0.44 },
+          { dx: 0.22, dy: -0.46, rx: 0.48, ry: 0.42 },
+          { dx: -0.26, dy: 0.24, rx: 0.56, ry: 0.42 },
+          { dx: 0.28, dy: 0.26, rx: 0.54, ry: 0.4 },
+        ],
+      ];
+      const lobes = lobeSets[crownVariant];
+
+      // 1. Continuous outer ink contour around the entire scalloped foliage cloud
       ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1.05 * invScale;
+      ctx.lineWidth = 2.1 * invScale;
+      for (const l of lobes) {
+        ctx.beginPath();
+        ctx.ellipse(c.x + l.dx * r, cy + l.dy * r, l.rx * r, l.ry * r, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // 2. Deep lower & right-side canopy shadow mass
+      ctx.fillStyle = pal.dark;
+      for (const l of lobes) {
+        ctx.beginPath();
+        ctx.ellipse(c.x + l.dx * r, cy + l.dy * r, l.rx * r, l.ry * r, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 3. Main mid-tone foliage volume (slightly shifted up-left to reveal dark underside)
+      ctx.fillStyle = pal.mid;
+      for (const l of lobes) {
+        ctx.beginPath();
+        ctx.ellipse(
+          c.x + (l.dx - 0.06) * r,
+          cy + (l.dy - 0.09) * r,
+          l.rx * r * 0.92,
+          l.ry * r * 0.88,
+          0,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+
+      // 4. Sunlit upper-left foliage puffs + crisp top light flecks
+      ctx.fillStyle = pal.light;
+      for (const l of lobes) {
+        if (l.dy <= -0.15 || l.dx <= -0.35) {
+          ctx.beginPath();
+          ctx.ellipse(
+            c.x + (l.dx - 0.1) * r,
+            cy + (l.dy - 0.14) * r,
+            l.rx * r * 0.66,
+            l.ry * r * 0.6,
+            -0.2,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+      }
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+      for (const l of lobes) {
+        if (l.dy <= -0.28 && l.dx <= 0.2) {
+          ctx.beginPath();
+          ctx.ellipse(
+            c.x + (l.dx - 0.12) * r,
+            cy + (l.dy - 0.18) * r,
+            l.rx * r * 0.34,
+            l.ry * r * 0.28,
+            -0.25,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+        }
+      }
+
+      // 5. Subtle internal foliage crease arcs separating main crown puffs
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
+      ctx.lineWidth = 0.85 * invScale;
       ctx.beginPath();
-      ctx.ellipse(c.x, cy, r * 1.05, r * 0.82, 0, 0, Math.PI * 2);
+      ctx.arc(c.x - r * 0.22, cy - r * 0.14, r * 0.42, 0.25, 1.35);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(c.x + r * 0.24, cy - r * 0.06, r * 0.36, 0.4, 1.65);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(c.x - r * 0.02, cy - r * 0.4, r * 0.34, 0.55, 1.75);
       ctx.stroke();
     }
 
