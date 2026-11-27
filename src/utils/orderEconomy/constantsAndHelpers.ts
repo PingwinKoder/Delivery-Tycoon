@@ -163,6 +163,46 @@ export function recordMonthlySatisfactionSample(
   };
 }
 
+/**
+ * Computes monthly satisfaction from a ledger if samples exist, falling back to `fallbackSatisfaction`.
+ */
+export function getMonthlySatisfactionFromLedger(
+  ledger: CurrentMonthLedger | undefined,
+  fallbackSatisfaction: number
+): number {
+  if (ledger && ledger.satisfactionSamplesCount > 0) {
+    return Math.round((ledger.satisfactionSamplesSum / ledger.satisfactionSamplesCount) * 10) / 10;
+  }
+  const safeFallback = Number.isFinite(fallbackSatisfaction)
+    ? Math.max(0, Math.min(100, fallbackSatisfaction))
+    : INITIAL_COMPANY_SATISFACTION;
+  return Math.round(safeFallback * 10) / 10;
+}
+
+/**
+ * Returns the company's current monthly client satisfaction (0–100):
+ * - Average of samples recorded in the current calendar month (`currentMonthLedger`) if any exist;
+ * - Otherwise the last settled month's average satisfaction (`monthlySettlements[0]?.averageSatisfaction`),
+ *   or `companySatisfaction` (default 80%) so a brand-new month never drops artificially to 0%.
+ */
+export function getMonthlySatisfaction(
+  state: Pick<OrderEconomyState, 'currentMonthLedger' | 'monthlySettlements' | 'companySatisfaction'>
+): number {
+  const ledger = state.currentMonthLedger;
+  if (ledger && ledger.satisfactionSamplesCount > 0) {
+    return Math.round((ledger.satisfactionSamplesSum / ledger.satisfactionSamplesCount) * 10) / 10;
+  }
+  const lastSettledAvg = state.monthlySettlements?.[0]?.averageSatisfaction;
+  if (typeof lastSettledAvg === 'number' && Number.isFinite(lastSettledAvg)) {
+    return Math.round(Math.max(0, Math.min(100, lastSettledAvg)) * 10) / 10;
+  }
+  const liveSat = state.companySatisfaction;
+  if (typeof liveSat === 'number' && Number.isFinite(liveSat)) {
+    return Math.round(Math.max(0, Math.min(100, liveSat)) * 10) / 10;
+  }
+  return INITIAL_COMPANY_SATISFACTION;
+}
+
 /** Number of in-game days (including pickup day) to deliver picked-up packages for long-term contracts (capped at Sunday 23:59) */
 export const LONG_TERM_DELIVERY_WINDOW_DAYS = 3;
 

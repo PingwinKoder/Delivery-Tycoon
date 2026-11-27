@@ -1022,20 +1022,35 @@ export function createSavedGameState(
   };
 }
 
+let cachedSaveSlots: Record<SaveSlotId, SaveSlotEntry | null> | null = null;
+
 /**
- * Reads all 3 save slots from `localStorage` with safe JSON error recovery.
+ * Reads all 3 save slots from `localStorage` (backed by an in-memory cache) with safe JSON error recovery.
  */
 export function getAllSaveSlots(): Record<SaveSlotId, SaveSlotEntry | null> {
+  if (cachedSaveSlots !== null) {
+    return { ...cachedSaveSlots };
+  }
+
   const result = createEmptySaveSlots();
   const storage = getSafeLocalStorage();
-  if (!storage) return result;
+  if (!storage) {
+    cachedSaveSlots = result;
+    return { ...result };
+  }
 
   try {
     const rawJson = storage.getItem(SAVE_STORAGE_KEY);
-    if (!rawJson) return result;
+    if (!rawJson) {
+      cachedSaveSlots = result;
+      return { ...result };
+    }
 
     const parsed: unknown = JSON.parse(rawJson);
-    if (!isPlainObject(parsed)) return result;
+    if (!isPlainObject(parsed)) {
+      cachedSaveSlots = result;
+      return { ...result };
+    }
 
     for (const slotId of SAVE_SLOT_IDS) {
       const candidate = parsed[String(slotId)] ?? parsed[slotId];
@@ -1044,24 +1059,34 @@ export function getAllSaveSlots(): Record<SaveSlotId, SaveSlotEntry | null> {
       }
     }
   } catch {
-    return createEmptySaveSlots();
+    const empty = createEmptySaveSlots();
+    cachedSaveSlots = empty;
+    return { ...empty };
   }
 
-  return result;
+  cachedSaveSlots = result;
+  return { ...result };
 }
 
 /**
- * Persists a game progress snapshot to the specified save slot (`1 | 2 | 3`).
+ * Persists a game progress snapshot to the specified save slot (`1 | 2 | 3`)
+ * using the in-memory slot cache (avoids re-parsing localStorage and redundant deep-cloning).
+ * Returns the updated slots map for immediate React state synchronization.
  */
-export function saveGameToSlot(slotId: SaveSlotId, state: SavedGameState): void {
-  const slots = getAllSaveSlots();
+export function saveGameToSlot(
+  slotId: SaveSlotId,
+  state: SavedGameState
+): Record<SaveSlotId, SaveSlotEntry | null> {
+  const slots = cachedSaveSlots !== null ? { ...cachedSaveSlots } : getAllSaveSlots();
   const entry: SaveSlotEntry = {
     slotId,
     updatedAt: new Date().toISOString(),
-    state: deepCloneJson(state),
+    state,
   };
   slots[slotId] = entry;
+  cachedSaveSlots = slots;
   writeSaveSlotsMap(slots);
+  return { ...slots };
 }
 
 /**
@@ -1085,8 +1110,9 @@ export function loadGameFromSlot(slotId: SaveSlotId): SaveSlotEntry | null {
  * Deletes the save stored in the specified slot (`1 | 2 | 3`).
  */
 export function deleteSaveSlot(slotId: SaveSlotId): void {
-  const slots = getAllSaveSlots();
+  const slots = cachedSaveSlots !== null ? { ...cachedSaveSlots } : getAllSaveSlots();
   slots[slotId] = null;
+  cachedSaveSlots = slots;
   writeSaveSlotsMap(slots);
 }
 

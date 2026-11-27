@@ -2126,7 +2126,7 @@ export function updateViewportGroundCache(
   vgCtx.save();
   vgCtx.setTransform(dprX, 0, 0, dprY, 0, 0);
   vgCtx.imageSmoothingEnabled = true;
-  vgCtx.imageSmoothingQuality = 'high';
+  vgCtx.imageSmoothingQuality = 'low';
 
   vgCtx.fillStyle = backgroundColor;
   vgCtx.fillRect(0, 0, logicalWidth, logicalHeight);
@@ -2409,6 +2409,7 @@ function buildStreetLabelPlacements(): StreetLabelPlacement[] {
 }
 
 const STREET_LABEL_PLACEMENTS: StreetLabelPlacement[] = buildStreetLabelPlacements();
+const STREET_LABEL_WIDTH_CACHE = new Map<string, number>();
 
 /**
  * Draws street names directly along the 2:1 isometric road axes (rendered on the road layer
@@ -2446,10 +2447,18 @@ export function renderStreetNames(
     ctx.rotate(label.angle);
 
     ctx.font = `${isAvenue ? 700 : 600} ${fontSize}px "Plus Jakarta Sans", system-ui, sans-serif`;
-    const metrics = ctx.measureText(displayName);
+    const widthCacheKey = `${language}|${label.kind}|${fontSize}|${displayName}`;
+    let textWidth = STREET_LABEL_WIDTH_CACHE.get(widthCacheKey);
+    if (textWidth === undefined) {
+      if (STREET_LABEL_WIDTH_CACHE.size > 500) {
+        STREET_LABEL_WIDTH_CACHE.clear();
+      }
+      textWidth = ctx.measureText(displayName).width;
+      STREET_LABEL_WIDTH_CACHE.set(widthCacheKey, textWidth);
+    }
     const padX = (isAccess ? 4.4 : 6) * invScale;
     const padY = (isAccess ? 1.9 : 2.6) * invScale;
-    const boxW = metrics.width + padX * 2;
+    const boxW = textWidth + padX * 2;
     const boxH = fontSize + padY * 2;
     const radius = (isAccess ? 2.8 : 3.5) * invScale;
 

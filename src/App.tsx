@@ -48,6 +48,7 @@ import {
   createInitialOrderEconomyState,
   fireCourierInSlot,
   getFreeWarehouseCapacity,
+  getMonthlySatisfaction,
   getNextDayMorningMinutes,
   getRemainingPickupPackagesForOrderToday,
   getScheduledTasksForWeekday,
@@ -548,26 +549,72 @@ export function App() {
     []
   );
 
+  const pendingAutoSaveRef = useRef<{ kind: 'idle' | 'timeout'; id: number } | null>(null);
+
+  const cancelPendingAutoSave = useCallback(() => {
+    const pending = pendingAutoSaveRef.current;
+    if (!pending) return;
+    pendingAutoSaveRef.current = null;
+    if (pending.kind === 'idle' && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(pending.id);
+    } else {
+      window.clearTimeout(pending.id);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cancelPendingAutoSave();
+    };
+  }, [cancelPendingAutoSave]);
+
   const persistGameToSlot = useCallback(
     (
       slotId: SaveSlotId,
       liveEconomy: OrderEconomyState,
       currentMinutes: number,
-      inFlightCargoOverride?: readonly WarehouseLoadedBatch[]
+      inFlightCargoOverride?: readonly WarehouseLoadedBatch[],
+      options?: { async?: boolean }
     ) => {
-      const inFlightCargo =
-        inFlightCargoOverride ?? canvasControllerRef.current?.getInFlightCargo() ?? [];
-      const consistentEconomy = buildConsistentEconomyForSave(liveEconomy, inFlightCargo);
-      const weeklyPlan = buildWeeklyPlanSnapshot(consistentEconomy, currentMinutes);
-      const savedPayload = createSavedGameState(consistentEconomy, currentMinutes, {
-        inRouteBySlot: { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false },
-        weeklyPlan,
-        inTransitCargo: [],
-      });
-      saveGameToSlot(slotId, savedPayload);
-      setSaveSlots(getAllSaveSlots());
+      const executeSave = () => {
+        const inFlightCargo =
+          inFlightCargoOverride ?? canvasControllerRef.current?.getInFlightCargo() ?? [];
+        const consistentEconomy = buildConsistentEconomyForSave(liveEconomy, inFlightCargo);
+        const weeklyPlan = buildWeeklyPlanSnapshot(consistentEconomy, currentMinutes);
+        const savedPayload = createSavedGameState(consistentEconomy, currentMinutes, {
+          inRouteBySlot: { 1: false, 2: false, 3: false, 4: false, 5: false, 6: false },
+          weeklyPlan,
+          inTransitCargo: [],
+        });
+        const updatedSlots = saveGameToSlot(slotId, savedPayload);
+        setSaveSlots(updatedSlots);
+      };
+
+      cancelPendingAutoSave();
+
+      if (options?.async) {
+        if (typeof window.requestIdleCallback === 'function') {
+          const id = window.requestIdleCallback(
+            () => {
+              pendingAutoSaveRef.current = null;
+              executeSave();
+            },
+            { timeout: 1500 }
+          );
+          pendingAutoSaveRef.current = { kind: 'idle', id };
+        } else {
+          const id = window.setTimeout(() => {
+            pendingAutoSaveRef.current = null;
+            executeSave();
+          }, 0);
+          pendingAutoSaveRef.current = { kind: 'timeout', id };
+        }
+        return;
+      }
+
+      executeSave();
     },
-    []
+    [cancelPendingAutoSave]
   );
 
   const handleCourierAtBaseChange = useCallback((atBase: boolean) => {
@@ -747,17 +794,23 @@ export function App() {
     beginMirrorReturnToStartScreen(false);
   }, [beginMirrorReturnToStartScreen]);
 
-  // Auto-save trigger #2: save immediately whenever completedOrdersCount increases
+  // Auto-save trigger #2: defer off-frame whenever completedOrdersCount increases
   useEffect(() => {
     if (activeSlotId === null || startScreenOpen) return;
     const completed = economyState.completedOrdersCount;
     if (completed > lastSavedCompletedOrdersRef.current) {
       lastSavedCompletedOrdersRef.current = completed;
-      persistGameToSlot(activeSlotId, economyStateRef.current, exactGameMinutesRef.current);
+      persistGameToSlot(
+        activeSlotId,
+        economyStateRef.current,
+        exactGameMinutesRef.current,
+        undefined,
+        { async: true }
+      );
     }
   }, [economyState.completedOrdersCount, activeSlotId, startScreenOpen, persistGameToSlot]);
 
-  // Auto-save trigger #3: save once each workday morning when game clock reaches 08:00 of a new day
+  // Auto-save trigger #3: defer off-frame once each workday morning when game clock reaches 08:00
   useEffect(() => {
     if (activeSlotId === null || startScreenOpen) return;
     const currentDay = Math.floor(gameMinutes / MINUTES_PER_DAY) + 1;
@@ -767,7 +820,9 @@ export function App() {
       currentDay > lastAutoSavedMorningDayRef.current
     ) {
       lastAutoSavedMorningDayRef.current = currentDay;
-      persistGameToSlot(activeSlotId, economyStateRef.current, gameMinutes);
+      persistGameToSlot(activeSlotId, economyStateRef.current, gameMinutes, undefined, {
+        async: true,
+      });
     }
   }, [gameMinutes, activeSlotId, startScreenOpen, persistGameToSlot]);
 
@@ -1297,7 +1352,7 @@ export function App() {
         language={settings.language}
         footprintOnly={footprintOnly}
         balance={economyState.balance}
-        companySatisfaction={economyState.companySatisfaction ?? economyState.annualSatisfactionAvg ?? 80}
+        companySatisfaction={getMonthlySatisfaction(economyState)}
         gameMinutes={gameMinutes}
         gameSpeed={effectiveSimSpeed}
         isNightMode={isNightMode}

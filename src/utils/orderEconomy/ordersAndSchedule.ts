@@ -59,6 +59,7 @@ import {
   clampFuelPrice,
   clampSatisfaction,
   createEmptyCurrentMonthLedger,
+  getMonthlySatisfactionFromLedger,
   getSeasonalTargetFuelPrice,
   isNightHoursForTime,
   nextRng,
@@ -546,10 +547,6 @@ export function recordPackageDelivery(
         baseCompanySat,
         satisfactionGain
       );
-      const nextReputationLevel = calculateReputationLevel(
-        nextCompletedCount,
-        nextCompanySatisfaction
-      );
       const baseLedger =
         state.currentMonthLedger ?? createEmptyCurrentMonthLedger(baseCompanySat);
       const nextLedger = recordMonthlySatisfactionSample(
@@ -560,6 +557,8 @@ export function recordPackageDelivery(
         },
         nextCompanySatisfaction
       );
+      const monthlySat = getMonthlySatisfactionFromLedger(nextLedger, nextCompanySatisfaction);
+      const nextReputationLevel = calculateReputationLevel(nextCompletedCount, monthlySat);
 
       return {
         ...state,
@@ -828,9 +827,10 @@ export function settleWeeklySatisfaction(
   if (satisfactionTouched) {
     nextLedger = recordMonthlySatisfactionSample(nextLedger, companySatisfaction);
   }
+  const monthlySat = getMonthlySatisfactionFromLedger(nextLedger, companySatisfaction);
   const reputationLevel = calculateReputationLevel(
     state.completedOrdersCount,
-    companySatisfaction
+    monthlySat
   );
   const archivedIds = new Set(newlyArchived.map((o) => o.id));
   const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(
@@ -1112,7 +1112,8 @@ function concludeDueOrdersOnNewDay(
   if (newlyArchived.length === 0) return state;
 
   nextLedger = recordMonthlySatisfactionSample(nextLedger, companySatisfaction);
-  const reputationLevel = calculateReputationLevel(completedOrdersCount, companySatisfaction);
+  const monthlySat = getMonthlySatisfactionFromLedger(nextLedger, companySatisfaction);
+  const reputationLevel = calculateReputationLevel(completedOrdersCount, monthlySat);
 
   const archivedIds = new Set(newlyArchived.map((o) => o.id));
   const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(

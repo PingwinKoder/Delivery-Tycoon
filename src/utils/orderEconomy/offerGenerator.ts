@@ -12,11 +12,13 @@ import type {
 } from '../../types/orders';
 import { MINUTES_PER_DAY, getCalendarDateFromElapsedDays } from '../gameClock';
 import {
+  INITIAL_COMPANY_SATISFACTION,
   LONG_TERM_OFFER_EXPIRY_DAYS,
   MAX_PENDING_OFFERS,
   SHORT_TERM_OFFER_EXPIRY_DAYS,
   TWO_DAY_LONG_TERM_MIN_COMPLETED_ORDERS,
   TWO_DAY_LONG_TERM_OFFER_CHANCE,
+  getMonthlySatisfaction,
   getReputationTierConfig,
   nextRng,
   rngInt,
@@ -223,7 +225,8 @@ export function generateSingleOffer(
   orderSeq: number,
   rngState: number,
   usedOrderNumbers?: ReadonlySet<number>,
-  completedOrdersCount = 0
+  completedOrdersCount = 0,
+  monthlySatisfaction = INITIAL_COMPANY_SATISFACTION
 ): { offer: OrderOffer; nextState: number } {
   let state = rngState;
   const tier = getReputationTierConfig(reputationLevel);
@@ -239,7 +242,9 @@ export function generateSingleOffer(
 
   const ratePick = rngRate(state, tier.ratePerPackageMin, tier.ratePerPackageMax);
   state = ratePick.nextState;
-  const ratePerPackage = ratePick.value;
+  const satRateMultiplier =
+    monthlySatisfaction >= 90 ? 1.05 : monthlySatisfaction < 65 ? 0.9 : 1;
+  const ratePerPackage = roundCurrency(ratePick.value * satRateMultiplier);
 
   const createdDate = getCalendarDateFromElapsedDays(Math.floor(currentMinutes / MINUTES_PER_DAY));
   const createdAtGameDay = createdDate.gameDay;
@@ -430,6 +435,7 @@ export function generateOffersBatch(
 
   let activeRngState = useRandomRng ? state.randomRngState : state.rngState;
   let nextOrderSeq = state.nextOrderSeq;
+  const monthlySatisfaction = getMonthlySatisfaction(state);
 
   for (let i = 0; i < toGenerate; i++) {
     const generated = generateSingleOffer(
@@ -439,7 +445,8 @@ export function generateOffersBatch(
       nextOrderSeq,
       activeRngState,
       usedOrderNumbers,
-      state.completedOrdersCount
+      state.completedOrdersCount,
+      monthlySatisfaction
     );
     usedOrderNumbers.add(generated.offer.orderNumber);
     newOffers.push(generated.offer);
