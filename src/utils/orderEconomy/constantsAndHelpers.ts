@@ -161,6 +161,7 @@ export function createEmptyCurrentMonthLedger(
     repairExpenses: 0,
     penaltyExpenses: 0,
     completedOrdersCount: 0,
+    failedOrdersCount: 0,
     satisfactionSamplesSum: safeSat,
     satisfactionSamplesCount: 1,
   };

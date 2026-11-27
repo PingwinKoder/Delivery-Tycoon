@@ -447,6 +447,7 @@ export function resignActiveOrder(
     {
       ...baseLedger,
       penaltyExpenses: roundCurrency(baseLedger.penaltyExpenses + penalty),
+      failedOrdersCount: (baseLedger.failedOrdersCount ?? 0) + 1,
     },
     0
   );
@@ -822,6 +823,10 @@ export function settleWeeklySatisfaction(
     if (terminated) {
       companySatisfaction = applyCompanySatisfactionDelta(companySatisfaction, -10);
       satisfactionTouched = true;
+      nextLedger = {
+        ...nextLedger,
+        failedOrdersCount: (nextLedger.failedOrdersCount ?? 0) + 1,
+      };
       newlyArchived.push({
         ...order,
         status: 'terminated',
@@ -1004,6 +1009,7 @@ export function processMonthlySettlement(
     totalRevenue,
     totalExpenses,
     completedOrdersCount: ledger.completedOrdersCount,
+    failedOrdersCount: ledger.failedOrdersCount ?? 0,
     averageSatisfaction,
     netChange,
     balanceAfter,
@@ -1172,6 +1178,7 @@ function concludeDueOrdersOnNewDay(
       nextLedger = {
         ...nextLedger,
         penaltyExpenses: roundCurrency(nextLedger.penaltyExpenses + penalty),
+        failedOrdersCount: (nextLedger.failedOrdersCount ?? 0) + 1,
       };
 
       newlyArchived.push({

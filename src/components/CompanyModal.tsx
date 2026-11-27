@@ -2761,17 +2761,24 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                     <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100">
                       {t(language, 'company.financesCurrentTitle')}
                     </h3>
-                    <div
-                      className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md border font-mono-nums text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold ${projectedMonthBalance >= 0
-                          ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                          : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
-                        }`}
-                    >
-                      <span className="font-sans font-semibold mr-1.5">
-                        {t(language, 'company.financesLiveBalance')}
-                      </span>
-                      {projectedMonthBalance >= 0 ? '+' : '-'}
-                      {formatCurrencyUsd(Math.abs(projectedMonthBalance), false)}
+                    <div className="flex flex-wrap items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2">
+                      <div
+                        className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md border font-mono-nums text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold ${projectedMonthBalance >= 0
+                            ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                            : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
+                          }`}
+                      >
+                        <span className="font-sans font-semibold mr-1.5">
+                          {t(language, 'company.financesLiveBalance')}
+                        </span>
+                        {projectedMonthBalance >= 0 ? '+' : '-'}
+                        {formatCurrencyUsd(Math.abs(projectedMonthBalance), false)}
+                      </div>
+                      <div
+                        className={`px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md border text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold ${diagnosis.tone}`}
+                      >
+                        {diagnosis.text}
+                      </div>
                     </div>
                   </div>
 
@@ -2882,94 +2889,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                   </div>
                 </section>
 
-                {/* Section 2 & 3: Fixed Costs Forecast + Direction & Safety */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3.5">
-                  <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-1.5 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-mono-nums">
-                    <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-sans font-bold text-slate-100 pb-1 border-b border-slate-800">
-                      {t(language, 'company.financesFixedTitle')}
-                    </h3>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400 font-sans">
-                        {t(language, 'company.financesBaseUpkeep')}
-                      </span>
-                      <span className="text-rose-300 font-semibold">
-                        {formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400 font-sans">
-                        {t(language, 'company.financesSalaries')}
-                      </span>
-                      <span className="text-rose-300 font-semibold">
-                        {formatCurrencyUsd(monthlyCosts.salariesCost, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-slate-400 font-sans">
-                        {t(language, 'company.financesInsurance')}
-                      </span>
-                      <span className="text-rose-300 font-semibold">
-                        {formatCurrencyUsd(monthlyCosts.insuranceCost, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800 font-bold">
-                      <span className="text-slate-200 font-sans">
-                        {t(language, 'company.financesTotalFixed')}
-                      </span>
-                      <span className="text-rose-400">
-                        {formatCurrencyUsd(monthlyCosts.totalFixedCosts, false)}
-                        {perMonth}
-                      </span>
-                    </div>
-                  </section>
-
-                  <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs">
-                    <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100 pb-1 border-b border-slate-800">
-                      {t(language, 'company.financesHealthTitle')}
-                    </h3>
-                    <div className="flex items-center justify-between gap-2 font-mono-nums">
-                      <span className="text-slate-400 font-sans">
-                        {t(language, 'company.financesMarginLabel')}
-                      </span>
-                      <span
-                        className={`font-bold ${operatingMarginPct >= 20
-                            ? 'text-emerald-300'
-                            : operatingMarginPct >= 0
-                              ? 'text-amber-300'
-                              : 'text-rose-300'
-                          }`}
-                      >
-                        {operatingMarginPct}%
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 font-mono-nums">
-                      <span className="text-slate-400 font-sans">
-                        {t(language, 'company.financesRunwayLabel')}
-                      </span>
-                      <span
-                        className={`font-bold ${runwayMonths >= 3
-                            ? 'text-emerald-300'
-                            : runwayMonths >= 1
-                              ? 'text-amber-300'
-                              : 'text-rose-300'
-                          }`}
-                      >
-                        {runwayMonths > 0
-                          ? t(language, 'company.financesRunwayMonths', {
-                              months: runwayMonths.toFixed(1),
-                            })
-                          : t(language, 'company.financesRunwayZero')}
-                      </span>
-                    </div>
-                    <div className={`rounded-md border px-2 py-1.5 font-semibold leading-snug ${diagnosis.tone}`}>
-                      {diagnosis.text}
-                    </div>
-                  </section>
-                </div>
-
                 {/* Section 4: Closed Months History (max 12) */}
                 <section className="rounded-lg bg-[#182030] border border-slate-700/85 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2">
                   <h3 className="text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold text-slate-100">
@@ -3029,7 +2948,16 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                                   {formatCurrencyUsd(Math.abs(net), false)}
                                 </td>
                                 <td className="py-1.5 px-2 text-right text-slate-200 whitespace-nowrap">
-                                  {rec.completedOrdersCount ?? 0}
+                                  {rec.completedOrdersCount ?? 0} /{' '}
+                                  <span
+                                    className={
+                                      (rec.failedOrdersCount ?? 0) > 0
+                                        ? 'text-rose-300 font-bold'
+                                        : 'text-slate-400'
+                                    }
+                                  >
+                                    {rec.failedOrdersCount ?? 0}
+                                  </span>
                                 </td>
                                 <td
                                   className={`py-1.5 pl-2 text-right font-bold whitespace-nowrap ${sat >= 80

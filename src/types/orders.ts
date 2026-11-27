@@ -403,6 +403,8 @@ export interface CurrentMonthLedger {
   quickBoxExpenses?: number;
   /** Number of orders completed during the current month */
   completedOrdersCount: number;
+  /** Number of orders failed (terminated, expired, or resigned) during the current month */
+  failedOrdersCount?: number;
   /** Sum of company satisfaction snapshots recorded during the current month */
   satisfactionSamplesSum: number;
   /** Count of company satisfaction snapshots recorded during the current month */
@@ -448,6 +450,8 @@ export interface MonthlySettlementRecord {
   totalExpenses?: number;
   /** Orders completed during the settled month */
   completedOrdersCount?: number;
+  /** Orders failed (terminated, expired, or resigned) during the settled month */
+  failedOrdersCount?: number;
   /** Average company satisfaction % during the settled month */
   averageSatisfaction?: number;
   /** Net monthly result: totalRevenue - totalExpenses */

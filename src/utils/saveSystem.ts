@@ -607,6 +607,7 @@ export function normalizeSavedGameStateForLoad(rawState: SavedGameState): SavedG
         repairExpenses: Math.max(0, Number(rawLedgerSource.repairExpenses) || 0),
         penaltyExpenses: Math.max(0, Number(rawLedgerSource.penaltyExpenses) || 0),
         completedOrdersCount: Math.max(0, Math.floor(Number(rawLedgerSource.completedOrdersCount) || 0)),
+        failedOrdersCount: Math.max(0, Math.floor(Number(rawLedgerSource.failedOrdersCount) || 0)),
         satisfactionSamplesSum:
           typeof rawLedgerSource.satisfactionSamplesSum === 'number' &&
           Number.isFinite(rawLedgerSource.satisfactionSamplesSum)
