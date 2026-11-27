@@ -2731,8 +2731,8 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
       street: StreetSpec
     ) => {
       const isUStreet = street.axis === 'u';
-      const alongMin = (isUStreet ? q.vMin : q.uMin) + 28;
-      const alongMax = (isUStreet ? q.vMax : q.uMax) - 28 - plotAlong;
+      const alongMin = (isUStreet ? q.vMin : q.uMin) + 34;
+      const alongMax = (isUStreet ? q.vMax : q.uMax) - 34 - plotAlong;
       if (alongMax < alongMin) return;
 
       const streetAsphaltEdge =
@@ -2797,8 +2797,12 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         }
 
         if (!isBuildingVisibleInMap(uMin, uMax, vMin, vMax, 30)) continue;
+        const cu = (uMin + uMax) / 2;
+        const cv = (vMin + vMax) / 2;
+        // Keep QuickBox plots inside the built-up inner city ring, away from outer exits
+        if (cu < -1040 || cu > 960 || cv < -1040 || cv > 1060) continue;
         if (rectOverlapsActiveStreet(uMin, uMax, vMin, vMax)) continue;
-        if (rectOverlapsRoundabout(uMin, uMax, vMin, vMax, 20)) continue;
+        if (rectOverlapsRoundabout(uMin, uMax, vMin, vMax, 32)) continue;
         if (rectOverlapsBaseYard(uMin, uMax, vMin, vMax, 12)) continue;
         const box = { uMin, uMax, vMin, vMax };
         if (overlapsAccessRoad(box, 5)) continue;
@@ -2809,8 +2813,6 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         if (serviceFacilities.some((sf) => rectsOverlap(sf.yard, box, otherPad + 2))) continue;
         if (isQuickBoxCandidateOccluded(lockerRect, parkingBay)) continue;
 
-        const cu = (uMin + uMax) / 2;
-        const cv = (vMin + vMax) / 2;
         if (out.some((prev) => prev.quarterId === q.id && Math.hypot(prev.u - cu, prev.v - cv) < 34)) {
           continue;
         }
@@ -2895,19 +2897,25 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     }
   }
 
-  // Greedy farthest-point spatial selection of 8 QuickBox plots across all city districts
+  // Greedy inner-city spatial selection of 8 QuickBox plots across built-up districts
+  const CITY_CENTER_U = -120;
+  const CITY_CENTER_V = -80;
   const chosenQbSpots: QuickBoxCandidate[] = [];
   if (qbCandidates.length > 0) {
-    // Prefer front-facing plots first when picking the seed and ties
+    // Prefer front-facing plots first when picking the seed
     const preferredPool = qbCandidates.filter((c) => c.frontFacingBonus > 0);
     const seedPool = preferredPool.length >= 8 ? preferredPool : qbCandidates;
-    // Start with the northwest-most front-facing candidate for deterministic wide city spread
-    const first = [...seedPool].sort((a, b) => a.u + a.v - (b.u + b.v))[0];
+    // Start with the front-facing candidate closest to downtown (u = -120, v = -80)
+    const first = [...seedPool].sort(
+      (a, b) =>
+        Math.hypot(a.u - CITY_CENTER_U, a.v - CITY_CENTER_V) -
+        Math.hypot(b.u - CITY_CENTER_U, b.v - CITY_CENTER_V)
+    )[0];
     chosenQbSpots.push(first);
 
     while (chosenQbSpots.length < 8) {
       let bestCand: QuickBoxCandidate | null = null;
-      let bestScore = -1;
+      let bestScore = -Infinity;
       for (const cand of qbCandidates) {
         if (chosenQbSpots.some((c) => c.quarterId === cand.quarterId)) continue;
         let minDist = Infinity;
@@ -2915,14 +2923,16 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
           const d = Math.hypot(cand.u - picked.u, cand.v - picked.v);
           if (d < minDist) minDist = d;
         }
-        const score = minDist + cand.frontFacingBonus * 90;
+        if (minDist < 360) continue;
+        const distFromCenter = Math.hypot(cand.u - CITY_CENTER_U, cand.v - CITY_CENTER_V);
+        const score = minDist + cand.frontFacingBonus * 90 - distFromCenter * 0.35;
         if (score > bestScore) {
           bestScore = score;
           bestCand = cand;
         }
       }
       if (!bestCand) {
-        // Fallback allowing same quarter if fewer than 8 distinct quarters had open roadside plots
+        // Fallback: relax spacing/quarter uniqueness if fewer than 8 distinct quarters met minDist >= 360
         for (const cand of qbCandidates) {
           if (chosenQbSpots.includes(cand)) continue;
           let minDist = Infinity;
@@ -2931,7 +2941,8 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
             if (d < minDist) minDist = d;
           }
           if (minDist < 120) continue;
-          const score = minDist + cand.frontFacingBonus * 90;
+          const distFromCenter = Math.hypot(cand.u - CITY_CENTER_U, cand.v - CITY_CENTER_V);
+          const score = minDist + cand.frontFacingBonus * 90 - distFromCenter * 0.35;
           if (score > bestScore) {
             bestScore = score;
             bestCand = cand;
@@ -3535,7 +3546,7 @@ export const QUICKBOX_SLOTS: ParcelLockerSlot[] = PARCEL_LOCKER_SLOTS;
 
 /**
  * Partitions all residential buildings (`dom`, `blok_maly`, `blok_sredni`, `blok_wysoki`)
- * into 8 geographically cohesive, equal-sized QuickBox zones (`0..7`, ~1/8 of homes/blocks each).
+ * directly to their geographically nearest QuickBox locker (`0..7`) for 100% spatial district coherence.
  */
 function buildBalancedQuickBoxZones(
   buildings: readonly Building[],
@@ -3544,47 +3555,28 @@ function buildBalancedQuickBoxZones(
   const map = new Map<string, number>();
   if (slots.length === 0) return map;
 
-  const residential = buildings.filter(
-    (b) =>
-      b.typ === 'dom' ||
-      b.typ === 'blok_maly' ||
-      b.typ === 'blok_sredni' ||
-      b.typ === 'blok_wysoki'
-  );
-  const zoneCount = slots.length;
-  const baseCap = Math.floor(residential.length / zoneCount);
-  const remainder = residential.length % zoneCount;
-  const capacities = Array.from({ length: zoneCount }, (_, i) => baseCap + (i < remainder ? 1 : 0));
-  const counts = new Array<number>(zoneCount).fill(0);
-
-  // Precompute distances from each residential building to each QuickBox slot
-  const entries = residential.map((b) => {
+  for (const b of buildings) {
+    if (
+      b.typ !== 'dom' &&
+      b.typ !== 'blok_maly' &&
+      b.typ !== 'blok_sredni' &&
+      b.typ !== 'blok_wysoki'
+    ) {
+      continue;
+    }
     const bu = (b.uMin + b.uMax) * 0.5;
     const bv = (b.vMin + b.vMax) * 0.5;
-    const rankedZones = slots
-      .map((s, idx) => ({
-        zoneIndex: s.zoneIndex ?? idx,
-        dist: Math.hypot(bu - s.u, bv - s.v),
-      }))
-      .sort((a, bDist) => a.dist - bDist.dist);
-    const regret =
-      rankedZones.length >= 2 ? rankedZones[1].dist - rankedZones[0].dist : rankedZones[0].dist;
-    return { id: b.id, rankedZones, regret };
-  });
-
-  // Assign highest-regret (most unambiguous) buildings first so zones stay geographically compact & balanced
-  entries.sort((a, b) => b.regret - a.regret);
-
-  for (const entry of entries) {
-    let assigned = entry.rankedZones[0].zoneIndex;
-    for (const candidate of entry.rankedZones) {
-      if (counts[candidate.zoneIndex] < capacities[candidate.zoneIndex]) {
-        assigned = candidate.zoneIndex;
-        break;
+    let nearestZone = slots[0].zoneIndex ?? 0;
+    let minDist = Infinity;
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i];
+      const d = Math.hypot(bu - s.u, bv - s.v);
+      if (d < minDist) {
+        minDist = d;
+        nearestZone = s.zoneIndex ?? i;
       }
     }
-    counts[assigned] += 1;
-    map.set(entry.id, assigned);
+    map.set(b.id, nearestZone);
   }
 
   return map;
