@@ -2751,6 +2751,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         let parkingBay: { uMin: number; uMax: number; vMin: number; vMax: number };
         let driveway: { uMin: number; uMax: number; vMin: number; vMax: number };
 
+        const EDGE_INSET = 5;
         const lockerAlong = 18;
         const lockerDepth = 10;
         const bayAlong = plotAlong - lockerAlong - 4;
@@ -2758,7 +2759,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
         const dwWidth = 14;
 
         if (streetSide === 'uMin') {
-          uMin = q.uMin + 2;
+          uMin = q.uMin + EDGE_INSET;
           uMax = uMin + plotDepth;
           vMin = along;
           vMax = along + plotAlong;
@@ -2767,7 +2768,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
           const dwCenterV = (parkingBay.vMin + parkingBay.vMax) / 2;
           driveway = { uMin: streetAsphaltEdge - 1, uMax: parkingBay.uMin + 1, vMin: dwCenterV - dwWidth / 2, vMax: dwCenterV + dwWidth / 2 };
         } else if (streetSide === 'uMax') {
-          uMax = q.uMax - 2;
+          uMax = q.uMax - EDGE_INSET;
           uMin = uMax - plotDepth;
           vMin = along;
           vMax = along + plotAlong;
@@ -2776,7 +2777,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
           const dwCenterV = (parkingBay.vMin + parkingBay.vMax) / 2;
           driveway = { uMin: parkingBay.uMax - 1, uMax: streetAsphaltEdge + 1, vMin: dwCenterV - dwWidth / 2, vMax: dwCenterV + dwWidth / 2 };
         } else if (streetSide === 'vMin') {
-          vMin = q.vMin + 2;
+          vMin = q.vMin + EDGE_INSET;
           vMax = vMin + plotDepth;
           uMin = along;
           uMax = along + plotAlong;
@@ -2785,7 +2786,7 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
           const dwCenterU = (parkingBay.uMin + parkingBay.uMax) / 2;
           driveway = { uMin: dwCenterU - dwWidth / 2, uMax: dwCenterU + dwWidth / 2, vMin: streetAsphaltEdge - 1, vMax: parkingBay.vMin + 1 };
         } else {
-          vMax = q.vMax - 2;
+          vMax = q.vMax - EDGE_INSET;
           vMin = vMax - plotDepth;
           uMin = along;
           uMax = along + plotAlong;
@@ -2881,6 +2882,14 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     const relaxed = scanRoadsideQuickBoxCandidates(38, 20, 2.5, 2.5);
     for (const c of relaxed) {
       if (!qbCandidates.some((p) => Math.hypot(p.u - c.u, p.v - c.v) < 40)) {
+        qbCandidates.push(c);
+      }
+    }
+  }
+  if (qbCandidates.length < 8) {
+    const compact = scanRoadsideQuickBoxCandidates(34, 18, 1.5, 1.5);
+    for (const c of compact) {
+      if (!qbCandidates.some((p) => Math.hypot(p.u - c.u, p.v - c.v) < 36)) {
         qbCandidates.push(c);
       }
     }
