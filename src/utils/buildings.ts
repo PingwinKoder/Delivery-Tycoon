@@ -228,6 +228,11 @@ const BUILDING_FOOTPRINT_STYLES: Record<BuildingType, PaletteFootprintBase> = {
     footprintStroke: '#b45309',
     accent: '#fbbf24',
   },
+  garaz: {
+    footprintFill: 'rgba(100, 116, 139, 0.36)',
+    footprintStroke: '#475569',
+    accent: '#94a3b8',
+  },
 };
 
 function buildPalettes(typ: BuildingType, variants: PaletteVariantSpec[]): BuildingPalette[] {
@@ -369,6 +374,12 @@ const PALETTES: Record<BuildingType, BuildingPalette[]> = {
   quickbox: buildPalettes('quickbox', [
     { roof: '#f59e0b', leftWall: '#e2e8f0', rightWall: '#94a3b8' },
   ]),
+  garaz: buildPalettes('garaz', [
+    { roof: '#b87158', leftWall: '#e2d8ca', rightWall: '#bdb09e' },
+    { roof: '#64748b', leftWall: '#dde2e8', rightWall: '#b5bec9' },
+    { roof: '#9a7b5c', leftWall: '#e6dfd1', rightWall: '#c2b8a3' },
+    { roof: '#7c6558', leftWall: '#e0dcd5', rightWall: '#b8b2a8' },
+  ]),
 };
 
 function round1(value: number): number {
@@ -428,6 +439,8 @@ export function getBuildingHeight(typ: BuildingType, pietra: number): number {
       return 28;
     case 'quickbox':
       return 20;
+    case 'garaz':
+      return 18;
   }
 }
 
@@ -940,6 +953,131 @@ export interface PrecomputedBuilding3D {
   maxY: number;
 }
 
+export interface ParkLayoutSpec {
+  quarterId: string;
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  centerU: number;
+  centerV: number;
+  fenceInset: number;
+  entranceHalfWidth: number;
+  loopInset: number;
+  loopPathWidth: number;
+  crossPathWidth: number;
+  plazaRadius: number;
+  fountainRadius: number;
+}
+
+export interface GarageDrivewaySpec {
+  id: string;
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+}
+
+export type UrbanProp3D =
+  | {
+      propKind: 'fountain';
+      id: string;
+      u: number;
+      v: number;
+      radius: number;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      propKind: 'parkFenceSegment';
+      id: string;
+      u1: number;
+      v1: number;
+      u2: number;
+      v2: number;
+      axis: 'u' | 'v';
+      height: number;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      propKind: 'parkFencePost';
+      id: string;
+      u: number;
+      v: number;
+      height: number;
+      isGatePost: boolean;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      propKind: 'tree';
+      id: string;
+      u: number;
+      v: number;
+      species: 'deciduous' | 'conifer';
+      crownRadius: number;
+      height: number;
+      variant: number;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      propKind: 'bench';
+      id: string;
+      u: number;
+      v: number;
+      axis: 'u' | 'v';
+      facingSign: 1 | -1;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      propKind: 'lamp';
+      id: string;
+      u: number;
+      v: number;
+      height: number;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    };
+
 export type StaticScene3DItem =
   | {
       kind: 'building';
@@ -971,6 +1109,19 @@ export type StaticScene3DItem =
       kind: 'fencePost';
       id: string;
       post: FencePost3D;
+      uMin: number;
+      uMax: number;
+      vMin: number;
+      vMax: number;
+      minX: number;
+      maxX: number;
+      minY: number;
+      maxY: number;
+    }
+  | {
+      kind: 'urbanProp';
+      id: string;
+      prop: UrbanProp3D;
       uMin: number;
       uMax: number;
       vMin: number;
@@ -1245,7 +1396,8 @@ export function buildHouseFence3DGeometry(houseYards: HouseYardFence[]): {
  */
 export function buildStaticScene3DOrder(
   buildings: Building[],
-  houseYards: HouseYardFence[]
+  houseYards: HouseYardFence[],
+  urbanProps: readonly UrbanProp3D[] = []
 ): StaticScene3DItem[] {
   const items: StaticScene3DItem[] = [];
 
@@ -1315,6 +1467,22 @@ export function buildStaticScene3DOrder(
       maxX: post.maxX,
       minY: post.minY,
       maxY: post.maxY,
+    });
+  }
+
+  for (const prop of urbanProps) {
+    items.push({
+      kind: 'urbanProp',
+      id: prop.id,
+      prop,
+      uMin: prop.uMin,
+      uMax: prop.uMax,
+      vMin: prop.vMin,
+      vMax: prop.vMax,
+      minX: prop.minX,
+      maxX: prop.maxX,
+      minY: prop.minY,
+      maxY: prop.maxY,
     });
   }
 
@@ -1527,6 +1695,9 @@ export interface ProceduralCityStructures {
   parcelLockerSlots: ParcelLockerSlot[];
   houseYards: HouseYardFence[];
   serviceFacilities: ServiceFacilitySpec[];
+  parkLayout: ParkLayoutSpec | null;
+  garageDriveways: GarageDrivewaySpec[];
+  urbanProps: UrbanProp3D[];
 }
 
 /**
@@ -2976,6 +3147,475 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     occupied: false,
   }));
 
+  // ---------------------------------------------------------------------------
+  // 2I. PRZYDOMOWE GARAŻE NA WEWNĘTRZNYCH OSIEDLACH DOMKÓW (typ: 'garaz', dostepnyDlaDostaw: false)
+  //     Placed beside ~30% of single-family houses in inner house quarters where free space exists
+  //     without blocking the yard entrance gate or overlapping any street, yard, or QuickBox plot.
+  // ---------------------------------------------------------------------------
+  const garageDriveways: GarageDrivewaySpec[] = [];
+  const rawById = new Map(raw.map((b) => [b.id, b]));
+  let garageSeq = 0;
+
+  for (let yi = 0; yi < houseYards.length; yi++) {
+    // Deterministic ~32% selection across houses
+    if (yi % 3 !== 0 && yi % 11 !== 4) continue;
+    const yard = houseYards[yi];
+    const yMidU = (yard.uMin + yard.uMax) * 0.5;
+    const yMidV = (yard.vMin + yard.vMax) * 0.5;
+    // Inner built-up residential estates only (skip outer map exit fringes)
+    if (yMidU < -1060 || yMidU > 980 || yMidV < -1060 || yMidV > 1080) continue;
+
+    const house = rawById.get(yard.buildingId);
+    if (!house || house.typ !== 'dom') continue;
+
+    const alongU = yard.streetSide === 'vMin' || yard.streetSide === 'vMax';
+    const gW = alongU ? 13 : 17;
+    const gH = alongU ? 17 : 13;
+
+    // Candidate garage placements flanking the yard along the same street frontage (left or right side)
+    const flankCandidates: Array<{ uMin: number; uMax: number; vMin: number; vMax: number }> = [];
+    if (yard.streetSide === 'vMin') {
+      flankCandidates.push(
+        { uMin: yard.uMax + 2, uMax: yard.uMax + 2 + gW, vMin: yard.vMin + 4, vMax: yard.vMin + 4 + gH },
+        { uMin: yard.uMin - 2 - gW, uMax: yard.uMin - 2, vMin: yard.vMin + 4, vMax: yard.vMin + 4 + gH }
+      );
+    } else if (yard.streetSide === 'vMax') {
+      flankCandidates.push(
+        { uMin: yard.uMax + 2, uMax: yard.uMax + 2 + gW, vMin: yard.vMax - 4 - gH, vMax: yard.vMax - 4 },
+        { uMin: yard.uMin - 2 - gW, uMax: yard.uMin - 2, vMin: yard.vMax - 4 - gH, vMax: yard.vMax - 4 }
+      );
+    } else if (yard.streetSide === 'uMin') {
+      flankCandidates.push(
+        { uMin: yard.uMin + 4, uMax: yard.uMin + 4 + gW, vMin: yard.vMax + 2, vMax: yard.vMax + 2 + gH },
+        { uMin: yard.uMin + 4, uMax: yard.uMin + 4 + gW, vMin: yard.vMin - 2 - gH, vMax: yard.vMin - 2 }
+      );
+    } else {
+      flankCandidates.push(
+        { uMin: yard.uMax - 4 - gW, uMax: yard.uMax - 4, vMin: yard.vMax + 2, vMax: yard.vMax + 2 + gH },
+        { uMin: yard.uMax - 4 - gW, uMax: yard.uMax - 4, vMin: yard.vMin - 2 - gH, vMax: yard.vMin - 2 }
+      );
+    }
+
+    for (const gc of flankCandidates) {
+      if (!isBuildingVisibleInMap(gc.uMin, gc.uMax, gc.vMin, gc.vMax, 24)) continue;
+      if (rectOverlapsActiveStreet(gc.uMin, gc.uMax, gc.vMin, gc.vMax)) continue;
+      if (rectOverlapsRoundabout(gc.uMin, gc.uMax, gc.vMin, gc.vMax, 18)) continue;
+      if (rectOverlapsBaseYard(gc.uMin, gc.uMax, gc.vMin, gc.vMax, 10)) continue;
+      if (overlapsAccessRoad(gc, 3.5)) continue;
+      if (raw.some((b) => rectsOverlap(b, gc, 3.0))) continue;
+      if (houseYards.some((hy) => rectsOverlap(hy, gc, 1.2))) continue;
+      if (overlapsAnyParking(gc, 4)) continue;
+      if (parcelLockerSlots.some((s) => rectsOverlap(s, gc, 4))) continue;
+      if (serviceFacilities.some((sf) => rectsOverlap(sf.yard, gc, 4))) continue;
+
+      const gCenterU = (gc.uMin + gc.uMax) * 0.5;
+      const gCenterV = (gc.vMin + gc.vMax) * 0.5;
+      // Ensure garage never blocks the house gate entrance corridor
+      if (Math.hypot(gCenterU - yard.gateCenter.u, gCenterV - yard.gateCenter.v) < 12) continue;
+
+      const placedGarage = tryPush({
+        id: `b_garaz_${++garageSeq}`,
+        typ: 'garaz',
+        pietra: 1,
+        mieszkania: 0,
+        uMin: round1(gc.uMin),
+        uMax: round1(gc.uMax),
+        vMin: round1(gc.vMin),
+        vMax: round1(gc.vMax),
+        colorVariant: house.colorVariant,
+        dostepnyDlaDostaw: false,
+        forcedStreetId: yard.streetId,
+      });
+
+      if (placedGarage) {
+        // Short cobblestone driveway pad right in front of the garage door toward the street
+        const dwDepth = 6.5;
+        const dw: GarageDrivewaySpec =
+          yard.streetSide === 'vMin'
+            ? { id: `gdw_${garageSeq}`, uMin: gc.uMin + 1.5, uMax: gc.uMax - 1.5, vMin: gc.vMin - dwDepth, vMax: gc.vMin }
+            : yard.streetSide === 'vMax'
+              ? { id: `gdw_${garageSeq}`, uMin: gc.uMin + 1.5, uMax: gc.uMax - 1.5, vMin: gc.vMax, vMax: gc.vMax + dwDepth }
+              : yard.streetSide === 'uMin'
+                ? { id: `gdw_${garageSeq}`, uMin: gc.uMin - dwDepth, uMax: gc.uMin, vMin: gc.vMin + 1.5, vMax: gc.vMax - 1.5 }
+                : { id: `gdw_${garageSeq}`, uMin: gc.uMax, uMax: gc.uMax + dwDepth, vMin: gc.vMin + 1.5, vMax: gc.vMax - 1.5 };
+        garageDriveways.push(dw);
+        break;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2J. PARK MIEJSKI (q_2_2) + ZIELEŃ I ŁAWKI NA WEWNĘTRZNYCH OSIEDLACH DOMKÓW
+  //     Precomputed once at startup for 144 FPS static 3D depth sorting.
+  // ---------------------------------------------------------------------------
+  const urbanProps: UrbanProp3D[] = [];
+  let parkLayout: ParkLayoutSpec | null = null;
+  let propSeq = 0;
+
+  const makeTreeProp = (
+    u: number,
+    v: number,
+    species: 'deciduous' | 'conifer',
+    crownRadius: number,
+    height: number,
+    variant: number
+  ): UrbanProp3D => {
+    const c = isoToCanvas(u, v);
+    const padX = crownRadius * 1.45 + 6;
+    const footR = Math.min(4.2, crownRadius * 0.42);
+    return {
+      propKind: 'tree',
+      id: `prop_tree_${++propSeq}`,
+      u: round1(u),
+      v: round1(v),
+      species,
+      crownRadius: round1(crownRadius),
+      height: round1(height),
+      variant,
+      uMin: round1(u - footR),
+      uMax: round1(u + footR),
+      vMin: round1(v - footR),
+      vMax: round1(v + footR),
+      minX: c.x - padX,
+      maxX: c.x + padX + 10,
+      minY: c.y - height - crownRadius * 0.7 - 4,
+      maxY: c.y + crownRadius * 0.75 + 4,
+    };
+  };
+
+  const makeBenchProp = (u: number, v: number, axis: 'u' | 'v', facingSign: 1 | -1): UrbanProp3D => {
+    const halfU = axis === 'u' ? 3.8 : 1.7;
+    const halfV = axis === 'u' ? 1.7 : 3.8;
+    const c = isoToCanvas(u, v);
+    return {
+      propKind: 'bench',
+      id: `prop_bench_${++propSeq}`,
+      u: round1(u),
+      v: round1(v),
+      axis,
+      facingSign,
+      uMin: round1(u - halfU),
+      uMax: round1(u + halfU),
+      vMin: round1(v - halfV),
+      vMax: round1(v + halfV),
+      minX: c.x - 10,
+      maxX: c.x + 10,
+      minY: c.y - 10,
+      maxY: c.y + 8,
+    };
+  };
+
+  const makeLampProp = (u: number, v: number, height = 24): UrbanProp3D => {
+    const c = isoToCanvas(u, v);
+    return {
+      propKind: 'lamp',
+      id: `prop_lamp_${++propSeq}`,
+      u: round1(u),
+      v: round1(v),
+      height,
+      uMin: round1(u - 1.2),
+      uMax: round1(u + 1.2),
+      vMin: round1(v - 1.2),
+      vMax: round1(v + 1.2),
+      minX: c.x - 8,
+      maxX: c.x + 12,
+      minY: c.y - height - 8,
+      maxY: c.y + 5,
+    };
+  };
+
+  const parkQuarter = CITY_QUARTERS.find((q) => q.id === 'q_2_2');
+  if (parkQuarter) {
+    const centerU = round1((parkQuarter.uMin + parkQuarter.uMax) * 0.5);
+    const centerV = round1((parkQuarter.vMin + parkQuarter.vMax) * 0.5);
+    const fenceInset = 3.5;
+    const entranceHalfWidth = 9.5; // 19u wide open entrances on all 4 sides
+    const loopInset = 26;
+    const loopPathWidth = 10;
+    const crossPathWidth = 12;
+    const plazaRadius = 34;
+    const fountainRadius = 17;
+
+    parkLayout = {
+      quarterId: parkQuarter.id,
+      uMin: parkQuarter.uMin,
+      uMax: parkQuarter.uMax,
+      vMin: parkQuarter.vMin,
+      vMax: parkQuarter.vMax,
+      centerU,
+      centerV,
+      fenceInset,
+      entranceHalfWidth,
+      loopInset,
+      loopPathWidth,
+      crossPathWidth,
+      plazaRadius,
+      fountainRadius,
+    };
+
+    // 1. Central ornamental 3D fountain
+    const fCenter = isoToCanvas(centerU, centerV);
+    urbanProps.push({
+      propKind: 'fountain',
+      id: 'park_central_fountain',
+      u: centerU,
+      v: centerV,
+      radius: fountainRadius,
+      uMin: round1(centerU - fountainRadius),
+      uMax: round1(centerU + fountainRadius),
+      vMin: round1(centerV - fountainRadius),
+      vMax: round1(centerV + fountainRadius),
+      minX: fCenter.x - fountainRadius * 2.1,
+      maxX: fCenter.x + fountainRadius * 2.1,
+      minY: fCenter.y - fountainRadius - 32,
+      maxY: fCenter.y + fountainRadius + 8,
+    });
+
+    // 2. Tall black wrought-iron perimeter fence (height 15px) with 4 open entrances + heavier gate posts
+    const fu0 = parkQuarter.uMin + fenceInset;
+    const fu1 = parkQuarter.uMax - fenceInset;
+    const fv0 = parkQuarter.vMin + fenceInset;
+    const fv1 = parkQuarter.vMax - fenceInset;
+    const fenceHeight = 15;
+    const gatePostHeight = 17;
+
+    const addParkFencePost = (u: number, v: number, isGatePost: boolean) => {
+      const c = isoToCanvas(u, v);
+      const h = isGatePost ? gatePostHeight : fenceHeight + 1;
+      urbanProps.push({
+        propKind: 'parkFencePost',
+        id: `park_fpost_${++propSeq}`,
+        u: round1(u),
+        v: round1(v),
+        height: h,
+        isGatePost,
+        uMin: round1(u - 0.9),
+        uMax: round1(u + 0.9),
+        vMin: round1(v - 0.9),
+        vMax: round1(v + 0.9),
+        minX: c.x - 5,
+        maxX: c.x + 7,
+        minY: c.y - h - 4,
+        maxY: c.y + 4,
+      });
+    };
+
+    const addParkFenceSpan = (
+      axis: 'u' | 'v',
+      fixedCoord: number,
+      fromCoord: number,
+      toCoord: number,
+      startIsGate: boolean,
+      endIsGate: boolean
+    ) => {
+      const spanLen = toCoord - fromCoord;
+      if (spanLen < 4) return;
+      const segCount = Math.max(1, Math.round(spanLen / 20));
+      const step = spanLen / segCount;
+      for (let i = 0; i <= segCount; i++) {
+        const pos = fromCoord + i * step;
+        const isGate = (i === 0 && startIsGate) || (i === segCount && endIsGate);
+        if (axis === 'u') {
+          addParkFencePost(pos, fixedCoord, isGate);
+        } else {
+          addParkFencePost(fixedCoord, pos, isGate);
+        }
+      }
+      for (let i = 0; i < segCount; i++) {
+        const a = fromCoord + i * step;
+        const b = fromCoord + (i + 1) * step;
+        const u1 = axis === 'u' ? a : fixedCoord;
+        const v1 = axis === 'u' ? fixedCoord : a;
+        const u2 = axis === 'u' ? b : fixedCoord;
+        const v2 = axis === 'u' ? fixedCoord : b;
+        const p1 = isoToCanvas(u1, v1);
+        const p2 = isoToCanvas(u2, v2);
+        urbanProps.push({
+          propKind: 'parkFenceSegment',
+          id: `park_fseg_${++propSeq}`,
+          u1: round1(u1),
+          v1: round1(v1),
+          u2: round1(u2),
+          v2: round1(v2),
+          axis,
+          height: fenceHeight,
+          uMin: round1(Math.min(u1, u2) - 0.6),
+          uMax: round1(Math.max(u1, u2) + 0.6),
+          vMin: round1(Math.min(v1, v2) - 0.6),
+          vMax: round1(Math.max(v1, v2) + 0.6),
+          minX: Math.min(p1.x, p2.x) - 3,
+          maxX: Math.max(p1.x, p2.x) + 6,
+          minY: Math.min(p1.y, p2.y) - fenceHeight - 4,
+          maxY: Math.max(p1.y, p2.y) + 4,
+        });
+      }
+    };
+
+    // 4 perimeter sides split at center entrance gaps
+    addParkFenceSpan('u', fv0, fu0, centerU - entranceHalfWidth, false, true);
+    addParkFenceSpan('u', fv0, centerU + entranceHalfWidth, fu1, true, false);
+    addParkFenceSpan('u', fv1, fu0, centerU - entranceHalfWidth, false, true);
+    addParkFenceSpan('u', fv1, centerU + entranceHalfWidth, fu1, true, false);
+    addParkFenceSpan('v', fu0, fv0, centerV - entranceHalfWidth, false, true);
+    addParkFenceSpan('v', fu0, centerV + entranceHalfWidth, fv1, true, false);
+    addParkFenceSpan('v', fu1, fv0, centerV - entranceHalfWidth, false, true);
+    addParkFenceSpan('v', fu1, centerV + entranceHalfWidth, fv1, true, false);
+
+    // 3. Park street lamps at all 4 entrances, around the central plaza, and along main paths
+    const lampOffsetFromGate = entranceHalfWidth + 4.5;
+    // Entrance lamps
+    urbanProps.push(
+      makeLampProp(centerU - lampOffsetFromGate, fv0 + 4.5, 24),
+      makeLampProp(centerU + lampOffsetFromGate, fv0 + 4.5, 24),
+      makeLampProp(centerU - lampOffsetFromGate, fv1 - 4.5, 24),
+      makeLampProp(centerU + lampOffsetFromGate, fv1 - 4.5, 24),
+      makeLampProp(fu0 + 4.5, centerV - lampOffsetFromGate, 24),
+      makeLampProp(fu0 + 4.5, centerV + lampOffsetFromGate, 24),
+      makeLampProp(fu1 - 4.5, centerV - lampOffsetFromGate, 24),
+      makeLampProp(fu1 - 4.5, centerV + lampOffsetFromGate, 24)
+    );
+    // Central plaza 4 diagonal lamps
+    const plazaLampDist = plazaRadius - 4;
+    urbanProps.push(
+      makeLampProp(centerU - plazaLampDist * 0.72, centerV - plazaLampDist * 0.72, 25),
+      makeLampProp(centerU + plazaLampDist * 0.72, centerV - plazaLampDist * 0.72, 25),
+      makeLampProp(centerU - plazaLampDist * 0.72, centerV + plazaLampDist * 0.72, 25),
+      makeLampProp(centerU + plazaLampDist * 0.72, centerV + plazaLampDist * 0.72, 25)
+    );
+    // Mid-avenue lamps along the 4 cross paths
+    const midULeft = (fu0 + loopInset + centerU - plazaRadius) * 0.5;
+    const midURight = (fu1 - loopInset + centerU + plazaRadius) * 0.5;
+    const midVTop = (fv0 + loopInset + centerV - plazaRadius) * 0.5;
+    const midVBot = (fv1 - loopInset + centerV + plazaRadius) * 0.5;
+    urbanProps.push(
+      makeLampProp(midULeft, centerV - crossPathWidth * 0.5 - 3.5, 23),
+      makeLampProp(midURight, centerV + crossPathWidth * 0.5 + 3.5, 23),
+      makeLampProp(centerU + crossPathWidth * 0.5 + 3.5, midVTop, 23),
+      makeLampProp(centerU - crossPathWidth * 0.5 - 3.5, midVBot, 23)
+    );
+
+    // 4. Park benches facing the central fountain and along the cross avenues
+    urbanProps.push(
+      makeBenchProp(centerU, centerV - plazaRadius + 5.5, 'u', 1),
+      makeBenchProp(centerU, centerV + plazaRadius - 5.5, 'u', -1),
+      makeBenchProp(centerU - plazaRadius + 5.5, centerV, 'v', 1),
+      makeBenchProp(centerU + plazaRadius - 5.5, centerV, 'v', -1),
+      // Cross-avenue benches
+      makeBenchProp(midULeft, centerV + crossPathWidth * 0.5 + 3.6, 'u', -1),
+      makeBenchProp(midURight, centerV - crossPathWidth * 0.5 - 3.6, 'u', 1),
+      makeBenchProp(centerU - crossPathWidth * 0.5 - 3.6, midVTop, 'v', 1),
+      makeBenchProp(centerU + crossPathWidth * 0.5 + 3.6, midVBot, 'v', -1)
+    );
+
+    // 5. Lush trees across the 4 park lawn quadrants (strictly clear of paths, plaza, fence, lamps & benches)
+    const loopU0 = parkQuarter.uMin + loopInset;
+    const loopU1 = parkQuarter.uMax - loopInset;
+    const loopV0 = parkQuarter.vMin + loopInset;
+    const loopV1 = parkQuarter.vMax - loopInset;
+
+    const isPointOnParkPathOrPlaza = (u: number, v: number, pad: number): boolean => {
+      if (Math.hypot(u - centerU, v - centerV) < plazaRadius + pad) return true;
+      if (Math.abs(u - centerU) < crossPathWidth * 0.5 + pad) return true;
+      if (Math.abs(v - centerV) < crossPathWidth * 0.5 + pad) return true;
+      // Perimeter walking loop
+      const halfLoop = loopPathWidth * 0.5 + pad;
+      const inOuterU = u >= loopU0 - halfLoop && u <= loopU1 + halfLoop;
+      const inOuterV = v >= loopV0 - halfLoop && v <= loopV1 + halfLoop;
+      if (inOuterU && (Math.abs(v - loopV0) < halfLoop || Math.abs(v - loopV1) < halfLoop)) return true;
+      if (inOuterV && (Math.abs(u - loopU0) < halfLoop || Math.abs(u - loopU1) < halfLoop)) return true;
+      return false;
+    };
+
+    const placedParkTrees: Array<{ u: number; v: number }> = [];
+    let parkSeed = 202607;
+    const nextParkRand = () => {
+      parkSeed = (parkSeed * 1664525 + 1013904223) >>> 0;
+      return parkSeed / 4294967296;
+    };
+
+    const treeMargin = fenceInset + 11;
+    for (let u = parkQuarter.uMin + treeMargin; u <= parkQuarter.uMax - treeMargin; u += 24) {
+      for (let v = parkQuarter.vMin + treeMargin; v <= parkQuarter.vMax - treeMargin; v += 24) {
+        const ju = u + (nextParkRand() - 0.5) * 11;
+        const jv = v + (nextParkRand() - 0.5) * 11;
+        if (
+          ju < parkQuarter.uMin + treeMargin ||
+          ju > parkQuarter.uMax - treeMargin ||
+          jv < parkQuarter.vMin + treeMargin ||
+          jv > parkQuarter.vMax - treeMargin
+        ) {
+          continue;
+        }
+        if (isPointOnParkPathOrPlaza(ju, jv, 8.5)) continue;
+        if (placedParkTrees.some((t) => Math.hypot(t.u - ju, t.v - jv) < 21)) continue;
+        // Skip ~20% for airy natural park clearings
+        if (nextParkRand() < 0.2) continue;
+
+        const isConifer = nextParkRand() < 0.32;
+        const crownRadius = isConifer ? 7.2 + nextParkRand() * 2.2 : 8.0 + nextParkRand() * 3.0;
+        const height = isConifer ? 26 + nextParkRand() * 8 : 22 + nextParkRand() * 9;
+        const variant = Math.floor(nextParkRand() * 4);
+        placedParkTrees.push({ u: ju, v: jv });
+        urbanProps.push(makeTreeProp(ju, jv, isConifer ? 'conifer' : 'deciduous', crownRadius, height, variant));
+      }
+    }
+  }
+
+  // 6. Trees & occasional pocket benches on open unfenced green patches inside INNER residential house quarters
+  let resSeed = 918273;
+  const nextResRand = () => {
+    resSeed = (resSeed * 1664525 + 1013904223) >>> 0;
+    return resSeed / 4294967296;
+  };
+  const placedResProps: Array<{ u: number; v: number }> = [];
+
+  for (const q of CITY_QUARTERS) {
+    if (q.kind !== 'houses') continue;
+    const qMidU = (q.uMin + q.uMax) * 0.5;
+    const qMidV = (q.vMin + q.vMax) * 0.5;
+    // Skip outer map exit fringe quarters
+    if (qMidU < -1060 || qMidU > 980 || qMidV < -1060 || qMidV > 1080) continue;
+
+    let benchesInQuarter = 0;
+    for (let u = q.uMin + 12; u <= q.uMax - 12; u += 26) {
+      for (let v = q.vMin + 12; v <= q.vMax - 12; v += 26) {
+        const ju = u + (nextResRand() - 0.5) * 10;
+        const jv = v + (nextResRand() - 0.5) * 10;
+        const probeBox = { uMin: ju - 7, uMax: ju + 7, vMin: jv - 7, vMax: jv + 7 };
+        if (!isBuildingVisibleInMap(probeBox.uMin, probeBox.uMax, probeBox.vMin, probeBox.vMax, 24)) continue;
+        if (rectOverlapsActiveStreet(probeBox.uMin, probeBox.uMax, probeBox.vMin, probeBox.vMax)) continue;
+        if (rectOverlapsRoundabout(probeBox.uMin, probeBox.uMax, probeBox.vMin, probeBox.vMax, 16)) continue;
+        if (overlapsAccessRoad(probeBox, 5.5)) continue;
+        if (raw.some((b) => rectsOverlap(b, probeBox, 5.5))) continue;
+        if (houseYards.some((hy) => rectsOverlap(hy, probeBox, 4.5))) continue;
+        if (overlapsAnyParking(probeBox, 5)) continue;
+        if (parcelLockerSlots.some((s) => rectsOverlap(s, probeBox, 5))) continue;
+        if (garageDriveways.some((dw) => rectsOverlap(dw, probeBox, 3.5))) continue;
+        if (placedResProps.some((p) => Math.hypot(p.u - ju, p.v - jv) < 24)) continue;
+
+        const roll = nextResRand();
+        if (roll < 0.28) continue;
+
+        // Place an occasional pocket bench on roomy green clearings (max 2 per house quarter)
+        if (benchesInQuarter < 2 && roll > 0.86) {
+          const axis = nextResRand() < 0.5 ? 'u' : 'v';
+          const facing: 1 | -1 = nextResRand() < 0.5 ? 1 : -1;
+          placedResProps.push({ u: ju, v: jv });
+          urbanProps.push(makeBenchProp(ju, jv, axis, facing));
+          benchesInQuarter += 1;
+          continue;
+        }
+
+        const isConifer = nextResRand() < 0.28;
+        const crownRadius = isConifer ? 6.8 + nextResRand() * 2.0 : 7.5 + nextResRand() * 2.5;
+        const height = isConifer ? 24 + nextResRand() * 6 : 21 + nextResRand() * 7;
+        const variant = Math.floor(nextResRand() * 4);
+        placedResProps.push({ u: ju, v: jv });
+        urbanProps.push(makeTreeProp(ju, jv, isConifer ? 'conifer' : 'deciduous', crownRadius, height, variant));
+      }
+    }
+  }
+
   // 3. Assign realistic Polish street addresses to ALL buildings (including kiosks & houses on access roads)
   const roadById = new Map(ALL_ADDRESSABLE_ROADS.map((r) => [r.id, r]));
   const grouped = new Map<
@@ -3071,6 +3711,9 @@ export function buildProceduralCityStructures(): ProceduralCityStructures {
     parcelLockerSlots,
     houseYards,
     serviceFacilities,
+    parkLayout,
+    garageDriveways,
+    urbanProps,
   };
 }
 
@@ -3626,15 +4269,19 @@ export function createQuickBoxTargetBuilding(slot: ParcelLockerSlot): Building {
 export const PROCEDURAL_HOUSE_YARDS: HouseYardFence[] = CITY_STRUCTURES.houseYards;
 export const PROCEDURAL_SERVICE_FACILITIES: ServiceFacilitySpec[] =
   CITY_STRUCTURES.serviceFacilities;
+export const PROCEDURAL_PARK_LAYOUT: ParkLayoutSpec | null = CITY_STRUCTURES.parkLayout;
+export const PROCEDURAL_GARAGE_DRIVEWAYS: GarageDrivewaySpec[] = CITY_STRUCTURES.garageDriveways;
+export const PROCEDURAL_URBAN_PROPS: UrbanProp3D[] = CITY_STRUCTURES.urbanProps;
 
 /**
  * Precomputed, topologically sorted back-to-front static 3D scene order (all buildings +
- * 3D wooden yard fence segments & corner/gate posts). Cached once at startup so per-frame
- * rendering only interleaves dynamic entities (e.g. moving courier) for smooth mobile FPS.
+ * 3D wooden yard fence segments & corner/gate posts + park fountain/iron fence/trees/benches/lamps).
+ * Cached once at startup so per-frame rendering only interleaves dynamic entities for 144 FPS.
  */
 export const STATIC_SCENE_3D_ORDER: StaticScene3DItem[] = buildStaticScene3DOrder(
   PROCEDURAL_BUILDINGS,
-  PROCEDURAL_HOUSE_YARDS
+  PROCEDURAL_HOUSE_YARDS,
+  PROCEDURAL_URBAN_PROPS
 );
 
 const customSceneOrderCache = new WeakMap<Building[], StaticScene3DItem[]>();
@@ -3645,7 +4292,7 @@ export function getStaticScene3DOrder(buildings: Building[]): StaticScene3DItem[
   }
   let cached = customSceneOrderCache.get(buildings);
   if (!cached) {
-    cached = buildStaticScene3DOrder(buildings, PROCEDURAL_HOUSE_YARDS);
+    cached = buildStaticScene3DOrder(buildings, PROCEDURAL_HOUSE_YARDS, PROCEDURAL_URBAN_PROPS);
     customSceneOrderCache.set(buildings, cached);
   }
   return cached;

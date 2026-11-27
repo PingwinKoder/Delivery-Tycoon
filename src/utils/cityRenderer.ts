@@ -1,7 +1,9 @@
 import {
   PARCEL_LOCKER_SLOTS,
   PROCEDURAL_DELIVERY_ZONES,
+  PROCEDURAL_GARAGE_DRIVEWAYS,
   PROCEDURAL_HOUSE_YARDS,
+  PROCEDURAL_PARK_LAYOUT,
   PROCEDURAL_PARKING_LOTS,
   PROCEDURAL_SERVICE_FACILITIES,
 } from './buildings';
@@ -63,8 +65,10 @@ import {
   drawAccessRoadSidewalkJoints,
   drawAccessRoadStrip,
   drawBusStationSurface,
+  drawCityParkGround,
   drawConcretePlot,
   drawDeliveryZone,
+  drawGarageDriveway,
   drawGrassTuft,
   drawHouseYardWalkway,
   drawIntersectionCrosswalks,
@@ -229,6 +233,14 @@ export function renderProceduralCity(
   // 2c. 8 reserved parcel locker paver pads on free concrete plazas
   for (const slot of PARCEL_LOCKER_SLOTS) {
     drawParcelLockerSlot(ctx, slot);
+  }
+
+  // 2d. City Park (q_2_2) stone walkways & central plaza + residential garage driveways
+  if (PROCEDURAL_PARK_LAYOUT) {
+    drawCityParkGround(ctx, PROCEDURAL_PARK_LAYOUT);
+  }
+  for (const dw of PROCEDURAL_GARAGE_DRIVEWAYS) {
+    drawGarageDriveway(ctx, dw);
   }
 
   // 3. Sharp dark ink outer sidewalk contour (#1e293b) around all streets, access roads, roundabouts & BAZA driveway

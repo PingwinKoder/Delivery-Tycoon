@@ -4,8 +4,10 @@ import type { SupportedLanguage } from '../settingsSystem';
 import {
   PROCEDURAL_BUILDINGS,
   type DeliveryZone,
+  type GarageDrivewaySpec,
   type HouseYardFence,
   type ParcelLockerSlot,
+  type ParkLayoutSpec,
   type ParkingLot,
   type ServiceFacilitySpec,
   computeParkingLayout,
@@ -913,6 +915,114 @@ export function drawParcelLockerSlot(ctx: CanvasRenderingContext2D, slot: Parcel
   ctx.lineTo(slot.uMin + 1.5, slot.vMax - 1.5 - tick);
   ctx.stroke();
 
+  ctx.restore();
+}
+
+/**
+ * Draws the City Park (`q_2_2`) ground layer in isometric `(u, v)` space:
+ * manicured lawn bed, light-stone perimeter walking loop, 4 entrance cross-avenues,
+ * central circular plaza, and subtle fountain footprint ring (baked once into static ground buffer).
+ */
+export function drawCityParkGround(ctx: CanvasRenderingContext2D, park: ParkLayoutSpec) {
+  const {
+    uMin,
+    uMax,
+    vMin,
+    vMax,
+    centerU,
+    centerV,
+    loopInset,
+    loopPathWidth,
+    crossPathWidth,
+    plazaRadius,
+    fountainRadius,
+  } = park;
+  const loopU0 = uMin + loopInset;
+  const loopU1 = uMax - loopInset;
+  const loopV0 = vMin + loopInset;
+  const loopV1 = vMax - loopInset;
+
+  const tracePathGeometry = (extra: number) => {
+    const hwCross = crossPathWidth * 0.5 + extra;
+    const hwLoop = loopPathWidth * 0.5 + extra;
+
+    // 1. Cross-avenues connecting all 4 entrances straight through the park
+    ctx.fillRect(centerU - hwCross, vMin - 2, hwCross * 2, vMax - vMin + 4);
+    ctx.fillRect(uMin - 2, centerV - hwCross, uMax - uMin + 4, hwCross * 2);
+
+    // 2. Perimeter walking loop inside the park
+    ctx.fillRect(loopU0 - hwLoop, loopV0 - hwLoop, loopU1 - loopU0 + hwLoop * 2, hwLoop * 2);
+    ctx.fillRect(loopU0 - hwLoop, loopV1 - hwLoop, loopU1 - loopU0 + hwLoop * 2, hwLoop * 2);
+    ctx.fillRect(loopU0 - hwLoop, loopV0 - hwLoop, hwLoop * 2, loopV1 - loopV0 + hwLoop * 2);
+    ctx.fillRect(loopU1 - hwLoop, loopV0 - hwLoop, hwLoop * 2, loopV1 - loopV0 + hwLoop * 2);
+
+    // 3. Central circular stone plaza
+    ctx.beginPath();
+    ctx.arc(centerU, centerV, plazaRadius + extra, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  ctx.save();
+
+  // Soft manicured park lawn tint inside q_2_2
+  ctx.fillStyle = 'rgba(74, 155, 68, 0.22)';
+  ctx.fillRect(uMin + 2, vMin + 2, uMax - uMin - 4, vMax - vMin - 4);
+
+  // Outer ink outline around all park stone paths & central plaza
+  ctx.fillStyle = GROUND_PALETTE.inkOutline;
+  tracePathGeometry(1.5);
+
+  // Warm light stone walkway surface (merges cleanly across all path junctions)
+  ctx.fillStyle = '#ddd6c7';
+  tracePathGeometry(0);
+
+  // Subtle decorative stone paver ring inside central plaza
+  ctx.strokeStyle = 'rgba(30, 41, 59, 0.24)';
+  ctx.lineWidth = 1.0;
+  ctx.beginPath();
+  ctx.arc(centerU, centerV, plazaRadius - 4.5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Subtle fountain footprint circle (also makes fountain visible in footprintOnly mode)
+  ctx.fillStyle = 'rgba(56, 189, 248, 0.28)';
+  ctx.beginPath();
+  ctx.arc(centerU, centerV, fountainRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Draws a short cobblestone driveway pad in front of a residential home garage (baked into static ground).
+ */
+export function drawGarageDriveway(ctx: CanvasRenderingContext2D, dw: GarageDrivewaySpec) {
+  const w = dw.uMax - dw.uMin;
+  const h = dw.vMax - dw.vMin;
+  if (w < 2 || h < 2) return;
+
+  ctx.save();
+  ctx.fillStyle = '#b4bcc6';
+  ctx.fillRect(dw.uMin, dw.vMin, w, h);
+
+  ctx.strokeStyle = 'rgba(30, 41, 59, 0.28)';
+  ctx.lineWidth = 0.75;
+  ctx.beginPath();
+  for (let u = dw.uMin + 3.2; u < dw.uMax - 0.8; u += 3.2) {
+    ctx.moveTo(u, dw.vMin);
+    ctx.lineTo(u, dw.vMax);
+  }
+  for (let v = dw.vMin + 3.2; v < dw.vMax - 0.8; v += 3.2) {
+    ctx.moveTo(dw.uMin, v);
+    ctx.lineTo(dw.uMax, v);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = GROUND_PALETTE.inkOutline;
+  ctx.lineWidth = 1.1;
+  ctx.strokeRect(dw.uMin, dw.vMin, w, h);
   ctx.restore();
 }
 

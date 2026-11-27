@@ -9,6 +9,7 @@ import {
   type FenceSegment3D,
   type SpriteAtlasRectInput,
   type StaticScene3DItem,
+  type UrbanProp3D,
   computeCenteredBuildingSpriteBounds,
   getBuildingPalette,
   getBuildingPrismPoints,
@@ -936,6 +937,10 @@ function drawBuilding3DVector(
     drawGasStation3DVector(ctx, b, invScale);
     return;
   }
+  if (b.typ === 'garaz') {
+    drawResidentialGarage3DVector(ctx, b, p, invScale);
+    return;
+  }
 
   const palette = getBuildingPalette(b.typ, b.colorVariant);
 
@@ -998,6 +1003,492 @@ function drawBuilding3DVector(
   ctx.lineTo(p.tLeft.x, p.tLeft.y);
   ctx.closePath();
   ctx.stroke();
+}
+
+/**
+ * Draws a compact single-story residential garage (`typ: 'garaz'`) with roof trim and
+ * a crisp paneled sectional garage door on its wider visible front wall.
+ */
+function drawResidentialGarage3DVector(
+  ctx: CanvasRenderingContext2D,
+  b: Building,
+  p: BuildingPrismPoints,
+  invScale: number
+) {
+  const palette = getBuildingPalette(b.typ, b.colorVariant);
+
+  // Left wall
+  ctx.fillStyle = palette.leftWall;
+  ctx.beginPath();
+  ctx.moveTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Right wall
+  ctx.fillStyle = palette.rightWall;
+  ctx.beginPath();
+  ctx.moveTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Roof face with slight dark parapet trim
+  ctx.fillStyle = palette.roof;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.tFront.x, p.tFront.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Sectional garage door on the shorter (front-entry) visible wall
+  const leftW = Math.hypot(p.bFront.x - p.bLeft.x, p.bFront.y - p.bLeft.y);
+  const rightW = Math.hypot(p.bRight.x - p.bFront.x, p.bRight.y - p.bFront.y);
+  const doorOnLeft = leftW <= rightW;
+  const d0 = doorOnLeft ? p.bLeft : p.bFront;
+  const d1 = doorOnLeft ? p.bFront : p.bRight;
+  const t0 = doorOnLeft ? p.tLeft : p.tFront;
+  const t1 = doorOnLeft ? p.tFront : p.tRight;
+
+  const lerpPt = (a: { x: number; y: number }, c: { x: number; y: number }, t: number) => ({
+    x: a.x + (c.x - a.x) * t,
+    y: a.y + (c.y - a.y) * t,
+  });
+  const bl = lerpPt(d0, d1, 0.16);
+  const br = lerpPt(d0, d1, 0.84);
+  const tl = lerpPt(bl, lerpPt(t0, t1, 0.16), 0.72);
+  const tr = lerpPt(br, lerpPt(t0, t1, 0.84), 0.72);
+
+  ctx.fillStyle = doorOnLeft ? '#e2e8f0' : '#cbd5e1';
+  ctx.beginPath();
+  ctx.moveTo(bl.x, bl.y);
+  ctx.lineTo(br.x, br.y);
+  ctx.lineTo(tr.x, tr.y);
+  ctx.lineTo(tl.x, tl.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Horizontal garage door slats
+  ctx.strokeStyle = 'rgba(30, 41, 59, 0.45)';
+  ctx.lineWidth = 0.8 * invScale;
+  ctx.beginPath();
+  for (let row = 1; row <= 3; row++) {
+    const f = row / 4;
+    const sl = lerpPt(bl, tl, f);
+    const sr = lerpPt(br, tr, f);
+    ctx.moveTo(sl.x, sl.y);
+    ctx.lineTo(sr.x, sr.y);
+  }
+  ctx.stroke();
+
+  // Door frame
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1.05 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(bl.x, bl.y);
+  ctx.lineTo(tl.x, tl.y);
+  ctx.lineTo(tr.x, tr.y);
+  ctx.lineTo(br.x, br.y);
+  ctx.stroke();
+
+  // Crisp building outline
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.5)';
+  ctx.lineWidth = 1.1 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(p.tBack.x, p.tBack.y);
+  ctx.lineTo(p.tRight.x, p.tRight.y);
+  ctx.lineTo(p.bRight.x, p.bRight.y);
+  ctx.lineTo(p.bFront.x, p.bFront.y);
+  ctx.lineTo(p.bLeft.x, p.bLeft.y);
+  ctx.lineTo(p.tLeft.x, p.tLeft.y);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+const DECIDUOUS_TREE_PALETTES = [
+  { dark: '#1e5631', mid: '#2f7d32', light: '#5cb85c' },
+  { dark: '#235d3a', mid: '#3a8c4a', light: '#6cc070' },
+  { dark: '#2d5a27', mid: '#4a7c38', light: '#7eb356' },
+  { dark: '#1c4d32', mid: '#2e7048', light: '#52a36e' },
+] as const;
+
+const CONIFER_TREE_PALETTES = [
+  { dark: '#163a2c', mid: '#1f543e', light: '#2f7556' },
+  { dark: '#1b4332', mid: '#266047', light: '#3b8262' },
+] as const;
+
+/**
+ * Renders pre-sorted 3D urban props (park fountain, black wrought-iron park fence,
+ * trees, benches, and park street lamps) in exact isometric Painter's Algorithm order.
+ */
+function drawUrbanProp3D(
+  ctx: CanvasRenderingContext2D,
+  prop: UrbanProp3D,
+  invScale: number
+) {
+  if (prop.propKind === 'fountain') {
+    const c = isoToCanvas(prop.u, prop.v);
+    const rx = prop.radius * 1.42;
+    const ry = prop.radius * 0.71;
+    const rimH = 6.5;
+
+    ctx.save();
+    // Ground shadow
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.26)';
+    ctx.beginPath();
+    ctx.ellipse(c.x + 3.5, c.y + 2.2, rx + 2, ry + 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Stone outer basin wall
+    ctx.fillStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, rx, ry, 0, 0, Math.PI);
+    ctx.lineTo(c.x - rx, c.y - rimH);
+    ctx.ellipse(c.x, c.y - rimH, rx, ry, 0, Math.PI, 0, true);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.2 * invScale;
+    ctx.stroke();
+
+    // Stone top rim
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y - rimH, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.15 * invScale;
+    ctx.stroke();
+
+    // Turquoise-blue water surface
+    ctx.fillStyle = '#0ea5e9';
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y - rimH + 0.6, rx * 0.84, ry * 0.82, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Subtle light water ripple ring
+    ctx.strokeStyle = 'rgba(224, 242, 254, 0.72)';
+    ctx.lineWidth = 1.0 * invScale;
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y - rimH + 0.6, rx * 0.56, ry * 0.54, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Central stone pedestal & upper bowl
+    const colH = 14;
+    ctx.fillStyle = '#cbd5e1';
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.0 * invScale;
+    ctx.beginPath();
+    ctx.roundRect(c.x - 3.6, c.y - rimH - colH, 7.2, colH + 1, 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y - rimH - colH, rx * 0.34, ry * 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y - rimH - colH, rx * 0.25, ry * 0.24, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Arcing water spray jets from central spire
+    const spireTopY = c.y - rimH - colH - 7;
+    ctx.strokeStyle = 'rgba(224, 242, 254, 0.9)';
+    ctx.lineWidth = 1.2 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y - rimH - colH);
+    ctx.lineTo(c.x, spireTopY);
+    ctx.moveTo(c.x, spireTopY);
+    ctx.quadraticCurveTo(c.x - 6, spireTopY - 4, c.x - 10, c.y - rimH + 0.5);
+    ctx.moveTo(c.x, spireTopY);
+    ctx.quadraticCurveTo(c.x + 6, spireTopY - 4, c.x + 10, c.y - rimH + 0.5);
+    ctx.moveTo(c.x, spireTopY);
+    ctx.quadraticCurveTo(c.x - 3, spireTopY - 3, c.x - 5.5, c.y - rimH + 2.5);
+    ctx.moveTo(c.x, spireTopY);
+    ctx.quadraticCurveTo(c.x + 3, spireTopY - 3, c.x + 5.5, c.y - rimH + 2.5);
+    ctx.stroke();
+
+    ctx.restore();
+    return;
+  }
+
+  if (prop.propKind === 'parkFenceSegment') {
+    const p1 = isoToCanvas(prop.u1, prop.v1);
+    const p2 = isoToCanvas(prop.u2, prop.v2);
+    const h = prop.height;
+
+    ctx.save();
+    // Low stone curb plinth
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2.6 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+
+    // Vertical black wrought-iron pickets
+    const segPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const picketCount = Math.max(3, Math.round(segPx / 3.8));
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.05 * invScale;
+    ctx.beginPath();
+    for (let i = 1; i < picketCount; i++) {
+      const t = i / picketCount;
+      const x = p1.x + (p2.x - p1.x) * t;
+      const y = p1.y + (p2.y - p1.y) * t;
+      ctx.moveTo(x, y - 1);
+      ctx.lineTo(x, y - h);
+    }
+    ctx.stroke();
+
+    // Top and lower horizontal black iron rails
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.65 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y - h + 1.5);
+    ctx.lineTo(p2.x, p2.y - h + 1.5);
+    ctx.moveTo(p1.x, p1.y - 3.0);
+    ctx.lineTo(p2.x, p2.y - 3.0);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  if (prop.propKind === 'parkFencePost') {
+    const c = isoToCanvas(prop.u, prop.v);
+    const h = prop.height;
+    const w = prop.isGatePost ? 4.2 : 2.6;
+
+    ctx.save();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(c.x - w / 2, c.y - h, w, h + 1);
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(c.x - w / 2, c.y - h, w * 0.45, h);
+    if (prop.isGatePost) {
+      // Ornamental black/slate pillar cap
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(c.x - w * 0.72, c.y - h - 2.2, w * 1.44, 2.4);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 0.9 * invScale;
+      ctx.strokeRect(c.x - w * 0.72, c.y - h - 2.2, w * 1.44, 2.4);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (prop.propKind === 'tree') {
+    const c = isoToCanvas(prop.u, prop.v);
+    const r = prop.crownRadius;
+    const h = prop.height;
+
+    ctx.save();
+    // Soft grounded tree shadow on grass
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.24)';
+    ctx.beginPath();
+    ctx.ellipse(c.x + r * 0.45, c.y + r * 0.14, r * 1.05, r * 0.52, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Trunk
+    const trunkH = prop.species === 'conifer' ? h * 0.26 : h * 0.42;
+    const trunkW = Math.max(2.4, r * 0.3);
+    ctx.fillStyle = '#5c3d2e';
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 0.95 * invScale;
+    ctx.beginPath();
+    ctx.roundRect(c.x - trunkW * 0.5, c.y - trunkH, trunkW, trunkH + 1.2, 1);
+    ctx.fill();
+    ctx.stroke();
+
+    if (prop.species === 'conifer') {
+      const pal = CONIFER_TREE_PALETTES[prop.variant % CONIFER_TREE_PALETTES.length];
+      // 3 stacked evergreen conifer tiers
+      const tiers = [
+        { baseY: c.y - trunkH * 0.75, topY: c.y - h * 0.62, halfW: r * 1.05 },
+        { baseY: c.y - h * 0.42, topY: c.y - h * 0.84, halfW: r * 0.82 },
+        { baseY: c.y - h * 0.66, topY: c.y - h, halfW: r * 0.56 },
+      ];
+      for (const tier of tiers) {
+        ctx.fillStyle = pal.mid;
+        ctx.beginPath();
+        ctx.moveTo(c.x, tier.topY);
+        ctx.lineTo(c.x + tier.halfW, tier.baseY);
+        ctx.lineTo(c.x, tier.baseY + tier.halfW * 0.28);
+        ctx.lineTo(c.x - tier.halfW, tier.baseY);
+        ctx.closePath();
+        ctx.fill();
+
+        // Sunlit left facet
+        ctx.fillStyle = pal.light;
+        ctx.beginPath();
+        ctx.moveTo(c.x, tier.topY);
+        ctx.lineTo(c.x, tier.baseY + tier.halfW * 0.28);
+        ctx.lineTo(c.x - tier.halfW, tier.baseY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1.0 * invScale;
+        ctx.beginPath();
+        ctx.moveTo(c.x, tier.topY);
+        ctx.lineTo(c.x + tier.halfW, tier.baseY);
+        ctx.lineTo(c.x, tier.baseY + tier.halfW * 0.28);
+        ctx.lineTo(c.x - tier.halfW, tier.baseY);
+        ctx.closePath();
+        ctx.stroke();
+      }
+    } else {
+      const pal = DECIDUOUS_TREE_PALETTES[prop.variant % DECIDUOUS_TREE_PALETTES.length];
+      const cy = c.y - h * 0.64;
+      // Shadowed lower crown mass
+      ctx.fillStyle = pal.dark;
+      ctx.beginPath();
+      ctx.ellipse(c.x + 1.2, cy + r * 0.22, r * 1.06, r * 0.78, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Main mid-green foliage body
+      ctx.fillStyle = pal.mid;
+      ctx.beginPath();
+      ctx.ellipse(c.x, cy, r * 1.04, r * 0.82, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Sunlit upper-left foliage crown lobe
+      ctx.fillStyle = pal.light;
+      ctx.beginPath();
+      ctx.ellipse(c.x - r * 0.26, cy - r * 0.26, r * 0.62, r * 0.48, -0.25, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Crisp dark outline around canopy
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1.05 * invScale;
+      ctx.beginPath();
+      ctx.ellipse(c.x, cy, r * 1.05, r * 0.82, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    return;
+  }
+
+  if (prop.propKind === 'bench') {
+    const halfLen = 3.6;
+    const u1 = prop.axis === 'u' ? prop.u - halfLen : prop.u;
+    const v1 = prop.axis === 'u' ? prop.v : prop.v - halfLen;
+    const u2 = prop.axis === 'u' ? prop.u + halfLen : prop.u;
+    const v2 = prop.axis === 'u' ? prop.v : prop.v + halfLen;
+    const p1 = isoToCanvas(u1, v1);
+    const p2 = isoToCanvas(u2, v2);
+    const backShiftU = prop.axis === 'u' ? 0 : -prop.facingSign * 1.3;
+    const backShiftV = prop.axis === 'u' ? -prop.facingSign * 1.3 : 0;
+    const b1 = isoToCanvas(u1 + backShiftU, v1 + backShiftV);
+    const b2 = isoToCanvas(u2 + backShiftU, v2 + backShiftV);
+
+    ctx.save();
+    // Ground shadow
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.28)';
+    ctx.lineWidth = 4.2 * invScale;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(p1.x + 1.2, p1.y + 1.0);
+    ctx.lineTo(p2.x + 1.2, p2.y + 1.0);
+    ctx.stroke();
+
+    // Cast-iron legs
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.6 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y + 0.5);
+    ctx.lineTo(p1.x, p1.y - 3.2);
+    ctx.moveTo(p2.x, p2.y + 0.5);
+    ctx.lineTo(p2.x, p2.y - 3.2);
+    ctx.stroke();
+
+    // Wooden seat slat
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 2.6 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y - 2.6);
+    ctx.lineTo(p2.x, p2.y - 2.6);
+    ctx.stroke();
+
+    // Wooden backrest slat
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 2.1 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(b1.x, b1.y - 5.2);
+    ctx.lineTo(b2.x, b2.y - 5.2);
+    ctx.stroke();
+
+    // Dark ink highlight line
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 0.75 * invScale;
+    ctx.beginPath();
+    ctx.moveTo(b1.x, b1.y - 6.2);
+    ctx.lineTo(b2.x, b2.y - 6.2);
+    ctx.stroke();
+
+    ctx.restore();
+    return;
+  }
+
+  // Park street lamp
+  const c = isoToCanvas(prop.u, prop.v);
+  const h = prop.height;
+  ctx.save();
+  // Ground shadow
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.22)';
+  ctx.lineWidth = 1.8 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y);
+  ctx.lineTo(c.x + h * 0.28, c.y - h * 0.08);
+  ctx.stroke();
+
+  // Flared cast-iron base
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.ellipse(c.x, c.y, 2.2, 1.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Slender dark pole
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.8 * invScale;
+  ctx.beginPath();
+  ctx.moveTo(c.x, c.y);
+  ctx.lineTo(c.x, c.y - h);
+  ctx.stroke();
+
+  // Subtle warm glow halo
+  ctx.fillStyle = 'rgba(254, 240, 138, 0.32)';
+  ctx.beginPath();
+  ctx.arc(c.x, c.y - h - 1.5, 5.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Lantern globe
+  ctx.fillStyle = '#fef9c3';
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 0.9 * invScale;
+  ctx.beginPath();
+  ctx.arc(c.x, c.y - h - 1.5, 2.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Lantern cap
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.moveTo(c.x - 3.0, c.y - h - 3.2);
+  ctx.lineTo(c.x + 3.0, c.y - h - 3.2);
+  ctx.lineTo(c.x, c.y - h - 5.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function bakeAtlasJobs(
@@ -1553,6 +2044,7 @@ export function renderBuildings3D(
       ctx.beginPath();
       for (let i = 0; i < visible.length; i++) {
         const entry = visible[i];
+        if (entry.kind === 'urbanProp') continue;
         const p =
           entry.kind === 'building'
             ? entry.item.prism
@@ -1658,6 +2150,11 @@ export function renderBuildings3D(
           } else {
             drawFencePost3D(ctx, post, invScale);
           }
+          continue;
+        }
+
+        if (staticEntry.kind === 'urbanProp') {
+          drawUrbanProp3D(ctx, staticEntry.prop, invScale);
           continue;
         }
 

@@ -9,7 +9,8 @@ export type BuildingType =
   | 'dworzec'
   | 'mechanik'
   | 'stacja_paliw'
-  | 'quickbox';
+  | 'quickbox'
+  | 'garaz';
 
 export interface BuildingPalette {
   roof: string;
@@ -146,6 +147,12 @@ export const BUILDING_TYPE_META: Record<BuildingType, BuildingTypeMeta> = {
     shortLabel: 'QuickBox',
     description: 'Automat paczkowy QuickBox z dedykowanym miejscem postojowym dla kuriera',
     badgeColor: '#f59e0b',
+  },
+  garaz: {
+    label: 'Garaż przydomowy',
+    shortLabel: 'Garaż',
+    description: 'Parterowy garaż przydomowy na osiedlu domów jednorodzinnych',
+    badgeColor: '#64748b',
   },
 };
 
