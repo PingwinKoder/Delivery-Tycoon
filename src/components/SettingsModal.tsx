@@ -9,6 +9,7 @@ import {
   Monitor,
   Music,
   Settings,
+  Signpost,
   Volume2,
   VolumeX,
   X,
@@ -428,6 +429,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-pressed={!settings.showFpsCounter}
                     onClick={() => onUpdateSettings({ showFpsCounter: false })}
                     className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showFpsCounter
+                      ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                      : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                  >
+                    {t(lang, 'settings.toggleOff')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Show Street Names on Map Toggle */}
+              <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
+                  <Signpost className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
+                  <span>{t(lang, 'settings.showStreetNames')}</span>
+                </div>
+
+                <div
+                  role="group"
+                  aria-label={t(lang, 'settings.showStreetNames')}
+                  className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={settings.showStreetNames}
+                    onClick={() => onUpdateSettings({ showStreetNames: true })}
+                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showStreetNames
+                      ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
+                      : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                  >
+                    {t(lang, 'settings.toggleOn')}
+                  </button>
+
+                  <button
+                    type="button"
+                    aria-pressed={!settings.showStreetNames}
+                    onClick={() => onUpdateSettings({ showStreetNames: false })}
+                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showStreetNames
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}

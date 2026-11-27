@@ -508,6 +508,11 @@ function normalizeCouriersForBaseStart(rawCouriers: unknown): SavedCourierState[
       assignedVehicle: courier.assignedVehicle
         ? normalizeActiveVehicle(courier.assignedVehicle)
         : null,
+      trainingEndGameDay:
+        typeof courier.trainingEndGameDay === 'number' &&
+        Number.isFinite(courier.trainingEndGameDay)
+          ? Math.floor(courier.trainingEndGameDay)
+          : null,
       inRoute: false,
     }));
 }

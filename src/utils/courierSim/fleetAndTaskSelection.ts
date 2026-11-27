@@ -583,12 +583,19 @@ export function buildCourierAtBaseBySlot(
 
 export function buildTaskAssignmentsByTaskId(
   fleet: Readonly<MultiCourierFleetState>
-): Record<string, number> {
-  const result: Record<string, number> = {};
+): Record<string, number[]> {
+  const result: Record<string, number[]> = {};
   for (const slotIndex of COURIER_SLOT_INDICES) {
     const entry = fleet[slotIndex];
     if (entry && entry.inRoute && entry.assignedTaskId) {
-      result[entry.assignedTaskId] = slotIndex;
+      const existing = result[entry.assignedTaskId];
+      if (existing) {
+        if (!existing.includes(slotIndex)) {
+          existing.push(slotIndex);
+        }
+      } else {
+        result[entry.assignedTaskId] = [slotIndex];
+      }
     }
   }
   return result;

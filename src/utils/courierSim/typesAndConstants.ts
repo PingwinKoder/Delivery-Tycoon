@@ -213,7 +213,7 @@ export type MultiCourierFleetState = Record<number, FleetCourierSlotState>;
 export interface CourierFleetStatusSnapshot {
   atBaseBySlot: Record<number, boolean>;
   allAtBase: boolean;
-  taskAssignmentsByTaskId: Record<string, number>;
+  taskAssignmentsByTaskId: Record<string, number[]>;
   refuelingVehicleKeys?: string[];
 }
 

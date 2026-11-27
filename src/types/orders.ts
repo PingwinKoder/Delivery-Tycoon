@@ -155,6 +155,8 @@ export interface WeeklyScheduleTask {
   priorityRank: number;
   /** Optional 1-based courier slot index (#1–#6) currently executing this task */
   assignedCourierId?: number;
+  /** Optional list of all 1-based courier slot indices (#1–#6) currently executing this task */
+  assignedCourierIds?: number[];
   /** Present when taskType === 'repair': concrete vehicle scheduled for mechanic repair */
   repairVehicle?: ActiveVehicleSelection;
   /** Present when taskType === 'repair': current durability % (0–100) */
@@ -363,6 +365,8 @@ export interface CompanyCourier {
   monthlySalary: number;
   /** 1-based gameplay day when hired (null when vacant or locked) */
   hiredAtGameDay: number | null;
+  /** 1-based gameplay day when an active Category B driving course finishes (null when not in training) */
+  trainingEndGameDay?: number | null;
 }
 
 export interface MonthlyCostBreakdown {
@@ -370,7 +374,7 @@ export interface MonthlyCostBreakdown {
   baseUpkeepAndTaxCost: number;
   /** Total monthly salaries for all hired employees ($0 for owner) */
   salariesCost: number;
-  /** Total monthly insurance for additional bicycles ($50 each from the 2nd bike onward) */
+  /** Total monthly insurance for all owned bicycles ($50 each, including the 1st owner bike) */
   courierInsuranceCost: number;
   /** Total monthly insurance for owned scooters ($70 / $85 each) */
   scooterInsuranceCost: number;
@@ -393,6 +397,8 @@ export interface CurrentMonthLedger {
   repairExpenses: number;
   /** Total financial penalties paid for undelivered packages during the current month */
   penaltyExpenses: number;
+  /** Total employee driving course fees paid during the current month */
+  trainingExpenses?: number;
   /** Number of orders completed during the current month */
   completedOrdersCount: number;
   /** Sum of company satisfaction snapshots recorded during the current month */

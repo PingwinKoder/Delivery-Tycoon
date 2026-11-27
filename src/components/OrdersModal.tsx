@@ -47,7 +47,7 @@ interface OrdersModalProps {
   language: SupportedLanguage;
   economyState: OrderEconomyState;
   gameMinutes: number;
-  taskAssignmentsByTaskId?: Readonly<Record<string, number>>;
+  taskAssignmentsByTaskId?: Readonly<Record<string, readonly number[]>>;
   onClose: () => void;
   onMarkOffersSeen: () => void;
   onAcceptOffer: (offerId: string) => void;
@@ -253,10 +253,12 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
       );
       const tasks: WeeklyScheduleTask[] = isToday
         ? rawTasks.map((task) => {
-          const assignedCourierId =
-            taskAssignmentsByTaskId?.[task.taskId] ?? taskAssignmentsByTaskId?.[task.orderId];
-          return assignedCourierId !== undefined
-            ? { ...task, assignedCourierId }
+          const byTaskId = taskAssignmentsByTaskId?.[task.taskId] ?? [];
+          const byOrderId =
+            task.orderId !== task.taskId ? (taskAssignmentsByTaskId?.[task.orderId] ?? []) : [];
+          const merged = Array.from(new Set([...byTaskId, ...byOrderId])).sort((a, b) => a - b);
+          return merged.length > 0
+            ? { ...task, assignedCourierId: merged[0], assignedCourierIds: merged }
             : task;
         })
         : rawTasks;
@@ -685,26 +687,45 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                               <span className="text-slate-400"> ({mechanicLocation})</span>
                             </p>
 
-                            {task.assignedCourierId !== undefined ? (
-                              <span
-                                className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${task.assignedCourierId === 1
-                                  ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
-                                  : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
-                                  }`}
-                              >
-                                {task.assignedCourierId === 1
-                                  ? t(language, 'orders.ownerBadge')
-                                  : t(language, 'orders.courierBadge', {
-                                    slot: task.assignedCourierId,
-                                  })}
-                              </span>
-                            ) : task.repairWaitingForCourier ? (
-                              <span
-                                className="px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border whitespace-nowrap shrink-0 leading-none bg-amber-500/10 text-amber-300/95 border-amber-400/35"
-                              >
-                                {t(language, 'orders.repairWaitingCourierShort')}
-                              </span>
-                            ) : null}
+                            {(() => {
+                              const assignedIds =
+                                task.assignedCourierIds && task.assignedCourierIds.length > 0
+                                  ? task.assignedCourierIds
+                                  : task.assignedCourierId !== undefined
+                                    ? [task.assignedCourierId]
+                                    : [];
+                              if (assignedIds.length > 0) {
+                                return (
+                                  <div className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0">
+                                    {assignedIds.map((courierId) => (
+                                      <span
+                                        key={courierId}
+                                        className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${courierId === 1
+                                          ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
+                                          : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
+                                          }`}
+                                      >
+                                        {courierId === 1
+                                          ? t(language, 'orders.ownerBadge')
+                                          : t(language, 'orders.courierBadge', {
+                                            slot: courierId,
+                                          })}
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              if (task.repairWaitingForCourier) {
+                                return (
+                                  <span
+                                    className="px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border whitespace-nowrap shrink-0 leading-none bg-amber-500/10 text-amber-300/95 border-amber-400/35"
+                                  >
+                                    {t(language, 'orders.repairWaitingCourierShort')}
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
 
                             <div className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0">
                               <button
@@ -824,20 +845,34 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                             </span>
                           </div>
 
-                          {task.assignedCourierId !== undefined && (
-                            <span
-                              className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${task.assignedCourierId === 1
-                                ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
-                                : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
-                                }`}
-                            >
-                              {task.assignedCourierId === 1
-                                ? t(language, 'orders.ownerBadge')
-                                : t(language, 'orders.courierBadge', {
-                                  slot: task.assignedCourierId,
-                                })}
-                            </span>
-                          )}
+                          {(() => {
+                            const assignedIds =
+                              task.assignedCourierIds && task.assignedCourierIds.length > 0
+                                ? task.assignedCourierIds
+                                : task.assignedCourierId !== undefined
+                                  ? [task.assignedCourierId]
+                                  : [];
+                            if (assignedIds.length === 0) return null;
+                            return (
+                              <div className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0">
+                                {assignedIds.map((courierId) => (
+                                  <span
+                                    key={courierId}
+                                    className={`px-1 py-[1px] [@media(min-width:1024px)_and_(min-height:541px)]:px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-0.5 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border whitespace-nowrap shrink-0 leading-none ${courierId === 1
+                                      ? 'bg-amber-500/15 text-amber-300 border-amber-400/40'
+                                      : 'bg-violet-500/15 text-violet-300 border-violet-400/40'
+                                      }`}
+                                  >
+                                    {courierId === 1
+                                      ? t(language, 'orders.ownerBadge')
+                                      : t(language, 'orders.courierBadge', {
+                                        slot: courierId,
+                                      })}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
 
                           <div className="flex items-center gap-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1 shrink-0">
                             <button

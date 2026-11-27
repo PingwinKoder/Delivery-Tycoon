@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Clock,
-  Eye,
-  EyeOff,
   Files,
   Frown,
   Layers,
@@ -11,7 +9,6 @@ import {
   Moon,
   Pause,
   Settings,
-  Signpost,
   SkipForward,
   Smile,
 } from 'lucide-react';
@@ -27,9 +24,7 @@ import type { SupportedLanguage } from '../utils/settingsSystem';
 interface ToolbarProps {
   hudVisible: boolean;
   language: SupportedLanguage;
-  showGrid: boolean;
   footprintOnly: boolean;
-  showStreetNames: boolean;
   balance: number;
   companySatisfaction: number;
   gameMinutes: number;
@@ -41,9 +36,7 @@ interface ToolbarProps {
   unreadOffersCount: number;
   fps: number | null;
   showFpsCounter?: boolean;
-  onToggleGrid: () => void;
   onToggleFootprintOnly: () => void;
-  onToggleStreetNames: () => void;
   onChangeGameSpeed: (speed: GameSpeed) => void;
   onOpenSkipTime: () => void;
   onOpenOrders: () => void;
@@ -54,9 +47,7 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   hudVisible,
   language,
-  showGrid,
   footprintOnly,
-  showStreetNames,
   balance,
   companySatisfaction,
   gameMinutes,
@@ -68,9 +59,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   unreadOffersCount,
   fps,
   showFpsCounter = true,
-  onToggleGrid,
   onToggleFootprintOnly,
-  onToggleStreetNames,
   onChangeGameSpeed,
   onOpenSkipTime,
   onOpenOrders,
@@ -298,51 +287,6 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
           <Layers className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
           <span className="2xl:hidden">{t(language, 'hud.footprintsShort')}</span>
           <span className="hidden 2xl:inline">{t(language, 'hud.footprintsFull')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onToggleStreetNames();
-          }}
-          aria-pressed={showStreetNames}
-          aria-label={t(language, 'hud.streetsFull')}
-          className={`min-h-[38px] sm:min-h-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(max-height:540px)]:px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${showStreetNames
-            ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 hover:bg-sky-500/35'
-            : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 border border-slate-700/80'
-            }`}
-        >
-          <Signpost className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
-          <span className="sm:hidden">{t(language, 'hud.streetsShort')}</span>
-          <span className="hidden sm:inline">{t(language, 'hud.streetsFull')}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onToggleGrid();
-          }}
-          aria-pressed={showGrid}
-          aria-label={showGrid ? t(language, 'hud.hideGridFull') : t(language, 'hud.showGridFull')}
-          className="min-h-[38px] sm:min-h-[40px] [@media(min-width:1024px)_and_(min-height:541px)]:min-h-[44px] [@media(max-height:540px)]:min-h-0 [@media(max-height:540px)]:h-8 px-2 sm:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 [@media(max-height:540px)]:px-2 py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2 [@media(max-height:540px)]:py-1 rounded-lg text-xs [@media(min-width:1024px)_and_(min-height:541px)]:text-[13.5px] [@media(max-height:540px)]:text-[11px] font-semibold flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 [@media(max-height:540px)]:gap-1 whitespace-nowrap shrink-0 bg-slate-800/90 text-slate-100 hover:bg-slate-700 border border-slate-700/80 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
-        >
-          {showGrid ? (
-            <>
-              <EyeOff className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
-              <span className="sm:hidden">{t(language, 'hud.gridShort')}</span>
-              <span className="hidden sm:inline 2xl:hidden">{t(language, 'hud.hideGridShort')}</span>
-              <span className="hidden 2xl:inline">{t(language, 'hud.hideGridFull')}</span>
-            </>
-          ) : (
-            <>
-              <Eye className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
-              <span className="sm:hidden">{t(language, 'hud.gridShort')}</span>
-              <span className="hidden sm:inline 2xl:hidden">{t(language, 'hud.showGridShort')}</span>
-              <span className="hidden 2xl:inline">{t(language, 'hud.showGridFull')}</span>
-            </>
-          )}
         </button>
       </div>
 

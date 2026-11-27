@@ -25,6 +25,7 @@ import {
 } from '../gameClock';
 import {
   calculateMonthlyCompanyCosts,
+  completeDueCourierTrainings,
   getFreeWarehouseCapacity,
   getPendingVehicleRepairs,
   getRepairCourierReadiness,
@@ -891,9 +892,10 @@ export function processMonthlySettlement(
   const fuelExpenses = roundCurrency(ledger.fuelExpenses);
   const repairExpenses = roundCurrency(ledger.repairExpenses);
   const penaltyExpenses = roundCurrency(ledger.penaltyExpenses);
+  const trainingExpenses = roundCurrency(ledger.trainingExpenses ?? 0);
   const totalRevenue = roundCurrency(shortTermRevenue + longTermContractPayout);
   const totalExpenses = roundCurrency(
-    monthlyCosts.totalFixedCosts + fuelExpenses + repairExpenses + penaltyExpenses
+    monthlyCosts.totalFixedCosts + fuelExpenses + repairExpenses + penaltyExpenses + trainingExpenses
   );
   const netChange = roundCurrency(totalRevenue - totalExpenses);
   const averageSatisfaction =
@@ -1258,8 +1260,9 @@ export function advanceOrderEconomy(
       // 0. Evaluate missed scheduled pickups & elapsed 3-day delivery windows for long-term contracts
       current = evaluateDailyLongTermDeadlines(current, date);
 
-      // 1. Conclude any orders whose endGameDay was reached
+      // 1. Conclude any orders whose endGameDay was reached & complete due Cat. B driving courses
       current = concludeDueOrdersOnNewDay(current, date, dayStartMinutes);
+      current = completeDueCourierTrainings(current, date.gameDay);
 
       // 2. Every 1 Styczeń (new year): advance calendar stats year without resetting continuous companySatisfaction
       if (date.monthIndex === 0 && date.dayOfMonth === 1 && date.year > current.annualStatsYear) {

@@ -2,6 +2,7 @@ import type { RoadGraph } from '../../types/roadGraph';
 import { translateStreetName } from '../../i18n/translations';
 import type { SupportedLanguage } from '../settingsSystem';
 import {
+  PROCEDURAL_BUILDINGS,
   type DeliveryZone,
   type HouseYardFence,
   type ParcelLockerSlot,
@@ -2160,46 +2161,245 @@ export function updateViewportGroundCache(
 const ISO_ANGLE_U = Math.atan2(-0.5, 1); // SW -> NE (-26.565 deg)
 const ISO_ANGLE_V = Math.atan2(0.5, 1); // NW -> SE (+26.565 deg)
 
+interface BuildingPrismSilhouette {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  /** 6-vertex convex silhouette of the extruded 3D building prism in world canvas coordinates */
+  poly: Array<{ x: number; y: number }>;
+}
+
+function buildBuildingPrismSilhouettes(): BuildingPrismSilhouette[] {
+  const result: BuildingPrismSilhouette[] = [];
+  for (const b of PROCEDURAL_BUILDINGS) {
+    if (b.height <= 0) continue;
+    const corners = [
+      isoToCanvas(b.uMin, b.vMin),
+      isoToCanvas(b.uMax, b.vMin),
+      isoToCanvas(b.uMax, b.vMax),
+      isoToCanvas(b.uMin, b.vMax),
+    ];
+    let left = corners[0];
+    let right = corners[0];
+    let top = corners[0];
+    let bottom = corners[0];
+    for (let i = 1; i < corners.length; i++) {
+      const c = corners[i];
+      if (c.x < left.x) left = c;
+      if (c.x > right.x) right = c;
+      if (c.y < top.y) top = c;
+      if (c.y > bottom.y) bottom = c;
+    }
+    const h = b.height;
+    const poly = [
+      { x: top.x, y: top.y - h },
+      { x: right.x, y: right.y - h },
+      { x: right.x, y: right.y },
+      { x: bottom.x, y: bottom.y },
+      { x: left.x, y: left.y },
+      { x: left.x, y: left.y - h },
+    ];
+    result.push({
+      minX: left.x - 4,
+      maxX: right.x + 4,
+      minY: top.y - h - 4,
+      maxY: bottom.y + 4,
+      poly,
+    });
+  }
+  return result;
+}
+
+function isPointInPolygon(x: number, y: number, poly: readonly { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x;
+    const yi = poly[i].y;
+    const xj = poly[j].x;
+    const yj = poly[j].y;
+    const intersects = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-9) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function countOccludedLabelSamples(
+  x: number,
+  y: number,
+  angle: number,
+  halfLen: number,
+  silhouettes: readonly BuildingPrismSilhouette[]
+): number {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const samples: Array<{ x: number; y: number }> = [
+    { x, y },
+    { x: x - cos * halfLen, y: y - sin * halfLen },
+    { x: x + cos * halfLen, y: y + sin * halfLen },
+    { x: x - cos * (halfLen * 0.5), y: y - sin * (halfLen * 0.5) - 5 },
+    { x: x + cos * (halfLen * 0.5), y: y + sin * (halfLen * 0.5) - 5 },
+  ];
+
+  let hits = 0;
+  for (const s of samples) {
+    for (let i = 0; i < silhouettes.length; i++) {
+      const b = silhouettes[i];
+      if (s.x < b.minX || s.x > b.maxX || s.y < b.minY || s.y > b.maxY) continue;
+      if (isPointInPolygon(s.x, s.y, b.poly)) {
+        hits += 1;
+        break;
+      }
+    }
+  }
+  return hits;
+}
+
 function buildStreetLabelPlacements(): StreetLabelPlacement[] {
   const placements: StreetLabelPlacement[] = [];
+  const silhouettes = buildBuildingPrismSilhouettes();
 
+  // 1. All 18 main streets & avenues (U_STREETS + V_STREETS)
   for (const street of ALL_STREETS) {
-    const candidates: Array<{ x: number; y: number; len: number; mid: number }> = [];
+    const angle = street.axis === 'u' ? ISO_ANGLE_U : ISO_ANGLE_V;
+    const halfLen = street.kind === 'avenue' ? 38 : 32;
+    const candidates: Array<{ x: number; y: number; occlusion: number; distFromMid: number }> = [];
 
     for (const [sMin, sMax] of street.spans) {
       const intervals = getClearMarkingIntervals(street, sMin, sMax);
       for (const [a, b] of intervals) {
         const len = b - a;
-        if (len < 110) continue;
-        const mid = (a + b) / 2;
-        const u = street.axis === 'u' ? street.coord : mid;
-        const v = street.axis === 'u' ? mid : street.coord;
-        const pt = isoToCanvas(u, v);
-        if (!isPointInsideMap(pt, 70)) continue;
-        candidates.push({ x: pt.x, y: pt.y, len, mid });
+        if (len < 72) continue;
+
+        // Split very long uninterrupted stretches into 2–3 sub-segments so long streets get multiple labels
+        const subCount = len >= 780 ? 3 : len >= 440 ? 2 : 1;
+        const subLen = len / subCount;
+
+        for (let seg = 0; seg < subCount; seg++) {
+          const segA = a + seg * subLen;
+          const segB = segA + subLen;
+          const margin = Math.min(36, Math.max(12, subLen * 0.18));
+          const scanMin = segA + margin;
+          const scanMax = segB - margin;
+          const segMid = (segA + segB) / 2;
+
+          let best: { x: number; y: number; occlusion: number; distFromMid: number } | null = null;
+          const step = 20;
+          const sampleCoords: number[] = [];
+          if (scanMax <= scanMin) {
+            sampleCoords.push(segMid);
+          } else {
+            for (let c = scanMin; c <= scanMax; c += step) {
+              sampleCoords.push(c);
+            }
+            sampleCoords.push(segMid);
+          }
+
+          for (const coordVal of sampleCoords) {
+            const u = street.axis === 'u' ? street.coord : coordVal;
+            const v = street.axis === 'u' ? coordVal : street.coord;
+            const pt = isoToCanvas(u, v);
+            if (!isPointInsideMap(pt, 45)) continue;
+            const occlusion = countOccludedLabelSamples(pt.x, pt.y, angle, halfLen, silhouettes);
+            const distFromMid = Math.abs(coordVal - segMid);
+            if (
+              !best ||
+              occlusion < best.occlusion ||
+              (occlusion === best.occlusion && distFromMid < best.distFromMid)
+            ) {
+              best = { x: pt.x, y: pt.y, occlusion, distFromMid };
+            }
+          }
+
+          if (best) {
+            candidates.push(best);
+          }
+        }
       }
     }
 
     if (candidates.length === 0) continue;
 
-    // Pick well-spaced placements along each street (min ~460 px apart so map stays uncluttered)
-    const chosen: typeof candidates = [];
-    for (const c of candidates) {
-      if (chosen.every((prev) => Math.hypot(prev.x - c.x, prev.y - c.y) >= 440)) {
+    // Prefer completely unoccluded placements first, spaced comfortably across different sections of the street
+    const cleanCandidates = candidates.filter((c) => c.occlusion === 0);
+    const pool = cleanCandidates.length > 0 ? cleanCandidates : candidates;
+
+    const chosen: typeof pool = [];
+    const minSpacing = street.kind === 'avenue' ? 420 : 380;
+    for (const c of pool) {
+      if (chosen.every((prev) => Math.hypot(prev.x - c.x, prev.y - c.y) >= minSpacing)) {
         chosen.push(c);
       }
     }
     if (chosen.length === 0) {
-      chosen.push(candidates[Math.floor(candidates.length / 2)]);
+      chosen.push(pool[Math.floor(pool.length / 2)]);
     }
 
-    const angle = street.axis === 'u' ? ISO_ANGLE_U : ISO_ANGLE_V;
-    for (const c of chosen) {
+    // Cap to at most 3 labels per street, evenly distributed from start to end
+    let finalChosen = chosen;
+    if (chosen.length > 3) {
+      finalChosen = [
+        chosen[0],
+        chosen[Math.floor(chosen.length / 2)],
+        chosen[chosen.length - 1],
+      ];
+    }
+
+    for (const c of finalChosen) {
       placements.push({
         name: street.name,
         kind: street.kind,
         x: c.x,
         y: c.y,
+        angle,
+      });
+    }
+  }
+
+  // 2. All 24 residential access streets (ul. Cicha .. ul. Chabrowa)
+  for (const ar of RESIDENTIAL_ACCESS_ROADS) {
+    const angle = ar.axis === 'u' ? ISO_ANGLE_U : ISO_ANGLE_V;
+    const minC = Math.min(ar.startCoord, ar.endCoord);
+    const maxC = Math.max(ar.startCoord, ar.endCoord);
+    const spanLen = maxC - minC;
+    const endMargin = Math.min(34, Math.max(12, spanLen * 0.22));
+    const scanMin = minC + endMargin;
+    const scanMax = maxC - endMargin;
+    const mid = (minC + maxC) / 2;
+
+    const sampleCoords: number[] = [];
+    if (scanMax <= scanMin) {
+      sampleCoords.push(mid);
+    } else {
+      for (let c = scanMin; c <= scanMax; c += 14) {
+        sampleCoords.push(c);
+      }
+      sampleCoords.push(mid);
+    }
+
+    let best: { x: number; y: number; occlusion: number; distFromMid: number } | null = null;
+    for (const coordVal of sampleCoords) {
+      const u = ar.axis === 'u' ? ar.coord : coordVal;
+      const v = ar.axis === 'u' ? coordVal : ar.coord;
+      const pt = isoToCanvas(u, v);
+      if (!isPointInsideMap(pt, 24)) continue;
+      const occlusion = countOccludedLabelSamples(pt.x, pt.y, angle, 24, silhouettes);
+      const distFromMid = Math.abs(coordVal - mid);
+      if (
+        !best ||
+        occlusion < best.occlusion ||
+        (occlusion === best.occlusion && distFromMid < best.distFromMid)
+      ) {
+        best = { x: pt.x, y: pt.y, occlusion, distFromMid };
+      }
+    }
+
+    if (best) {
+      placements.push({
+        name: ar.name,
+        kind: 'access',
+        x: best.x,
+        y: best.y,
         angle,
       });
     }
@@ -2211,8 +2411,8 @@ function buildStreetLabelPlacements(): StreetLabelPlacement[] {
 const STREET_LABEL_PLACEMENTS: StreetLabelPlacement[] = buildStreetLabelPlacements();
 
 /**
- * Draws discrete Polish street names rotated cleanly along the 2:1 isometric road axes
- * with subtle semi-transparent backing for crisp legibility.
+ * Draws street names directly along the 2:1 isometric road axes (rendered on the road layer
+ * beneath 3D buildings) with subtle semi-transparent backing for crisp legibility.
  */
 export function renderStreetNames(
   ctx: CanvasRenderingContext2D,
@@ -2238,7 +2438,8 @@ export function renderStreetNames(
     }
     const displayName = translateStreetName(language, label.name);
     const isAvenue = label.kind === 'avenue';
-    const fontSize = Math.round((isAvenue ? 11.5 : 10) * invScale * 10) / 10;
+    const isAccess = label.kind === 'access';
+    const fontSize = Math.round((isAvenue ? 11.5 : isAccess ? 8.6 : 10) * invScale * 10) / 10;
 
     ctx.save();
     ctx.translate(label.x, label.y);
@@ -2246,26 +2447,30 @@ export function renderStreetNames(
 
     ctx.font = `${isAvenue ? 700 : 600} ${fontSize}px "Plus Jakarta Sans", system-ui, sans-serif`;
     const metrics = ctx.measureText(displayName);
-    const padX = 6 * invScale;
-    const padY = 2.6 * invScale;
+    const padX = (isAccess ? 4.4 : 6) * invScale;
+    const padY = (isAccess ? 1.9 : 2.6) * invScale;
     const boxW = metrics.width + padX * 2;
     const boxH = fontSize + padY * 2;
-    const radius = 3.5 * invScale;
+    const radius = (isAccess ? 2.8 : 3.5) * invScale;
 
     ctx.fillStyle = isAvenue
       ? 'rgba(15, 23, 42, 0.78)'
-      : 'rgba(15, 23, 42, 0.66)';
+      : isAccess
+        ? 'rgba(15, 23, 42, 0.58)'
+        : 'rgba(15, 23, 42, 0.66)';
     ctx.beginPath();
     ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, radius);
     ctx.fill();
 
     ctx.strokeStyle = isAvenue
       ? 'rgba(250, 204, 21, 0.45)'
-      : 'rgba(226, 232, 240, 0.25)';
+      : isAccess
+        ? 'rgba(203, 213, 225, 0.22)'
+        : 'rgba(226, 232, 240, 0.25)';
     ctx.lineWidth = 1 * invScale;
     ctx.stroke();
 
-    ctx.fillStyle = isAvenue ? '#fef9c3' : '#f1f5f9';
+    ctx.fillStyle = isAvenue ? '#fef9c3' : isAccess ? '#e2e8f0' : '#f1f5f9';
     ctx.fillText(displayName, 0, 0.5 * invScale);
 
     ctx.restore();

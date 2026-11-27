@@ -317,9 +317,7 @@ function restoreEconomyStateFromSavedEntry(saved: SavedGameState): OrderEconomyS
 }
 
 export function App() {
-  const [showGrid, setShowGrid] = useState<boolean>(true);
   const [footprintOnly, setFootprintOnly] = useState<boolean>(false);
-  const [showStreetNames, setShowStreetNames] = useState<boolean>(true);
   const [economyState, setEconomyState] = useState<OrderEconomyState>(() =>
     createInitialOrderEconomyState(PROCEDURAL_BUILDINGS)
   );
@@ -349,7 +347,7 @@ export function App() {
   const [courierAtBaseBySlot, setCourierAtBaseBySlot] = useState<Record<number, boolean>>(
     INITIAL_COURIER_AT_BASE_BY_SLOT
   );
-  const [taskAssignmentsByTaskId, setTaskAssignmentsByTaskId] = useState<Record<string, number>>(
+  const [taskAssignmentsByTaskId, setTaskAssignmentsByTaskId] = useState<Record<string, number[]>>(
     {}
   );
   const [refuelingVehicleKeys, setRefuelingVehicleKeys] = useState<string[]>([]);
@@ -843,16 +841,8 @@ export function App() {
     };
   }, [gameSpeed, isPausedByOverlay, applyEconomyUpdate]);
 
-  const handleToggleGrid = useCallback(() => {
-    setShowGrid((prev) => !prev);
-  }, []);
-
   const handleToggleFootprintOnly = useCallback(() => {
     setFootprintOnly((prev) => !prev);
-  }, []);
-
-  const handleToggleStreetNames = useCallback(() => {
-    setShowStreetNames((prev) => !prev);
   }, []);
 
   const handleChangeGameSpeed = useCallback((speed: GameSpeed) => {
@@ -1205,7 +1195,8 @@ export function App() {
 
   const handlePromoteCourier = useCallback(
     (slotIndex: number) => {
-      applyEconomyUpdate((prev) => promoteCourierInSlot(prev, slotIndex).state);
+      const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
+      applyEconomyUpdate((prev) => promoteCourierInSlot(prev, slotIndex, currentGameDay).state);
     },
     [applyEconomyUpdate]
   );
@@ -1264,9 +1255,9 @@ export function App() {
         bikesCount={activeBikesCount}
         vansCount={activeVansCount}
         activeVehicle={ownerActiveVehicle}
-        showGrid={showGrid}
+        showGrid={false}
         footprintOnly={footprintOnly}
-        showStreetNames={showStreetNames}
+        showStreetNames={settings.showStreetNames}
         gameSpeed={effectiveSimSpeed}
         gameMinutesRef={exactGameMinutesRef}
         economyStateRef={economyStateRef}
@@ -1304,9 +1295,7 @@ export function App() {
       <Toolbar
         hudVisible={hudVisible}
         language={settings.language}
-        showGrid={showGrid}
         footprintOnly={footprintOnly}
-        showStreetNames={showStreetNames}
         balance={economyState.balance}
         companySatisfaction={economyState.companySatisfaction ?? economyState.annualSatisfactionAvg ?? 80}
         gameMinutes={gameMinutes}
@@ -1318,9 +1307,7 @@ export function App() {
         unreadOffersCount={unreadOffersCount}
         fps={fps}
         showFpsCounter={settings.showFpsCounter}
-        onToggleGrid={handleToggleGrid}
         onToggleFootprintOnly={handleToggleFootprintOnly}
-        onToggleStreetNames={handleToggleStreetNames}
         onChangeGameSpeed={handleChangeGameSpeed}
         onOpenSkipTime={handleOpenSkipTime}
         onOpenOrders={handleOpenOrders}
@@ -1349,6 +1336,7 @@ export function App() {
           isOpen={companyOpen}
           language={settings.language}
           economyState={economyState}
+          gameMinutes={gameMinutes}
           isOwnerAtBase={courierAtBaseBySlot[1] ?? true}
           courierAtBaseBySlot={courierAtBaseBySlot}
           onClose={handleCloseCompany}

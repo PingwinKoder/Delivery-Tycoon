@@ -371,7 +371,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     5: true,
     6: true,
   });
-  const reportedTaskAssignmentsRef = useRef<Record<string, number>>({});
+  const reportedTaskAssignmentsRef = useRef<Record<string, number[]>>({});
   const pendingWearByKeyRef = useRef<
     Map<string, { vehicle: ActiveVehicleSelection; distancePx: number }>
   >(new Map());
@@ -493,7 +493,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     let tasksChanged = prevTaskKeys.length !== nextTaskKeys.length;
     if (!tasksChanged) {
       for (const key of nextTaskKeys) {
-        if (prevTasks[key] !== nextTaskAssignments[key]) {
+        const prevArr = prevTasks[key];
+        const nextArr = nextTaskAssignments[key];
+        if (
+          !prevArr ||
+          !nextArr ||
+          prevArr.length !== nextArr.length ||
+          prevArr.some((slotId, idx) => slotId !== nextArr[idx])
+        ) {
           tasksChanged = true;
           break;
         }
@@ -893,11 +900,10 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         buildings: curBuildings,
         baseDepot: curBaseDepot,
         parkingNavNetworks: curParkingNavNetworks,
-        showGrid: gridVisible,
         footprintOnly: isFootprintOnly,
       } = propsRef.current;
 
-      const groundKey = `g${gridVisible ? 1 : 0}:f${isFootprintOnly ? 1 : 0}:w${curBaseDepot.warehouseTier}:p${curBaseDepot.parking.spots.length}`;
+      const groundKey = `g0:f${isFootprintOnly ? 1 : 0}:w${curBaseDepot.warehouseTier}:p${curBaseDepot.parking.spots.length}`;
       if (texturesRef.current && groundBufferRef.current?.key !== groundKey) {
         groundBufferRef.current = buildStaticGroundBuffer(
           {
@@ -906,7 +912,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
             buildings: curBuildings,
             graph: curGraph,
             parkingNavNetworks: curParkingNavNetworks,
-            showGrid: gridVisible,
+            showGrid: false,
             footprintOnly: isFootprintOnly,
             scale: STATIC_GROUND_BUFFER_SCALE,
             tilePixelSize: STATIC_GROUND_TILE_PIXEL_SIZE,
@@ -990,7 +996,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (propsRef.current.interactionBlocked) return;
+      if (propsRef.current.interactionBlocked || propsRef.current.overviewMode) return;
       e.preventDefault();
       const pos = getLocalPos(e.clientX, e.clientY);
       const prev = targetCameraRef.current;
@@ -1020,7 +1026,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     };
 
     const onTouchStart = (e: TouchEvent) => {
-      if (propsRef.current.interactionBlocked) {
+      if (propsRef.current.interactionBlocked || propsRef.current.overviewMode) {
         isPanning = false;
         return;
       }
@@ -1040,7 +1046,7 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (propsRef.current.interactionBlocked) {
+      if (propsRef.current.interactionBlocked || propsRef.current.overviewMode) {
         isPanning = false;
         return;
       }
@@ -1784,11 +1790,13 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                     )
                     : 1;
 
-                if (remainingAfterPickup === 0) {
-                  entry.assignedTaskId = null;
+                // Keep the courier strictly bound to this order's assignedTaskId until the courier
+                // finishes delivering or unloads at Base (prevents abandoning or task hijacking).
+                if (!entry.assignedTaskId) {
+                  entry.assignedTaskId = ev.orderId;
                   entry.courier = {
                     ...entry.courier,
-                    assignedTaskId: null,
+                    assignedTaskId: ev.orderId,
                   };
                 }
 
@@ -2046,11 +2054,14 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         const ecoState = propsRef.current.economyStateRef?.current;
         const roster = ecoState?.couriers;
         if (roster && roster.length > 0) {
+          const currentGameDay = getGameClockDisplay(currentGameMinutes).gameDay;
           for (const rosterCourier of roster) {
             if (
               !rosterCourier.unlocked ||
               !rosterCourier.hired ||
-              !rosterCourier.assignedVehicle
+              !rosterCourier.assignedVehicle ||
+              (typeof rosterCourier.trainingEndGameDay === 'number' &&
+                currentGameDay < rosterCourier.trainingEndGameDay)
             ) {
               continue;
             }
@@ -2418,6 +2429,9 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
 
         drawBaseLoadingZone(ctx, curBaseDepot.loadingZone);
+        if (streetNamesVisible && !propsRef.current.overviewMode) {
+          renderStreetNames(ctx, effectiveZoom, viewBounds, propsRef.current.language ?? 'pl');
+        }
         if (anyCourierInRoute) {
           drawDynamicRouteAndPin();
         }
@@ -2434,9 +2448,6 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         );
         if (curBaseNode) {
           drawBaseMarker(curBaseNode);
-        }
-        if (streetNamesVisible && !propsRef.current.overviewMode) {
-          renderStreetNames(ctx, effectiveZoom, viewBounds, propsRef.current.language ?? 'pl');
         }
       }
 

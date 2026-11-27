@@ -39,6 +39,8 @@ import {
   BIKE_COURIER_CAPACITY,
   BIKE_REPAIR_COST_MULTIPLIER,
   BIKE_WEAR_PER_WORLD_PX,
+  CAT_B_COURSE_COST,
+  CAT_B_COURSE_DURATION_DAYS,
   COURIER_INSURANCE_COST,
   DEFAULT_LEGACY_SCOOTER_MODEL_ID,
   DEFAULT_LEGACY_VAN_MODEL_ID,
@@ -382,7 +384,6 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
   const warehouseConfig = getWarehouseTierConfig(state.warehouseLevel ?? state.warehouseTier);
   const baseUpkeepAndTaxCost = warehouseConfig.monthlyUpkeepCost;
   const bikesCount = getOwnedBikesCount(state);
-  const additionalBikes = Math.max(0, bikesCount - 1);
   const ownedScooters = getOwnedScooters(state);
   const ownedVans = getOwnedVans(state);
 
@@ -415,7 +416,7 @@ export function calculateMonthlyCompanyCosts(state: OrderEconomyState): MonthlyC
   }
 
   salariesCost = roundCurrency(salariesCost);
-  const courierInsuranceCost = roundCurrency(additionalBikes * COURIER_INSURANCE_COST);
+  const courierInsuranceCost = roundCurrency(bikesCount * COURIER_INSURANCE_COST);
   const scooterInsuranceCost = roundCurrency(scooterInsuranceRaw);
   const vanInsuranceCost = roundCurrency(vanInsuranceRaw);
   const insuranceCost = roundCurrency(courierInsuranceCost + scooterInsuranceCost + vanInsuranceCost);
@@ -1344,7 +1345,7 @@ export function assignCourierVehicle(
   vehicle: ActiveVehicleSelection | null
 ): OrderEconomyState {
   const target = state.couriers.find((c) => c.slotIndex === slotIndex);
-  if (!target || !target.unlocked || !target.hired) {
+  if (!target || !target.unlocked || !target.hired || typeof target.trainingEndGameDay === 'number') {
     return state;
   }
 
@@ -1496,39 +1497,111 @@ export function hireCourierInSlot(
   };
 }
 
+export function isCourierInTraining(
+  courier: Pick<CompanyCourier, 'trainingEndGameDay'>,
+  currentGameDay?: number
+): boolean {
+  if (typeof courier.trainingEndGameDay !== 'number' || !Number.isFinite(courier.trainingEndGameDay)) {
+    return false;
+  }
+  if (typeof currentGameDay === 'number' && Number.isFinite(currentGameDay)) {
+    return Math.floor(currentGameDay) < courier.trainingEndGameDay;
+  }
+  return true;
+}
+
 /**
- * Promotes a hired bike-only courier (#2–#6) to 'bike_and_van' qualification (Rower + Bus),
- * unlocking van assignments and updating their monthly salary from $1 600 to $2 300/mies.
+ * Enrolls a hired Cat. AM courier (#2–#6) in a 2-day Category B driving course for $350.
+ * Unassigns any currently assigned vehicle for the duration of the course; once
+ * `currentGameDay >= trainingEndGameDay`, `completeDueCourierTrainings` upgrades them to Kat. B.
  */
 export function promoteCourierInSlot(
   state: OrderEconomyState,
-  slotIndex: number
+  slotIndex: number,
+  currentGameDay = 1
 ): { state: OrderEconomyState; promoted: boolean; courier?: CompanyCourier } {
   const slot = state.couriers.find((c) => c.slotIndex === slotIndex);
-  if (!slot || slot.isOwner || !slot.unlocked || !slot.hired || slot.qualification === 'bike_and_van') {
+  if (
+    !slot ||
+    slot.isOwner ||
+    !slot.unlocked ||
+    !slot.hired ||
+    slot.qualification === 'bike_and_van' ||
+    isCourierInTraining(slot, currentGameDay) ||
+    state.balance < CAT_B_COURSE_COST
+  ) {
     return { state, promoted: false };
   }
 
-  const nextSalary = getCourierMonthlySalary(false, true, 'bike_and_van');
+  const safeDay = Math.max(1, Math.floor(currentGameDay));
+  const trainingEndGameDay = safeDay + CAT_B_COURSE_DURATION_DAYS;
   let updatedCourier: CompanyCourier | undefined;
   const nextCouriers = state.couriers.map((c) => {
     if (c.slotIndex !== slotIndex) return c;
     updatedCourier = {
       ...c,
-      qualification: 'bike_and_van',
-      monthlySalary: nextSalary,
+      assignedVehicle: null,
+      trainingEndGameDay,
     };
     return updatedCourier;
   });
 
+  const baseLedger =
+    state.currentMonthLedger ??
+    createEmptyCurrentMonthLedger(state.companySatisfaction ?? INITIAL_COMPANY_SATISFACTION);
+
   return {
     state: {
       ...state,
+      balance: roundCurrency(state.balance - CAT_B_COURSE_COST),
+      currentMonthLedger: {
+        ...baseLedger,
+        trainingExpenses: roundCurrency((baseLedger.trainingExpenses ?? 0) + CAT_B_COURSE_COST),
+      },
       couriers: nextCouriers,
       employees: syncEmployeesFromCouriers(nextCouriers),
     },
     promoted: true,
     courier: updatedCourier,
+  };
+}
+
+/**
+ * Completes any active Category B driving courses whose `trainingEndGameDay <= currentGameDay`,
+ * upgrading the courier to `'bike_and_van'` (Kat. B) and updating their monthly salary to $2 300.
+ */
+export function completeDueCourierTrainings(
+  state: OrderEconomyState,
+  currentGameDay: number
+): OrderEconomyState {
+  const safeDay = Math.max(1, Math.floor(currentGameDay));
+  let changed = false;
+  const nextSalary = getCourierMonthlySalary(false, true, 'bike_and_van');
+
+  const nextCouriers = state.couriers.map((c) => {
+    if (
+      !c.isOwner &&
+      c.hired &&
+      typeof c.trainingEndGameDay === 'number' &&
+      safeDay >= c.trainingEndGameDay
+    ) {
+      changed = true;
+      return {
+        ...c,
+        qualification: 'bike_and_van' as const,
+        monthlySalary: nextSalary,
+        trainingEndGameDay: null,
+      };
+    }
+    return c;
+  });
+
+  if (!changed) return state;
+
+  return {
+    ...state,
+    couriers: nextCouriers,
+    employees: syncEmployeesFromCouriers(nextCouriers),
   };
 }
 
@@ -1555,6 +1628,7 @@ export function fireCourierInSlot(
           assignedVehicle: null,
           monthlySalary: 0,
           hiredAtGameDay: null,
+          trainingEndGameDay: null,
         }
       : c
   );

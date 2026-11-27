@@ -107,7 +107,7 @@ export interface ViewportGroundUpdateParams {
 
 export interface StreetLabelPlacement {
   name: string;
-  kind: StreetSpec['kind'];
+  kind: StreetSpec['kind'] | 'access';
   x: number;
   y: number;
   angle: number;

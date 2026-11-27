@@ -29,9 +29,9 @@ import {
 // Economy, Reputation & Order Constants
 // ============================================================================
 
-/** Monthly fixed cost: base upkeep & tax for Base Lv. 1 (includes starter bicycle) */
+/** Monthly fixed cost: base upkeep & tax for Base Lv. 1 */
 export const BASE_UPKEEP_AND_TAX_COST = 350;
-/** Monthly fixed cost: bicycle insurance ($50 / mies. per additional bike beyond the 1st starter bike) */
+/** Monthly fixed cost: bicycle insurance ($50 / mies. per owned bike, including the 1st owner bike) */
 export const COURIER_INSURANCE_COST = 50;
 /** Monthly fixed cost: used delivery van insurance ($130 / mies. per owned van) */
 export const USED_VAN_INSURANCE_COST = 130;
@@ -43,8 +43,12 @@ export const OWNER_COURIER_SALARY = 0;
 export const HIRED_BIKE_COURIER_SALARY = 1600;
 export const HIRED_VAN_DRIVER_SALARY = 2300;
 
-/** Starter monthly fixed company costs at game start (Base Lv.1 + starter bicycle = $350/mies.) */
-export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST; // $350
+/** One-time Category B driving course cost and duration in gameplay days */
+export const CAT_B_COURSE_COST = 350;
+export const CAT_B_COURSE_DURATION_DAYS = 2;
+
+/** Starter monthly fixed company costs at game start (Base Lv.1 $350 + 1st bike insurance $50 = $400/mies.) */
+export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + COURIER_INSURANCE_COST; // $400
 
 // ============================================================================
 // Bike & Van Fleet Limits, Courier Capacity, Base Warehouse & Upgrade Paths

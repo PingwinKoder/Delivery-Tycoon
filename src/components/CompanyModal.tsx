@@ -32,11 +32,13 @@ import type {
   VanTier,
 } from '../types/orders';
 import type { SupportedLanguage } from '../utils/settingsSystem';
+import { MINUTES_PER_DAY } from '../utils/gameClock';
 import {
   AUTO_REFUEL_THRESHOLD_RATIO,
   BASE_FUEL_PRICE_PER_LITER,
   BICYCLE_PURCHASE_COST,
   BIKE_COURIER_CAPACITY,
+  CAT_B_COURSE_COST,
   COURIER_INSURANCE_COST,
   HIRED_BIKE_COURIER_SALARY,
   HIRED_VAN_DRIVER_SALARY,
@@ -76,10 +78,10 @@ import {
   getTotalOwnedVehiclesCount,
   getTotalTwoWheelersCount,
   getVanModelSpec,
-  getVehicleCourierCapacityForSelection,
   getVehicleDurability,
   getVehicleSellRefund,
   getWarehouseTierConfig,
+  isCourierInTraining,
   isVehicleRepairPending,
   vehiclesEqual,
 } from '../utils/orderEconomy';
@@ -411,6 +413,7 @@ interface CompanyModalProps {
   isOpen: boolean;
   language: SupportedLanguage;
   economyState: OrderEconomyState;
+  gameMinutes?: number;
   isOwnerAtBase: boolean;
   courierAtBaseBySlot?: Readonly<Record<number, boolean>>;
   onClose: () => void;
@@ -624,6 +627,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   isOpen,
   language,
   economyState,
+  gameMinutes = 0,
   isOwnerAtBase,
   courierAtBaseBySlot,
   onClose,
@@ -647,17 +651,22 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
   const [vanShopCondition, setVanShopCondition] = useState<VanCondition>('used');
   const [openVehicleSlot, setOpenVehicleSlot] = useState<number | null>(null);
   const [confirmSellKey, setConfirmSellKey] = useState<string | null>(null);
+  const [confirmCourseSlot, setConfirmCourseSlot] = useState<number | null>(null);
+  const currentGameDay = Math.floor(Math.max(0, gameMinutes) / MINUTES_PER_DAY) + 1;
 
   useEffect(() => {
     if (!isOpen) {
       setOpenVehicleSlot(null);
+      setConfirmCourseSlot(null);
       return;
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (openVehicleSlot !== null) {
+        if (confirmCourseSlot !== null) {
+          setConfirmCourseSlot(null);
+        } else if (openVehicleSlot !== null) {
           setOpenVehicleSlot(null);
         } else {
           onClose();
@@ -667,7 +676,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, openVehicleSlot, onClose]);
+  }, [isOpen, openVehicleSlot, confirmCourseSlot, onClose]);
 
   useEffect(() => {
     setOpenVehicleSlot(null);
@@ -2124,12 +2133,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             >
                               {roundedDurability}%{isSlowed ? ' (-20%)' : ''}
                             </span>
-                            {bikeIndex > 1 && (
-                              <span className="text-rose-300 hidden sm:inline">
-                                {formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
-                                {perMonth}
-                              </span>
-                            )}
+                            <span className="text-rose-300 hidden sm:inline">
+                              {formatCurrencyUsd(COURIER_INSURANCE_COST, false)}
+                              {perMonth}
+                            </span>
                             <span
                               className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-sans font-semibold border shrink-0 ${driverName
                                   ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
@@ -2296,9 +2303,15 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       : t(language, 'company.courierRoleHeading', { slot: courier.slotIndex });
                     const hasVanQualification =
                       courier.isOwner || courier.qualification === 'bike_and_van';
+                    const inTraining = isCourierInTraining(courier, currentGameDay);
                     const qualificationLabel = hasVanQualification
                       ? t(language, 'company.qualBikeAndVan')
                       : t(language, 'company.qualBike');
+                    const canStartCourse =
+                      !hasVanQualification &&
+                      !inTraining &&
+                      slotAtBase &&
+                      economyState.balance >= CAT_B_COURSE_COST;
 
                     const availableVehicles = ownedFleet.filter(
                       (vehicle) =>
@@ -2325,14 +2338,20 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               )}
                               <h4 className="font-bold text-slate-100 truncate">{roleHeading}</h4>
                               <span
-                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${slotAtBase
-                                    ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
-                                    : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
+                                className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${inTraining
+                                    ? 'bg-violet-500/15 border-violet-400/45 text-violet-300'
+                                    : slotAtBase
+                                      ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+                                      : 'bg-amber-500/15 border-amber-400/40 text-amber-300'
                                   }`}
                               >
-                                {slotAtBase
-                                  ? t(language, 'company.statusAvailable')
-                                  : t(language, 'company.statusOnRoute')}
+                                {inTraining
+                                  ? t(language, 'company.trainingReturnStatus', {
+                                      day: courier.trainingEndGameDay ?? currentGameDay + 2,
+                                    })
+                                  : slotAtBase
+                                    ? t(language, 'company.statusAvailable')
+                                    : t(language, 'company.statusOnRoute')}
                               </span>
                               <span
                                 className={`px-1 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold border shrink-0 ${hasVanQualification
@@ -2364,7 +2383,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               >
                                 {t(language, 'company.assignedVehicleLabel')}
                               </label>
-                              {!slotAtBase && (
+                              {!slotAtBase && !inTraining && (
                                 <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-amber-300/90">
                                   {t(language, 'company.changeAtBaseHint')}
                                 </span>
@@ -2377,7 +2396,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               courier={courier}
                               effectiveAssigned={effectiveAssigned}
                               availableVehicles={availableVehicles}
-                              disabled={!slotAtBase}
+                              disabled={!slotAtBase || inTraining}
                               isOpen={openVehicleSlot === courier.slotIndex}
                               openUpward={courier.slotIndex >= 5}
                               onToggle={() =>
@@ -2402,28 +2421,18 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         </div>
 
                         <div className="pt-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:pt-2.5 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1.5">
-                          <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400 font-mono-nums">
+                          <span className="text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-slate-400">
                             {courier.isOwner
-                              ? `${t(language, 'company.ownerFooterDesc')} • ${t(
-                                language,
-                                'company.courierPayload',
-                                {
-                                  count: getVehicleCourierCapacityForSelection(
-                                    economyState,
-                                    effectiveAssigned
-                                  ),
-                                }
-                              )}`
-                              : effectiveAssigned
-                                ? t(language, 'company.courierPayload', {
-                                  count: getVehicleCourierCapacityForSelection(
-                                    economyState,
-                                    effectiveAssigned
-                                  ),
-                                })
-                                : hasVanQualification
-                                  ? t(language, 'company.assignBikeOrVan')
-                                  : t(language, 'company.assignBikeOrPromote')}
+                              ? t(language, 'company.ownerFooterDesc')
+                              : inTraining
+                                ? t(language, 'company.trainingReturnStatus', {
+                                    day: courier.trainingEndGameDay ?? currentGameDay + 2,
+                                  })
+                                : !effectiveAssigned
+                                  ? hasVanQualification
+                                    ? t(language, 'company.assignBikeOrVan')
+                                    : t(language, 'company.assignBikeOrPromote')
+                                  : null}
                           </span>
 
                           {!courier.isOwner && (
@@ -2431,8 +2440,12 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               {!hasVanQualification && (
                                 <button
                                   type="button"
-                                  onClick={() => onPromoteCourier(courier.slotIndex)}
-                                  className="px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+                                  disabled={!canStartCourse}
+                                  onClick={() => setConfirmCourseSlot(courier.slotIndex)}
+                                  className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${canStartCourse
+                                      ? 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/45 text-amber-300 cursor-pointer'
+                                      : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
+                                    }`}
                                 >
                                   <ArrowUpCircle className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
                                   <span>{t(language, 'company.promoteBtn')}</span>
@@ -2441,9 +2454,9 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
 
                               <button
                                 type="button"
-                                disabled={!slotAtBase}
+                                disabled={!slotAtBase || inTraining}
                                 onClick={() => onFireCourier(courier.slotIndex)}
-                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${slotAtBase
+                                className={`px-1.5 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 rounded-md text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold flex items-center gap-1 border transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${slotAtBase && !inTraining
                                     ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-400/45 text-rose-300 cursor-pointer'
                                     : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
                                   }`}
@@ -2601,7 +2614,10 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             const longTermRev = ledger.longTermAccruedRevenue;
             const totalLiveRevenue = shortTermRev + longTermRev;
             const totalOperatingExpenses =
-              ledger.fuelExpenses + ledger.repairExpenses + ledger.penaltyExpenses;
+              ledger.fuelExpenses +
+              ledger.repairExpenses +
+              ledger.penaltyExpenses +
+              (ledger.trainingExpenses ?? 0);
             const projectedTotalExpenses = totalOperatingExpenses + monthlyCosts.totalFixedCosts;
             const projectedMonthBalance = totalLiveRevenue - projectedTotalExpenses;
             const operatingMarginPct =
@@ -2889,6 +2905,71 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
           })()}
         </div>
       </div>
+
+      {/* Category B driving course confirmation dialog */}
+      {confirmCourseSlot !== null && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-5 bg-slate-950/75"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="course-confirm-title"
+          onClick={(e) => {
+            e.stopPropagation();
+            setConfirmCourseSlot(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-[#182030] border border-amber-400/45 shadow-2xl overflow-hidden text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-slate-700/80 bg-[#141b29]">
+              <div className="flex items-center gap-2 min-w-0">
+                <ArrowUpCircle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+                <h3 id="course-confirm-title" className="text-sm sm:text-base font-bold text-slate-100 truncate">
+                  {t(language, 'company.courseModalTitle')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmCourseSlot(null)}
+                aria-label={t(language, 'company.closeAria')}
+                className="p-1.5 rounded-lg text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="px-4 sm:px-5 py-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+              <p>
+                {t(language, 'company.courseModalDesc', {
+                  cost: formatCurrencyUsd(CAT_B_COURSE_COST, false),
+                })}
+              </p>
+            </div>
+
+            <div className="px-4 sm:px-5 pb-4 pt-2 flex items-center justify-end gap-2 border-t border-slate-800/90">
+              <button
+                type="button"
+                onClick={() => setConfirmCourseSlot(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs sm:text-sm font-semibold transition-colors cursor-pointer touch-manipulation"
+              >
+                {t(language, 'company.courseModalCancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetSlot = confirmCourseSlot;
+                  setConfirmCourseSlot(null);
+                  onPromoteCourier(targetSlot);
+                }}
+                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold transition-colors cursor-pointer touch-manipulation"
+              >
+                {t(language, 'company.courseModalAccept')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

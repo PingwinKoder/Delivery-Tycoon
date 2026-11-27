@@ -1,9 +1,9 @@
 import type { Point } from '../types/roadGraph';
 import { MAP_HEIGHT, MAP_WIDTH } from './cityMap';
 
-export const MIN_ZOOM = 1.4;
+export const MIN_ZOOM = 1.316;
 export const MAX_ZOOM = 2.0;
-export const DEFAULT_ZOOM = 1.4;
+export const DEFAULT_ZOOM = 1.316;
 
 /** Reference desktop viewport dimensions at which base scale equals 1.0 */
 export const REFERENCE_VIEWPORT_WIDTH = 1400;

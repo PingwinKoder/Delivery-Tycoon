@@ -19,6 +19,8 @@ export interface GameSettings {
   mobileMaxFps: MobileMaxFpsOption;
   /** Whether to show the top-right FPS counter badge in the HUD */
   showFpsCounter: boolean;
+  /** Whether to render street name labels on roads */
+  showStreetNames: boolean;
 }
 
 export const SETTINGS_STORAGE_KEY = 'delivery_tycoon_settings_v1';
@@ -30,6 +32,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   pcMaxFps: 60,
   mobileMaxFps: 60,
   showFpsCounter: true,
+  showStreetNames: true,
 };
 
 const VALID_LANGUAGES: readonly SupportedLanguage[] = ['pl', 'en'];
@@ -82,6 +85,10 @@ export function normalizeGameSettings(raw: Partial<GameSettings> | null | undefi
     showFpsCounter: normalizeShowFpsCounter(
       raw.showFpsCounter,
       DEFAULT_GAME_SETTINGS.showFpsCounter
+    ),
+    showStreetNames: normalizeShowFpsCounter(
+      raw.showStreetNames,
+      DEFAULT_GAME_SETTINGS.showStreetNames
     ),
   };
 }
