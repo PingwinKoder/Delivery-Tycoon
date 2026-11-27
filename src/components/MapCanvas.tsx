@@ -190,12 +190,6 @@ interface MapCanvasProps {
 
 const MAP_SIZE: Size = { width: MAP_WIDTH, height: MAP_HEIGHT };
 const FPS_SAMPLE_WINDOW_MS = 500;
-/** Computes the upper-limit frame interval in ms (0 = unlimited; 13.2ms for 60 FPS so 60 Hz syncs 1:1 with vsync) */
-function getMinFrameIntervalMs(maxFps: MaxFpsLimit): number {
-  if (maxFps === 'unlimited') return 0;
-  if (maxFps === 60) return 13.2;
-  return Math.max(0, 1000 / maxFps - 1.8);
-}
 const MAX_MOBILE_CANVAS_DPR = 1.5;
 const MAX_DESKTOP_CANVAS_DPR = 2;
 const DEFAULT_ACTIVE_VEHICLE: ActiveVehicleSelection = { type: 'bike', index: 1 };
@@ -1455,19 +1449,26 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
     let cachedIdleDepthEntities: DepthSortedEntity[] = [];
 
     const drawScene = (now: number) => {
-      // Treat configured maxFps strictly as an upper limit (0 = unlimited; slower hardware renders at full speed)
-      const minFrameIntervalMs = getMinFrameIntervalMs(propsRef.current.maxFps);
-      const sinceTickMs = now - lastFrameTick;
-      if (hasRenderedFirstFrame && minFrameIntervalMs > 0 && sinceTickMs < minFrameIntervalMs) {
-        rafId = requestAnimationFrame(drawScene);
-        return;
+      const currentMaxFps = propsRef.current.maxFps;
+      if (currentMaxFps !== 'unlimited') {
+        const frameInterval = 1000 / currentMaxFps;
+        if (hasRenderedFirstFrame && now - lastRenderTime < frameInterval - 1.2) {
+          rafId = requestAnimationFrame(drawScene);
+          return;
+        }
+        if (!hasRenderedFirstFrame || now - lastRenderTime > frameInterval * 2) {
+          lastRenderTime = now;
+        } else {
+          lastRenderTime += frameInterval;
+        }
+      } else {
+        lastRenderTime = now;
       }
 
       // Compute true elapsed delta time between rendered frames (clamped to <= 0.05s)
       const rawDt = hasRenderedFirstFrame
-        ? Math.min(Math.max(0, (now - lastRenderTime) / 1000), MAX_REAL_FRAME_DT)
+        ? Math.min(Math.max(0, (now - lastFrameTick) / 1000), MAX_REAL_FRAME_DT)
         : 0;
-      lastRenderTime = now;
       lastFrameTick = now;
       hasRenderedFirstFrame = true;
 
@@ -1483,7 +1484,11 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
           fpsFrames = 0;
           fpsWindowStart = now;
         } else {
-          const measuredFps = Math.round((fpsFrames * 1000) / fpsElapsed);
+          const rawMeasuredFps = Math.round((fpsFrames * 1000) / fpsElapsed);
+          const measuredFps =
+            currentMaxFps === 'unlimited'
+              ? rawMeasuredFps
+              : Math.min(rawMeasuredFps, currentMaxFps);
           fpsFrames = 0;
           fpsWindowStart = now;
           if (measuredFps !== lastReportedFps) {
