@@ -31,8 +31,8 @@ import {
 
 /** Monthly fixed cost: base upkeep & tax for Base Lv. 1 */
 export const BASE_UPKEEP_AND_TAX_COST = 350;
-/** Monthly fixed cost: bicycle insurance ($50 / mies. per owned bike, including the 1st owner bike) */
-export const COURIER_INSURANCE_COST = 50;
+/** Monthly fixed cost: bicycle insurance ($30 / mies. per owned bike, including the 1st owner bike) */
+export const COURIER_INSURANCE_COST = 30;
 /** Monthly fixed cost: used delivery van insurance ($130 / mies. per owned van) */
 export const USED_VAN_INSURANCE_COST = 130;
 /** Monthly fixed cost: delivery van driver & vehicle insurance ($180 / mies. per van driver) */
@@ -81,15 +81,15 @@ export function calculateQuickBoxReadyTime(orderedAtGameDay: number): {
   return { readyAtGameDay, readyAtMinutes };
 }
 
-/** Starter monthly fixed company costs at game start (Base Lv.1 $350 + 1st bike insurance $50 = $400/mies.) */
-export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + COURIER_INSURANCE_COST; // $400
+/** Starter monthly fixed company costs at game start (Base Lv.1 $350 + 1st bike insurance $30 = $380/mies.) */
+export const MONTHLY_FIXED_COSTS = BASE_UPKEEP_AND_TAX_COST + COURIER_INSURANCE_COST; // $380
 
 // ============================================================================
 // Bike & Van Fleet Limits, Courier Capacity, Base Warehouse & Upgrade Paths
 // ============================================================================
 
 /** Maximum packages a bicycle courier can carry in a single pickup or delivery run */
-export const BIKE_COURIER_CAPACITY = 5;
+export const BIKE_COURIER_CAPACITY = 4;
 /** Maximum packages a used delivery van (20-package class) can carry in a single run */
 export const VAN_COURIER_CAPACITY = 20;
 
@@ -419,9 +419,9 @@ export const SCOOTER_MODELS: Readonly<Record<ScooterModelId, ScooterModelSpec>> 
   scooter_city: {
     id: 'scooter_city',
     name: 'Skuter Miejski',
-    capacity: 7,
+    capacity: 5,
     speedPxPerSec: 152,
-    purchasePrice: 1450,
+    purchasePrice: 1200,
     monthlyInsurance: 70,
     repairGameMinutes: SCOOTER_CITY_REPAIR_GAME_MINUTES,
     fuelTankCapacityLiters: 8,
@@ -430,9 +430,9 @@ export const SCOOTER_MODELS: Readonly<Record<ScooterModelId, ScooterModelSpec>> 
   scooter_cargo: {
     id: 'scooter_cargo',
     name: 'Skuter Cargo',
-    capacity: 8,
+    capacity: 6,
     speedPxPerSec: 168,
-    purchasePrice: 2400,
+    purchasePrice: 2000,
     monthlyInsurance: 85,
     repairGameMinutes: SCOOTER_CARGO_REPAIR_GAME_MINUTES,
     fuelTankCapacityLiters: 11,

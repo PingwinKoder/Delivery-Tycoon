@@ -52,6 +52,7 @@ interface OrdersModalProps {
   onMarkOffersSeen: () => void;
   onAcceptOffer: (offerId: string) => void;
   onRejectOffer: (offerId: string) => void;
+  onResignOrder?: (orderId: string) => void;
   onMoveWeeklyTaskPriority: (
     weekdayIndex: number,
     taskId: string,
@@ -168,6 +169,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
   onMarkOffersSeen,
   onAcceptOffer,
   onRejectOffer,
+  onResignOrder,
   onMoveWeeklyTaskPriority,
   onSortWeeklyTasksPriority,
 }) => {
@@ -455,6 +457,7 @@ export const OrdersModal: React.FC<OrdersModalProps> = ({
                       language={language}
                       gameMinutes={gameMinutes}
                       storedInWarehouse={economyState.warehouseInventory[order.id] ?? 0}
+                      onResignOrder={onResignOrder}
                     />
                   ))}
                 </div>
@@ -1069,6 +1072,7 @@ interface ActiveOrderCardProps {
   language: SupportedLanguage;
   gameMinutes: number;
   storedInWarehouse: number;
+  onResignOrder?: (orderId: string) => void;
 }
 
 const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
@@ -1076,8 +1080,13 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
   language,
   gameMinutes,
   storedInWarehouse,
+  onResignOrder,
 }) => {
+  const [confirmingResign, setConfirmingResign] = useState<boolean>(false);
   const isLongTerm = order.kind === 'long_term';
+  const resignPenalty = roundCurrency(
+    (order.kind === 'short_term' ? order.totalExpectedPayout : order.totalContractValue) * 0.5
+  );
   const remainingText = formatTimeRemaining(order.endMinutes, gameMinutes, language);
   const endDate = getCalendarDateFromGameDay(order.endGameDay);
   const endDateShort = `${endDate.dayOfMonth} ${getMonthName(language, endDate.monthIndex, true)}`;
@@ -1207,6 +1216,42 @@ const ActiveOrderCard: React.FC<ActiveOrderCardProps> = ({
             />
           </svg>
         </div>
+
+        {onResignOrder && (
+          <div className="pt-1 flex items-center justify-end gap-1.5">
+            {confirmingResign ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingResign(false)}
+                  className="px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold transition-colors cursor-pointer touch-manipulation"
+                >
+                  {t(language, 'orders.resignCancelBtn')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmingResign(false);
+                    onResignOrder(order.id);
+                  }}
+                  className="px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md bg-rose-500 hover:bg-rose-400 text-slate-950 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold font-mono-nums transition-colors cursor-pointer touch-manipulation"
+                >
+                  {t(language, 'orders.resignConfirmBtn', {
+                    penalty: formatCurrencyUsd(resignPenalty, false),
+                  })}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingResign(true)}
+                className="px-2 py-0.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1 rounded-md bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/45 text-rose-300 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold transition-colors cursor-pointer touch-manipulation"
+              >
+                {t(language, 'orders.resignBtn')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </article>
   );

@@ -297,30 +297,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </>
           ) : (
-            /* Graphics Tab: Display Mode (PC only), Max FPS cap, and FPS Counter visibility */
+            /* Graphics Tab: compact horizontal rows with option pills on the right */
             <>
               {isDesktop && (
-                <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
-                  <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
-                    <Monitor className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
-                    <span>{t(lang, 'settings.displayMode')}</span>
+                <div className="rounded-lg bg-slate-950/75 border border-slate-800 px-2.5 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 flex items-center justify-between gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                  <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200 min-w-0">
+                    <Monitor className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-orange-400 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{t(lang, 'settings.displayMode')}</span>
                   </div>
 
                   <div
                     role="group"
                     aria-label={t(lang, 'settings.displayMode')}
-                    className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                    className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0"
                   >
                     <button
                       type="button"
                       aria-pressed={!isFullscreen}
                       onClick={handleSetWindowed}
-                      className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!isFullscreen
+                      className={`py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border flex items-center justify-center gap-1 transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!isFullscreen
                         ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                         : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                         }`}
                     >
-                      <Minimize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
+                      <Minimize2 className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                       <span>{t(lang, 'settings.windowed')}</span>
                     </button>
 
@@ -328,12 +328,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       type="button"
                       aria-pressed={isFullscreen}
                       onClick={handleSetFullscreen}
-                      className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border flex items-center justify-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isFullscreen
+                      className={`py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border flex items-center justify-center gap-1 transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isFullscreen
                         ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                         : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                         }`}
                     >
-                      <Maximize2 className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 shrink-0" aria-hidden="true" />
+                      <Maximize2 className="w-3 h-3 [@media(min-width:1024px)_and_(min-height:541px)]:w-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:h-3.5 shrink-0" aria-hidden="true" />
                       <span>{t(lang, 'settings.fullscreen')}</span>
                     </button>
                   </div>
@@ -341,17 +341,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
 
               {/* Max FPS Limit */}
-              <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
-                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
-                  <Gauge className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
-                  <span>{t(lang, 'settings.maxFps')}</span>
+              <div className="rounded-lg bg-slate-950/75 border border-slate-800 px-2.5 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200 min-w-0">
+                  <Gauge className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-orange-400 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t(lang, 'settings.maxFps')}</span>
                 </div>
 
                 {isDesktop ? (
                   <div
                     role="group"
                     aria-label={t(lang, 'settings.maxFps')}
-                    className="grid grid-cols-5 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2"
+                    className="flex items-center gap-1 shrink-0"
                   >
                     {PC_MAX_FPS_OPTIONS.map((option) => {
                       const isSelected = settings.pcMaxFps === option;
@@ -363,7 +363,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           type="button"
                           aria-pressed={isSelected}
                           onClick={() => onUpdateSettings({ pcMaxFps: option })}
-                          className={`py-1.5 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation truncate focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
+                          className={`py-1 px-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-2.5 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
                             ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                             : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                             }`}
@@ -377,7 +377,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div
                     role="group"
                     aria-label={t(lang, 'settings.maxFps')}
-                    className="grid grid-cols-3 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                    className="flex items-center gap-1 shrink-0"
                   >
                     {MOBILE_MAX_FPS_OPTIONS.map((option) => {
                       const isSelected = settings.mobileMaxFps === option;
@@ -387,12 +387,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           type="button"
                           aria-pressed={isSelected}
                           onClick={() => onUpdateSettings({ mobileMaxFps: option })}
-                          className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
+                          className={`py-1 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold tabular-nums border transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${isSelected
                             ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                             : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                             }`}
                         >
-                          {option} FPS
+                          {option}
                         </button>
                       );
                     })}
@@ -401,22 +401,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Show FPS Counter Toggle */}
-              <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
-                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
-                  <Activity className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
-                  <span>{t(lang, 'settings.showFpsCounter')}</span>
+              <div className="rounded-lg bg-slate-950/75 border border-slate-800 px-2.5 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 flex items-center justify-between gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200 min-w-0">
+                  <Activity className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-orange-400 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t(lang, 'settings.showFpsCounter')}</span>
                 </div>
 
                 <div
                   role="group"
                   aria-label={t(lang, 'settings.showFpsCounter')}
-                  className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                  className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0"
                 >
                   <button
                     type="button"
                     aria-pressed={settings.showFpsCounter}
                     onClick={() => onUpdateSettings({ showFpsCounter: true })}
-                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showFpsCounter
+                    className={`py-1 px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showFpsCounter
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
@@ -428,7 +428,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="button"
                     aria-pressed={!settings.showFpsCounter}
                     onClick={() => onUpdateSettings({ showFpsCounter: false })}
-                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showFpsCounter
+                    className={`py-1 px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showFpsCounter
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
@@ -439,22 +439,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* Show Street Names on Map Toggle */}
-              <div className="rounded-lg bg-slate-950/75 border border-slate-800 p-2 [@media(min-width:1024px)_and_(min-height:541px)]:p-4 space-y-2 [@media(min-width:1024px)_and_(min-height:541px)]:space-y-3">
-                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2.5 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200">
-                  <Signpost className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-5 [@media(min-width:1024px)_and_(min-height:541px)]:h-5 text-orange-400 shrink-0" aria-hidden="true" />
-                  <span>{t(lang, 'settings.showStreetNames')}</span>
+              <div className="rounded-lg bg-slate-950/75 border border-slate-800 px-2.5 py-2 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 flex items-center justify-between gap-2 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3">
+                <div className="flex items-center gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-2 text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-semibold text-slate-200 min-w-0">
+                  <Signpost className="w-3.5 h-3.5 [@media(min-width:1024px)_and_(min-height:541px)]:w-4 [@media(min-width:1024px)_and_(min-height:541px)]:h-4 text-orange-400 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t(lang, 'settings.showStreetNames')}</span>
                 </div>
 
                 <div
                   role="group"
                   aria-label={t(lang, 'settings.showStreetNames')}
-                  className="grid grid-cols-2 gap-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:gap-3"
+                  className="flex items-center gap-1 [@media(min-width:1024px)_and_(min-height:541px)]:gap-1.5 shrink-0"
                 >
                   <button
                     type="button"
                     aria-pressed={settings.showStreetNames}
                     onClick={() => onUpdateSettings({ showStreetNames: true })}
-                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showStreetNames
+                    className={`py-1 px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${settings.showStreetNames
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}
@@ -466,7 +466,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="button"
                     aria-pressed={!settings.showStreetNames}
                     onClick={() => onUpdateSettings({ showStreetNames: false })}
-                    className={`py-1.5 px-2 [@media(min-width:1024px)_and_(min-height:541px)]:py-3 [@media(min-width:1024px)_and_(min-height:541px)]:px-4 rounded-lg text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-sm font-bold border transition-colors cursor-pointer touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showStreetNames
+                    className={`py-1 px-2.5 [@media(min-width:1024px)_and_(min-height:541px)]:py-1.5 [@media(min-width:1024px)_and_(min-height:541px)]:px-3.5 rounded-lg text-[10px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-bold border transition-colors cursor-pointer touch-manipulation whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${!settings.showStreetNames
                       ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-sm'
                       : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                       }`}

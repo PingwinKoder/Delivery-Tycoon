@@ -415,6 +415,78 @@ export function rejectOrderOffer(state: OrderEconomyState, offerId: string): Ord
 }
 
 /**
+ * Resigns an active short-term order or long-term contract:
+ * 1. Marks order as `'terminated'` and moves it to `archivedOrders`.
+ * 2. Records a `0%` satisfaction sample in `currentMonthLedger` and lowers `companySatisfaction`.
+ * 3. Deducts a 50% penalty of the order's maximum payout (`totalExpectedPayout` / `totalContractValue`)
+ *    from company balance and logs it in `currentMonthLedger.penaltyExpenses`.
+ * 4. Clears any remaining packages of this order from Base warehouse inventory.
+ */
+export function resignActiveOrder(
+  state: OrderEconomyState,
+  orderId: string,
+  _currentMinutes?: number
+): OrderEconomyState {
+  const target = state.activeOrders.find((o) => o.id === orderId && o.status === 'active');
+  if (!target) return state;
+
+  const maxPayout =
+    target.kind === 'short_term' ? target.totalExpectedPayout : target.totalContractValue;
+  const penalty = roundCurrency(maxPayout * 0.5);
+  const nextBalance = roundCurrency(state.balance - penalty);
+
+  const baseCompanySat =
+    typeof state.companySatisfaction === 'number' && Number.isFinite(state.companySatisfaction)
+      ? state.companySatisfaction
+      : INITIAL_COMPANY_SATISFACTION;
+  const nextCompanySat = applyCompanySatisfactionDelta(baseCompanySat, -15);
+
+  const baseLedger =
+    state.currentMonthLedger ?? createEmptyCurrentMonthLedger(baseCompanySat);
+  const nextLedger = recordMonthlySatisfactionSample(
+    {
+      ...baseLedger,
+      penaltyExpenses: roundCurrency(baseLedger.penaltyExpenses + penalty),
+    },
+    0
+  );
+  const monthlySat = getMonthlySatisfactionFromLedger(nextLedger, nextCompanySat);
+  const nextReputationLevel = calculateReputationLevel(state.completedOrdersCount, monthlySat);
+
+  const terminatedOrder: ActiveOrder = {
+    ...target,
+    status: 'terminated',
+    satisfaction: 0,
+    totalPenaltiesPaid: roundCurrency(target.totalPenaltiesPaid + penalty),
+  };
+
+  const nextActiveOrders = state.activeOrders.filter((o) => o.id !== orderId);
+  const nextArchivedOrders = [terminatedOrder, ...state.archivedOrders].slice(
+    0,
+    MAX_ARCHIVED_ORDERS
+  );
+
+  const cleanedWarehouse = removeOrderIdsFromWarehouseInventory(
+    state.warehouseInventory,
+    state.warehousePackages,
+    new Set([orderId])
+  );
+
+  return {
+    ...state,
+    balance: nextBalance,
+    companySatisfaction: nextCompanySat,
+    annualSatisfactionAvg: nextCompanySat,
+    reputationLevel: nextReputationLevel,
+    currentMonthLedger: nextLedger,
+    activeOrders: nextActiveOrders,
+    archivedOrders: nextArchivedOrders,
+    warehouseInventory: cleanedWarehouse.warehouseInventory,
+    warehousePackages: cleanedWarehouse.warehousePackages,
+  };
+}
+
+/**
  * Records a late pickup incident on an active order (evaluated at Sunday 23:59 for -12% satisfaction).
  */
 export function recordLatePickup(state: OrderEconomyState, orderId: string): OrderEconomyState {

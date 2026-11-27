@@ -1837,6 +1837,38 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
         }
       }
 
+      // Mid-route vehicle change: if the player assigned a different vehicle in Company -> Employees,
+      // recall the courier immediately back to Base with their cargo so they swap vehicles and resume delivery
+      if (!isNightNow) {
+        const ecoForSwap = propsRef.current.economyStateRef?.current;
+        if (ecoForSwap) {
+          for (const slotIndex of COURIER_SLOT_INDICES) {
+            const entry = fleet[slotIndex];
+            if (!entry || !entry.courier.active || entry.courier.isForcedReturn) continue;
+            if (entry.courier.missionKind === 'repair' || entry.courier.missionKind === 'refuel') continue;
+            const rosterMatch = ecoForSwap.couriers.find((c) => c.slotIndex === slotIndex);
+            const desiredVeh = rosterMatch?.assignedVehicle ?? null;
+            const vehicleChanged =
+              !desiredVeh ||
+              desiredVeh.type !== entry.courier.vehicleType ||
+              desiredVeh.index !== entry.courier.vehicleIndex;
+            if (vehicleChanged) {
+              const interrupted = interruptCourierForEndOfWorkday(
+                entry.courier,
+                propsRef.current.graph,
+                propsRef.current.baseDepot,
+                propsRef.current.parkingNavNetworks
+              );
+              entry.courier = interrupted;
+              entry.inRoute = interrupted.active;
+              entry.assignedTaskId = interrupted.assignedTaskId;
+              entry.activeRoute = interrupted.path;
+              entry.targetMarker = null;
+            }
+          }
+        }
+      }
+
       // Step every active courier (#1–#6) independently at 60 FPS
       let shouldFlushWearNow = false;
       if (simDt > 0) {
@@ -2072,6 +2104,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
 
               const vehKey = `${activeMissionVehicle.type}:${activeMissionVehicle.index}`;
               const latestEcoAtBay = propsRef.current.economyStateRef?.current;
+              const rosterAtBay = latestEcoAtBay?.couriers.find((c) => c.slotIndex === slotIndex);
+              const desiredVehAtBay = rosterAtBay?.assignedVehicle ?? null;
+              const swappedVehicleAtBase =
+                !desiredVehAtBay ||
+                desiredVehAtBay.type !== activeMissionVehicle.type ||
+                desiredVehAtBay.index !== activeMissionVehicle.index;
               const manualRefuelQueued = pendingRefuelKeysRef.current.has(vehKey);
               const autoLowFuelNeeded =
                 activeMissionVehicle.type !== 'bike' &&
@@ -2080,7 +2118,12 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
                   AUTO_REFUEL_THRESHOLD_RATIO;
 
               let chained = false;
-              if (!isNightNow && !ev.wasForcedReturn && (manualRefuelQueued || autoLowFuelNeeded)) {
+              if (
+                !swappedVehicleAtBase &&
+                !isNightNow &&
+                !ev.wasForcedReturn &&
+                (manualRefuelQueued || autoLowFuelNeeded)
+              ) {
                 chained = tryDispatchRefuelForSlot(
                   slotIndex,
                   'loading_zone',
@@ -2090,14 +2133,28 @@ export const MapCanvas: React.FC<MapCanvasProps> = React.memo(({
               }
 
               // If workday is still open and another free task is ready, chain immediately from the loading bay
-              // keeping the exact same vehicle currently parked in the loading bay
-              if (!chained && !isNightNow && !ev.wasForcedReturn) {
+              // keeping the exact same vehicle currently parked in the loading bay (unless swapping vehicles)
+              if (!swappedVehicleAtBase && !chained && !isNightNow && !ev.wasForcedReturn) {
                 chained = tryDispatchCourierForSlot(
                   slotIndex,
                   currentGameMinutes,
                   'loading_zone',
                   activeMissionVehicle
                 );
+              }
+
+              if (swappedVehicleAtBase) {
+                // Vehicle was swapped mid-route -> park old vehicle instantly at Base so the idle dispatch loop
+                // immediately dispatches the courier in their newly assigned vehicle with the returned cargo!
+                const nextVeh = desiredVehAtBay ?? propsRef.current.activeVehicle;
+                const nextCap = latestEcoAtBay
+                  ? getCourierCapacityForSelection(latestEcoAtBay, nextVeh)
+                  : activeMissionCapacity;
+                entry.courier = createIdleCourier(nextVeh, slotIndex, nextCap);
+                entry.inRoute = false;
+                entry.activeRoute = [];
+                entry.targetMarker = null;
+                chained = true;
               }
 
               if (!chained) {

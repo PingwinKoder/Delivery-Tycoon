@@ -77,6 +77,7 @@ import {
   refuelVehicleInEconomy,
   rejectOrderOffer,
   requestVehicleRepair,
+  resignActiveOrder,
   returnPackagesToWarehouse,
   sellVehicle,
   setOwnerActiveVehicle,
@@ -1169,6 +1170,14 @@ export function App() {
     [applyEconomyUpdate]
   );
 
+  const handleResignOrder = useCallback(
+    (orderId: string) => {
+      const nowMinutes = Math.floor(exactGameMinutesRef.current);
+      applyEconomyUpdate((prev) => resignActiveOrder(prev, orderId, nowMinutes));
+    },
+    [applyEconomyUpdate]
+  );
+
   const handleMoveWeeklyTaskPriority = useCallback(
     (weekdayIndex: number, taskId: string, direction: 'up' | 'down') => {
       const currentGameDay = Math.floor(exactGameMinutesRef.current / MINUTES_PER_DAY) + 1;
@@ -1240,7 +1249,6 @@ export function App() {
 
   const handleSelectActiveVehicle = useCallback(
     (vehicle: ActiveVehicleSelection) => {
-      if (courierAtBaseBySlotRef.current[1] === false) return;
       applyEconomyUpdate((prev) => setOwnerActiveVehicle(prev, vehicle));
     },
     [applyEconomyUpdate]
@@ -1278,7 +1286,6 @@ export function App() {
 
   const handleAssignCourierVehicle = useCallback(
     (slotIndex: number, vehicle: ActiveVehicleSelection | null) => {
-      if (courierAtBaseBySlotRef.current[slotIndex] === false) return;
       applyEconomyUpdate((prev) => assignCourierVehicle(prev, slotIndex, vehicle));
     },
     [applyEconomyUpdate]
@@ -1447,6 +1454,7 @@ export function App() {
           onMarkOffersSeen={handleMarkOffersSeen}
           onAcceptOffer={handleAcceptOffer}
           onRejectOffer={handleRejectOffer}
+          onResignOrder={handleResignOrder}
           onMoveWeeklyTaskPriority={handleMoveWeeklyTaskPriority}
           onSortWeeklyTasksPriority={handleSortWeeklyTasksPriority}
         />

@@ -1249,9 +1249,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                           <h3 className="text-[11px] [@media(min-width:1024px)_and_(min-height:541px)]:text-base font-bold text-slate-100 truncate">
                             {t(language, 'company.quickBoxTitle')}
                           </h3>
-                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs font-semibold text-amber-200 whitespace-nowrap">
-                            {t(language, 'company.quickBoxSubtitle')}
-                          </span>
                         </div>
 
                         {licenseOwned && (
@@ -2478,7 +2475,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                             </span>
                           </div>
 
-                          {/* Custom filtered dark vehicle selector */}
+                          {/* Custom filtered dark vehicle selector (available anytime except during Cat. B training) */}
                           <div className="space-y-1">
                             <div className="flex items-center justify-between gap-2">
                               <label
@@ -2487,11 +2484,6 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               >
                                 {t(language, 'company.assignedVehicleLabel')}
                               </label>
-                              {!slotAtBase && !inTraining && (
-                                <span className="text-[9px] [@media(min-width:1024px)_and_(min-height:541px)]:text-xs text-amber-300/90">
-                                  {t(language, 'company.changeAtBaseHint')}
-                                </span>
-                              )}
                             </div>
 
                             <CourierVehicleDropdown
@@ -2500,7 +2492,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                               courier={courier}
                               effectiveAssigned={effectiveAssigned}
                               availableVehicles={availableVehicles}
-                              disabled={!slotAtBase || inTraining}
+                              disabled={inTraining}
                               isOpen={openVehicleSlot === courier.slotIndex}
                               openUpward={courier.slotIndex >= 5}
                               onToggle={() =>
@@ -2715,7 +2707,13 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
             const ledger =
               economyState.currentMonthLedger ?? createEmptyCurrentMonthLedger(companySat);
             const shortTermRev = ledger.shortTermRevenue;
-            const longTermRev = ledger.longTermAccruedRevenue;
+            const longTermRev = economyState.activeOrders.reduce(
+              (sum, order) =>
+                order.status === 'active' && order.kind === 'long_term'
+                  ? sum + order.estimatedMonthlyPayout
+                  : sum,
+              0
+            );
             const totalLiveRevenue = shortTermRev + longTermRev;
             const totalOperatingExpenses =
               ledger.fuelExpenses +
@@ -2807,7 +2805,7 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                       <div className="flex items-center justify-between font-sans font-bold text-rose-300 pb-1 border-b border-slate-800">
                         <span>{t(language, 'company.financesOperatingTitle')}</span>
                         <span className="font-mono-nums">
-                          {formatCurrencyUsd(totalOperatingExpenses, false)}
+                          {formatCurrencyUsd(projectedTotalExpenses, false)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
@@ -2833,6 +2831,52 @@ export const CompanyModal: React.FC<CompanyModalProps> = ({
                         <span className="text-rose-300 font-semibold">
                           {formatCurrencyUsd(ledger.penaltyExpenses, false)}
                         </span>
+                      </div>
+                      {(ledger.trainingExpenses ?? 0) > 0 && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400 font-sans">
+                            {t(language, 'company.financesTraining')}
+                          </span>
+                          <span className="text-rose-300 font-semibold">
+                            {formatCurrencyUsd(ledger.trainingExpenses ?? 0, false)}
+                          </span>
+                        </div>
+                      )}
+                      {(ledger.quickBoxExpenses ?? 0) > 0 && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400 font-sans">
+                            {t(language, 'company.quickBoxTitle')}
+                          </span>
+                          <span className="text-rose-300 font-semibold">
+                            {formatCurrencyUsd(ledger.quickBoxExpenses ?? 0, false)}
+                          </span>
+                        </div>
+                      )}
+                      <div className="pt-1 mt-1 border-t border-slate-800/80 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400 font-sans">
+                            {t(language, 'company.financesBaseUpkeep')}
+                          </span>
+                          <span className="text-rose-300 font-semibold">
+                            {formatCurrencyUsd(monthlyCosts.baseUpkeepAndTaxCost, false)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400 font-sans">
+                            {t(language, 'company.financesSalaries')}
+                          </span>
+                          <span className="text-rose-300 font-semibold">
+                            {formatCurrencyUsd(monthlyCosts.salariesCost, false)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400 font-sans">
+                            {t(language, 'company.financesInsurance')}
+                          </span>
+                          <span className="text-rose-300 font-semibold">
+                            {formatCurrencyUsd(monthlyCosts.insuranceCost, false)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
